@@ -2,7 +2,7 @@ import * as cdk from 'aws-cdk-lib';
 import { Aspects } from 'aws-cdk-lib';
 import { Construct } from 'constructs';
 import { AwsSolutionsChecks, NagSuppressions } from 'cdk-nag';
-// import * as sqs from 'aws-cdk-lib/aws-sqs';
+import { SharedResources } from './constructs/shared-resources';
 
 export class BackendStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props?: cdk.StackProps) {
@@ -13,25 +13,43 @@ export class BackendStack extends cdk.Stack {
     // Alternative: Aspects.of(app) in bin/backend.ts (rejected - doesn't travel with stack)
     Aspects.of(this).add(new AwsSolutionsChecks({ verbose: true }));
 
-    // The code that defines your stack goes here
+    // ---------------------------------------------------------------
+    // Shared Resources (S3, DynamoDB, Cognito, SNS, Secrets Manager)
+    // ---------------------------------------------------------------
+    const sharedResources = new SharedResources(this, 'SharedResources');
 
     // ---------------------------------------------------------------
-    // cdk-nag suppression examples — uncomment and adapt when needed
-    // Common findings:
-    //   AwsSolutions-IAM4 : AWS managed policy used (e.g. AWSLambdaBasicExecutionRole)
-    //   AwsSolutions-IAM5 : Wildcard permissions — scope to specific resource ARNs
-    //   AwsSolutions-S1   : S3 access logging disabled — enable for sensitive buckets
-    //   AwsSolutions-L1   : Lambda runtime not latest — update to python3.12+
-    //
-    // Stack-level suppression (applies to all resources in this stack):
-    // NagSuppressions.addStackSuppressions(this, [
-    //   { id: 'AwsSolutions-IAM4', reason: 'ADR: <title> | Rationale: <why> | Alternative: <rejected>' },
-    // ]);
-    //
-    // Resource-level suppression (applies to one specific construct):
-    // NagSuppressions.addResourceSuppressions(myResource, [
-    //   { id: 'AwsSolutions-IAM4', reason: 'ADR: <title> | Rationale: <why> | Alternative: <rejected>' },
-    // ]);
+    // cdk-nag suppressions
     // ---------------------------------------------------------------
+    NagSuppressions.addStackSuppressions(this, [
+      {
+        id: 'AwsSolutions-S1',
+        reason: 'ADR: S3 access logging deferred | Rationale: POC phase, will enable for production | Alternative: Enable now (rejected - adds cost during development)',
+      },
+      {
+        id: 'AwsSolutions-COG2',
+        reason: 'ADR: MFA not required for POC | Rationale: Volunteer usability priority during pilot | Alternative: Require MFA (will enable for production rollout)',
+      },
+      {
+        id: 'AwsSolutions-COG3',
+        reason: 'ADR: Advanced security disabled for POC | Rationale: Cost optimization during pilot phase | Alternative: Enable (will add for production)',
+      },
+      {
+        id: 'AwsSolutions-COG8',
+        reason: 'ADR: Plus tier not enabled for POC | Rationale: Cost optimization, nonprofit budget constraints | Alternative: Enable Plus tier (will evaluate for production)',
+      },
+      {
+        id: 'AwsSolutions-SNS2',
+        reason: 'ADR: SNS encryption deferred | Rationale: Non-sensitive alert metadata only | Alternative: KMS encryption (will add if PII flows through topic)',
+      },
+      {
+        id: 'AwsSolutions-SNS3',
+        reason: 'ADR: SNS SSL enforcement deferred | Rationale: POC phase, subscribers are AWS services | Alternative: Require SSL (will add for production)',
+      },
+      {
+        id: 'AwsSolutions-SMG4',
+        reason: 'ADR: Secret rotation deferred | Rationale: Guardrails are app config, not credentials | Alternative: Enable rotation (not applicable for config data)',
+      },
+    ]);
   }
 }
