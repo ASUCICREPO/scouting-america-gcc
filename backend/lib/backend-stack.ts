@@ -3,6 +3,10 @@ import { Aspects } from 'aws-cdk-lib';
 import { Construct } from 'constructs';
 import { AwsSolutionsChecks, NagSuppressions } from 'cdk-nag';
 import { SharedResources } from './constructs/shared-resources';
+import { ApiGateway } from './constructs/api-gateway';
+import { KnowledgeBase } from './constructs/knowledge-base';
+import { EscalationRouter } from './constructs/escalation-router';
+import { ChatHandler } from './constructs/chat-handler';
 import { DocProcessor } from './constructs/doc-processor';
 import { AdminHandler } from './constructs/admin-handler';
 import { AnalyticsConstruct } from './constructs/analytics';
@@ -27,6 +31,41 @@ export class BackendStack extends cdk.Stack {
     // Shared Resources (S3, DynamoDB, Cognito, SNS, Secrets Manager)
     // ---------------------------------------------------------------
     const sharedResources = new SharedResources(this, 'SharedResources');
+
+    // ---------------------------------------------------------------
+    // Knowledge Base (Bedrock KB + S3 data source + Titan embeddings)
+    // ---------------------------------------------------------------
+    const knowledgeBase = new KnowledgeBase(this, 'KnowledgeBase', {
+      knowledgeBaseBucket: sharedResources.knowledgeBaseBucket,
+    });
+
+    // ---------------------------------------------------------------
+    // Escalation Router (alerts staff when safety/low-confidence detected)
+    // ---------------------------------------------------------------
+    const escalationRouter = new EscalationRouter(this, 'EscalationRouter', {
+      staffAlertTopic: sharedResources.staffAlertTopic,
+      analyticsLogsTable: sharedResources.analyticsLogsTable,
+    });
+
+    // ---------------------------------------------------------------
+    // API Gateway (REST API with Cognito auth — the front door)
+    // ---------------------------------------------------------------
+    const apiGateway = new ApiGateway(this, 'ApiGateway', {
+      userPool: sharedResources.userPool,
+    });
+
+    // ---------------------------------------------------------------
+    // Chat Handler (processes volunteer questions via Bedrock KB)
+    // ---------------------------------------------------------------
+    new ChatHandler(this, 'ChatHandler', {
+      chatLogsTable: sharedResources.chatLogsTable,
+      guardrailsSecret: sharedResources.guardrailsSecret,
+      chatResource: apiGateway.chatResource,
+      chatHistoryResource: apiGateway.chatHistoryResource,
+      authorizer: apiGateway.authorizer,
+      knowledgeBaseId: knowledgeBase.knowledgeBaseId,
+      escalationFunctionArn: escalationRouter.function.functionArn,
+    });
 
     // ---------------------------------------------------------------
     // Doc Processor Lambda
@@ -129,6 +168,34 @@ export class BackendStack extends cdk.Stack {
       {
         id: 'AwsSolutions-SMG4',
         reason: 'ADR: Secret rotation deferred | Rationale: Guardrails are app config, not credentials | Alternative: Enable rotation (not applicable for config data)',
+      },
+      {
+        id: 'AwsSolutions-IAM4',
+        reason: 'ADR: AWS managed policies used for Lambda basic execution | Rationale: Standard practice for Lambda logging | Alternative: Custom policy (unnecessary overhead)',
+      },
+      {
+        id: 'AwsSolutions-IAM5',
+        reason: 'ADR: Wildcard permissions for Bedrock KB | Rationale: KB resources are account-scoped, ARN not known at synth time | Alternative: Narrow after deployment',
+      },
+      {
+        id: 'AwsSolutions-APIG2',
+        reason: 'ADR: API Gateway request validation deferred | Rationale: Lambda handles validation | Alternative: Add models (will add for production)',
+      },
+      {
+        id: 'AwsSolutions-APIG1',
+        reason: 'ADR: API Gateway access logging deferred | Rationale: POC phase, CloudWatch Lambda logs sufficient | Alternative: Enable (will add for production)',
+      },
+      {
+        id: 'AwsSolutions-APIG4',
+        reason: 'ADR: Default authorization on OPTIONS deferred | Rationale: CORS preflight must be unauthenticated | Alternative: N/A for CORS',
+      },
+      {
+        id: 'AwsSolutions-COG4',
+        reason: 'ADR: Cognito authorizer on OPTIONS not possible | Rationale: CORS preflight requests cannot carry auth tokens | Alternative: N/A',
+      },
+      {
+        id: 'AwsSolutions-L1',
+        reason: 'ADR: Using Node.js 20.x | Rationale: Latest LTS supported by Lambda | Alternative: Update when newer LTS available',
       },
       {
         id: 'AwsSolutions-IAM4',
