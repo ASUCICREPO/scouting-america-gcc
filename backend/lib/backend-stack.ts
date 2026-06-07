@@ -74,8 +74,8 @@ export class BackendStack extends cdk.Stack {
       documentStoreBucket: sharedResources.documentStoreBucket,
       knowledgeBaseBucket: sharedResources.knowledgeBaseBucket,
       analyticsTable: sharedResources.analyticsLogsTable,
-      knowledgeBaseId: 'PLACEHOLDER_KB_ID', // Will be set after Vidhi creates KB construct
-      dataSourceId: 'PLACEHOLDER_DS_ID',    // Will be set after Vidhi creates KB construct
+      knowledgeBaseId: knowledgeBase.knowledgeBaseId,
+      dataSourceId: knowledgeBase.dataSourceId,
     });
 
     // Add S3 event notification to trigger Doc Processor on uploads
