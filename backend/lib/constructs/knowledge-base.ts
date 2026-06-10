@@ -62,13 +62,43 @@ export class KnowledgeBase extends Construct {
         's3vectors:DeleteVectors',
         's3vectors:ListVectors',
         's3vectors:GetIndex',
+        's3vectors:ListIndexes',
         's3vectors:GetVectorBucket',
       ],
       resources: [
         vectorBucket.attrVectorBucketArn,
+        `${vectorBucket.attrVectorBucketArn}/*`,
         vectorIndex.attrIndexArn,
       ],
     }));
+
+    // Resource-based policy on the vector bucket to allow the KB role access
+    // This ensures Bedrock can validate the connection even before identity policy propagates
+    new s3vectors.CfnVectorBucketPolicy(this, 'VectorBucketPolicy', {
+      vectorBucketName: vectorBucket.vectorBucketName!,
+      policy: {
+        Version: '2012-10-17',
+        Statement: [{
+          Effect: 'Allow',
+          Principal: { AWS: kbRole.roleArn },
+          Action: [
+            's3vectors:PutVectors',
+            's3vectors:QueryVectors',
+            's3vectors:GetVectors',
+            's3vectors:DeleteVectors',
+            's3vectors:ListVectors',
+            's3vectors:GetIndex',
+            's3vectors:ListIndexes',
+            's3vectors:GetVectorBucket',
+          ],
+          Resource: [
+            vectorBucket.attrVectorBucketArn,
+            `${vectorBucket.attrVectorBucketArn}/*`,
+            vectorIndex.attrIndexArn,
+          ],
+        }],
+      },
+    });
 
     // Create the Bedrock Knowledge Base with S3 Vectors storage
     const kb = new bedrock.CfnKnowledgeBase(this, 'GccKnowledgeBase', {
@@ -86,11 +116,12 @@ export class KnowledgeBase extends Construct {
         s3VectorsConfiguration: {
           vectorBucketArn: vectorBucket.attrVectorBucketArn,
           indexArn: vectorIndex.attrIndexArn,
-          indexName: 'gcc-docs-index',
         },
       },
     });
     kb.addDependency(vectorIndex);
+    // Ensure IAM policies are fully created before KB validates the S3 Vectors connection
+    kb.node.addDependency(kbRole);
 
     // Data source — tells the KB where to find documents (S3 bucket with chunks)
     const dataSource = new bedrock.CfnDataSource(this, 'S3DataSource', {
