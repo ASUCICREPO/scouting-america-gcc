@@ -74,7 +74,7 @@ async function handleChat(event: any) {
         modelArn: MODEL_ARN,
         generationConfiguration: {
           promptTemplate: {
-            textPromptTemplate: `${guardrails}\n\nUser question: $query$\n\nAnswer using only the provided search results. Cite sources.`,
+            textPromptTemplate: `${guardrails}\n\nSearch results:\n$search_results$\n\nUser question: $query$\n\nAnswer using only the provided search results. Cite sources.`,
           },
         },
       },
