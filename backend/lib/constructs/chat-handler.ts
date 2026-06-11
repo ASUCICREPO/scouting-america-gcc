@@ -41,7 +41,7 @@ export class ChatHandler extends Construct {
       memorySize: 512,
       environment: {
         KB_ID: props.knowledgeBaseId,
-        MODEL_ARN: `arn:aws:bedrock:us-east-1::foundation-model/${CONFIG.MODEL_ID}`,
+        MODEL_ARN: `arn:aws:bedrock:us-east-1:${cdk.Aws.ACCOUNT_ID}:inference-profile/${CONFIG.MODEL_ID}`,
         CHAT_LOGS_TABLE: props.chatLogsTable.tableName,
         SECRETS_ARN: props.guardrailsSecret.secretArn,
         ESCALATION_FUNCTION_ARN: props.escalationFunctionArn || '',
@@ -65,6 +65,8 @@ export class ChatHandler extends Construct {
       actions: [
         'bedrock:RetrieveAndGenerate',
         'bedrock:Retrieve',
+        'bedrock:InvokeModel',
+        'bedrock:GetInferenceProfile',
       ],
       resources: ['*'], // KB resources are account-wide
     }));

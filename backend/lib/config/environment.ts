@@ -12,7 +12,7 @@ export const CONFIG = {
   STAFF_EMAIL: 'staff@grandcanyonbsa.org',
 
   // Bedrock
-  MODEL_ID: 'anthropic.claude-3-sonnet-20240229-v1:0',
+  MODEL_ID: 'us.anthropic.claude-haiku-4-5-20251001-v1:0',
   EMBEDDING_MODEL_ID: 'amazon.titan-embed-text-v2:0',
 
   // Thresholds
