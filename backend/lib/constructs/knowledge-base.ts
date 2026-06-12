@@ -34,6 +34,15 @@ export class KnowledgeBase extends Construct {
       dimension: 1024,
       distanceMetric: 'cosine',
       dataType: 'float32',
+      // S3 Vectors caps *filterable* metadata at 2KB per vector (40KB total).
+      // Bedrock stores the chunk text in AMAZON_BEDROCK_TEXT and a source blob in
+      // AMAZON_BEDROCK_METADATA — both routinely exceed 2KB. Declaring them
+      // non-filterable moves them into the 40KB total budget so PutVectors (and
+      // therefore ingestion + chat retrieval) succeeds. These keys are immutable
+      // after index creation, so changing them forces an index replacement.
+      metadataConfiguration: {
+        nonFilterableMetadataKeys: ['AMAZON_BEDROCK_TEXT', 'AMAZON_BEDROCK_METADATA'],
+      },
     });
     vectorIndex.addDependency(vectorBucket);
 
@@ -136,8 +145,16 @@ export class KnowledgeBase extends Construct {
         },
       },
       vectorIngestionConfiguration: {
+        // FIXED_SIZE (not NONE): doc-processor copies whole PDFs, so NONE would make
+        // each entire document a single vector — overflowing even the 40KB total
+        // metadata budget and wrecking retrieval relevance. ~300 tokens/chunk keeps
+        // each vector's text well under the limit and improves recall.
         chunkingConfiguration: {
-          chunkingStrategy: 'NONE',
+          chunkingStrategy: 'FIXED_SIZE',
+          fixedSizeChunkingConfiguration: {
+            maxTokens: 300,
+            overlapPercentage: 20,
+          },
         },
       },
     });
