@@ -132,16 +132,12 @@ export class KnowledgeBase extends Construct {
         type: 'S3',
         s3Configuration: {
           bucketArn: props.knowledgeBaseBucket.bucketArn,
-          inclusionPrefixes: ['chunks/'], // only index the chunks folder
+          inclusionPrefixes: ['documents/'], // Bedrock handles parsing and chunking natively
         },
       },
       vectorIngestionConfiguration: {
         chunkingConfiguration: {
-          chunkingStrategy: 'FIXED_SIZE',
-          fixedSizeChunkingConfiguration: {
-            maxTokens: 300,
-            overlapPercentage: 20,
-          },
+          chunkingStrategy: 'NONE',
         },
       },
     });

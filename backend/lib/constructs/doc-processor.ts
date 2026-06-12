@@ -33,13 +33,12 @@ export class DocProcessor extends Construct {
       timeout: cdk.Duration.minutes(5),
       memorySize: 512,
       environment: {
-        DOCUMENT_STORE_BUCKET: props.documentStoreBucket.bucketName,
         KNOWLEDGE_BASE_BUCKET: props.knowledgeBaseBucket.bucketName,
         ANALYTICS_TABLE: props.analyticsTable.tableName,
         KNOWLEDGE_BASE_ID: props.knowledgeBaseId,
         DATA_SOURCE_ID: props.dataSourceId,
       },
-      description: 'Processes uploaded documents: extracts text, chunks, and syncs knowledge base',
+      description: 'Copies uploaded documents to KB bucket and triggers Bedrock ingestion',
     });
 
     // Grant read access to the document store bucket
@@ -50,14 +49,6 @@ export class DocProcessor extends Construct {
 
     // Grant write access to the analytics DynamoDB table
     props.analyticsTable.grantWriteData(this.function);
-
-    // Grant Textract permissions
-    this.function.addToRolePolicy(
-      new iam.PolicyStatement({
-        actions: ['textract:DetectDocumentText'],
-        resources: ['*'],
-      }),
-    );
 
     // Grant Bedrock Agent permissions for StartIngestionJob
     this.function.addToRolePolicy(
