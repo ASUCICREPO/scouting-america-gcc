@@ -25,14 +25,14 @@ export async function sendMessage(
   };
 
   if (token) {
-    headers["Authorization"] = `Bearer ${token}`;
+    headers["Authorization"] = token;
   }
 
   const response = await fetch(`${API_BASE_URL}/chat`, {
     method: "POST",
     headers,
     body: JSON.stringify({
-      message,
+      question: message,
       sessionId,
     }),
   });
@@ -41,7 +41,14 @@ export async function sendMessage(
     throw new Error(`Chat API error: ${response.status}`);
   }
 
-  return response.json();
+  const data = await response.json();
+  // Map backend response format to frontend expected format
+  return {
+    message: data.answer || data.message || '',
+    suggestions: data.suggestions,
+    links: data.links,
+    sessionId: data.sessionId,
+  };
 }
 
 export async function getAnalytics(token: string) {

@@ -59,20 +59,14 @@ export function getUser(): AuthUser | null {
 }
 
 export function getLoginUrl(): string {
-  // Cognito Hosted UI URL
-  const domain = `https://${COGNITO_CONFIG.userPoolId.replace(
-    "_",
-    ""
-  ).toLowerCase()}.auth.${COGNITO_CONFIG.region}.amazoncognito.com`;
+  // Cognito Hosted UI URL — uses custom domain prefix
+  const domain = `https://gcc-volunteer-app.auth.${COGNITO_CONFIG.region}.amazoncognito.com`;
   const redirectUri = typeof window !== "undefined" ? window.location.origin + "/auth/callback" : "";
   return `${domain}/login?client_id=${COGNITO_CONFIG.clientId}&response_type=code&scope=openid+email+profile&redirect_uri=${encodeURIComponent(redirectUri)}`;
 }
 
 export async function exchangeCode(code: string): Promise<AuthTokens> {
-  const domain = `https://${COGNITO_CONFIG.userPoolId.replace(
-    "_",
-    ""
-  ).toLowerCase()}.auth.${COGNITO_CONFIG.region}.amazoncognito.com`;
+  const domain = `https://gcc-volunteer-app.auth.${COGNITO_CONFIG.region}.amazoncognito.com`;
   const redirectUri = window.location.origin + "/auth/callback";
 
   const response = await fetch(`${domain}/oauth2/token`, {
