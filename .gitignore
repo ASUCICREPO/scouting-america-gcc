@@ -54,5 +54,8 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
+# Kiro specs (local only)
+.kiro/specs/
+
 # Vercel
 .vercel
