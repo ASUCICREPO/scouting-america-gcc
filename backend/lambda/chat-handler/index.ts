@@ -6,6 +6,8 @@ import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { DynamoDBDocumentClient, PutCommand, QueryCommand } from '@aws-sdk/lib-dynamodb';
 import { LambdaClient, InvokeCommand } from '@aws-sdk/client-lambda';
 import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-secrets-manager';
+import { ComprehendClient, DetectDominantLanguageCommand } from '@aws-sdk/client-comprehend';
+import { TranslateClient, TranslateTextCommand } from '@aws-sdk/client-translate';
 import { randomUUID } from 'crypto';
 
 // AWS SDK clients
@@ -13,6 +15,8 @@ const bedrockClient = new BedrockAgentRuntimeClient({});
 const dynamoClient = DynamoDBDocumentClient.from(new DynamoDBClient({}));
 const lambdaClient = new LambdaClient({});
 const secretsClient = new SecretsManagerClient({});
+const comprehendClient = new ComprehendClient({});
+const translateClient = new TranslateClient({});
 
 // Env vars set by CDK construct
 const KB_ID = process.env.KB_ID!;
@@ -22,6 +26,9 @@ const SECRETS_ARN = process.env.SECRETS_ARN!;
 const ESCALATION_FUNCTION_ARN = process.env.ESCALATION_FUNCTION_ARN!;
 const CONFIDENCE_THRESHOLD = parseFloat(process.env.CONFIDENCE_THRESHOLD || '0.7');
 const SAFETY_KEYWORDS = JSON.parse(process.env.SAFETY_KEYWORDS || '[]');
+const SAFETY_KEYWORDS_ES = JSON.parse(process.env.SAFETY_KEYWORDS_ES || '[]');
+const SUPPORTED_LANGUAGES: string[] = JSON.parse(process.env.SUPPORTED_LANGUAGES || '["en"]');
+const DEFAULT_LANGUAGE = process.env.DEFAULT_LANGUAGE || 'en';
 
 // Main handler — API Gateway sends requests here
 export const handler = async (event: any) => {
@@ -49,7 +56,7 @@ export const handler = async (event: any) => {
 // Handles the main chat — volunteer asks a question, we get an answer from Bedrock KB
 async function handleChat(event: any) {
   const body = JSON.parse(event.body || '{}');
-  const { question, sessionId: existingSessionId } = body;
+  const { question, sessionId: existingSessionId, language: requestedLanguage } = body;
 
   // Get userId from Cognito claims (API Gateway passes this)
   const userId = event.requestContext?.authorizer?.claims?.sub || 'anonymous';
@@ -61,12 +68,22 @@ async function handleChat(event: any) {
   const sessionId = existingSessionId || randomUUID();
   const timestamp = new Date().toISOString();
 
+  // Determine the language to converse in. Prefer an explicit client hint
+  // (the UI language toggle), otherwise auto-detect with Amazon Comprehend.
+  const language = await resolveLanguage(question, requestedLanguage);
+
+  // The Knowledge Base documents are in English, so retrieval quality is best
+  // when the search query is English. Translate non-English questions for the
+  // retrieval step only; the answer is still generated in the user's language.
+  const retrievalQuery =
+    language === 'en' ? question : await translateText(question, language, 'en');
+
   // Get system guardrails from Secrets Manager
   const guardrails = await getGuardrails();
 
   // Call Bedrock Knowledge Base — this searches docs and generates an answer
   const kbResponse = await bedrockClient.send(new RetrieveAndGenerateCommand({
-    input: { text: question },
+    input: { text: retrievalQuery },
     retrieveAndGenerateConfiguration: {
       type: 'KNOWLEDGE_BASE',
       knowledgeBaseConfiguration: {
@@ -155,6 +172,45 @@ async function getHistory(event: any) {
   }));
 
   return response(200, { sessionId, history });
+}
+
+// Determines the conversation language. Trusts an explicit, supported client
+// hint; otherwise auto-detects with Amazon Comprehend. Falls back to default.
+async function resolveLanguage(text: string, requested?: string): Promise<string> {
+  if (requested && SUPPORTED_LANGUAGES.includes(requested)) {
+    return requested;
+  }
+  try {
+    const result = await comprehendClient.send(new DetectDominantLanguageCommand({
+      Text: text,
+    }));
+    const top = (result.Languages || [])
+      .slice()
+      .sort((a, b) => (b.Score || 0) - (a.Score || 0))[0];
+    const code = top?.LanguageCode; // e.g. 'en', 'es'
+    if (code && SUPPORTED_LANGUAGES.includes(code)) {
+      return code;
+    }
+  } catch (err) {
+    console.error('Language detection failed, using default:', err);
+  }
+  return DEFAULT_LANGUAGE;
+}
+
+// Translates text between languages using Amazon Translate.
+async function translateText(text: string, source: string, target: string): Promise<string> {
+  if (source === target) return text;
+  try {
+    const result = await translateClient.send(new TranslateTextCommand({
+      Text: text,
+      SourceLanguageCode: source,
+      TargetLanguageCode: target,
+    }));
+    return result.TranslatedText || text;
+  } catch (err) {
+    console.error('Translation failed, using original text:', err);
+    return text;
+  }
 }
 
 // Reads the system prompt/guardrails from Secrets Manager
