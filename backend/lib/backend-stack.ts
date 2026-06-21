@@ -5,6 +5,7 @@ import { AwsSolutionsChecks, NagSuppressions } from 'cdk-nag';
 import { SharedResources } from './constructs/shared-resources';
 import { ApiGateway } from './constructs/api-gateway';
 import { ApiGeoRestriction } from './constructs/waf';
+import { FrontendHosting } from './constructs/frontend-hosting';
 import { KnowledgeBase } from './constructs/knowledge-base';
 import { EscalationRouter } from './constructs/escalation-router';
 import { ChatHandler } from './constructs/chat-handler';
@@ -63,6 +64,11 @@ export class BackendStack extends cdk.Stack {
     new ApiGeoRestriction(this, 'ApiGeoRestriction', {
       apiStageArn: apiGateway.api.deploymentStage.stageArn,
     });
+
+    // ---------------------------------------------------------------
+    // Frontend hosting (CloudFront + S3, US-only geo-restriction)
+    // ---------------------------------------------------------------
+    new FrontendHosting(this, 'FrontendHosting');
 
     // ---------------------------------------------------------------
     // Chat Handler (processes volunteer questions via Bedrock KB)
@@ -242,6 +248,26 @@ export class BackendStack extends cdk.Stack {
       {
         id: 'AwsSolutions-APIG6',
         reason: 'ADR: CloudWatch stage logging deferred | Rationale: POC phase, Lambda-level logging sufficient | Alternative: Enable stage logging (will add for production)',
+      },
+      {
+        id: 'AwsSolutions-CFR1',
+        reason: 'ADR: CloudFront geo-restriction is an allowlist (US only) | Rationale: Requirement is US-only access; allowlist is the intended control | Alternative: N/A',
+      },
+      {
+        id: 'AwsSolutions-CFR2',
+        reason: 'ADR: WAF on CloudFront deferred | Rationale: US-only enforced via native CloudFront geo-restriction; API protected by WAFv2 | Alternative: Attach CLOUDFRONT-scoped WAF (will evaluate for production)',
+      },
+      {
+        id: 'AwsSolutions-CFR3',
+        reason: 'ADR: CloudFront access logging deferred | Rationale: POC phase, cost optimization | Alternative: Enable access logs (will add for production)',
+      },
+      {
+        id: 'AwsSolutions-CFR4',
+        reason: 'ADR: Default CloudFront viewer cert with TLSv1.2_2021 minimum | Rationale: Using CloudFront default domain; custom domain/cert deferred | Alternative: Custom ACM cert (will add for production)',
+      },
+      {
+        id: 'AwsSolutions-CFR7',
+        reason: 'ADR: Origin Access Control (OAC) used for S3 origin | Rationale: OAC is the current best practice replacing OAI | Alternative: N/A',
       },
     ]);
   }
