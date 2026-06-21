@@ -2,6 +2,7 @@ import * as cdk from 'aws-cdk-lib';
 import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
 import * as cognito from 'aws-cdk-lib/aws-cognito';
+import * as iam from 'aws-cdk-lib/aws-iam';
 import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
 import * as sns from 'aws-cdk-lib/aws-sns';
 import * as s3n from 'aws-cdk-lib/aws-s3-notifications';
@@ -29,6 +30,7 @@ export class SharedResources extends Construct {
   // Cognito
   public readonly userPool: cognito.UserPool;
   public readonly userPoolClient: cognito.UserPoolClient;
+  public readonly identityPool: cognito.CfnIdentityPool;
 
   // Secrets Manager
   public readonly guardrailsSecret: secretsmanager.Secret;
@@ -148,6 +150,66 @@ export class SharedResources extends Construct {
         userSrp: true,
       },
       preventUserExistenceErrors: true,
+    });
+
+    // ---------------------------------------------------------------
+    // Cognito Identity Pool
+    // ---------------------------------------------------------------
+    // Grants the browser short-lived, tightly-scoped AWS credentials so it
+    // can call Amazon Transcribe Streaming (speech-to-text) and Amazon Polly
+    // (text-to-speech) directly for bilingual voice support. Guest access is
+    // enabled because the chat allows anonymous use.
+    this.identityPool = new cognito.CfnIdentityPool(this, 'GCCIdentityPool', {
+      identityPoolName: 'GCC-VolunteerIdentityPool',
+      allowUnauthenticatedIdentities: true,
+      cognitoIdentityProviders: [
+        {
+          clientId: this.userPoolClient.userPoolClientId,
+          providerName: this.userPool.userPoolProviderName,
+        },
+      ],
+    });
+
+    // Minimal policy: Transcribe Streaming (en-US/es-US) + Polly TTS.
+    const voicePolicy = new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: [
+        'transcribe:StartStreamTranscription',
+        'transcribe:StartStreamTranscriptionWebSocket',
+        'polly:SynthesizeSpeech',
+      ],
+      resources: ['*'], // These streaming/synthesis actions do not support resource-level scoping.
+    });
+
+    // Trust policy helper for identity-pool federated roles.
+    const assumedBy = (amr: 'authenticated' | 'unauthenticated') =>
+      new iam.FederatedPrincipal(
+        'cognito-identity.amazonaws.com',
+        {
+          StringEquals: { 'cognito-identity.amazonaws.com:aud': this.identityPool.ref },
+          'ForAnyValue:StringLike': { 'cognito-identity.amazonaws.com:amr': amr },
+        },
+        'sts:AssumeRoleWithWebIdentity',
+      );
+
+    const authenticatedRole = new iam.Role(this, 'IdentityPoolAuthRole', {
+      assumedBy: assumedBy('authenticated'),
+      description: 'Authenticated identity-pool role: scoped Transcribe + Polly access',
+    });
+    authenticatedRole.addToPolicy(voicePolicy);
+
+    const unauthenticatedRole = new iam.Role(this, 'IdentityPoolGuestRole', {
+      assumedBy: assumedBy('unauthenticated'),
+      description: 'Guest identity-pool role: scoped Transcribe + Polly access',
+    });
+    unauthenticatedRole.addToPolicy(voicePolicy);
+
+    new cognito.CfnIdentityPoolRoleAttachment(this, 'IdentityPoolRoleAttachment', {
+      identityPoolId: this.identityPool.ref,
+      roles: {
+        authenticated: authenticatedRole.roleArn,
+        unauthenticated: unauthenticatedRole.roleArn,
+      },
     });
 
     // ---------------------------------------------------------------
