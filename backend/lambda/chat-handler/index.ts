@@ -91,7 +91,7 @@ async function handleChat(event: any) {
         modelArn: MODEL_ARN,
         generationConfiguration: {
           promptTemplate: {
-            textPromptTemplate: `${guardrails}\n\nSearch results:\n$search_results$\n\nUser question: $query$\n\nAnswer using only the provided search results. Cite sources.`,
+            textPromptTemplate: `${guardrails}\n\nSearch results:\n$search_results$\n\nUser question: $query$\n\nAnswer using only the provided search results. Cite sources. ${languageInstruction(language)}`,
           },
         },
       },
@@ -99,7 +99,7 @@ async function handleChat(event: any) {
   }));
 
   // Extract the answer and sources from Bedrock response
-  const answer = kbResponse.output?.text || 'I could not find an answer to your question.';
+  const answer = kbResponse.output?.text || fallbackMessage(language);
   const citations = kbResponse.citations || [];
   const sources = extractSources(citations);
 
@@ -133,6 +133,7 @@ async function handleChat(event: any) {
       sources,
       confidence,
       escalated: needsEscalation.escalate,
+      language,
       category: 'general', // future: auto-categorize questions
       createdAt: timestamp,
     },
@@ -143,6 +144,7 @@ async function handleChat(event: any) {
     sources,
     confidence,
     sessionId,
+    language,
     escalated: needsEscalation.escalate,
   });
 }
@@ -213,6 +215,22 @@ async function translateText(text: string, source: string, target: string): Prom
   }
 }
 
+// Builds a prompt instruction telling the model which language to answer in.
+function languageInstruction(language: string): string {
+  if (language === 'es') {
+    return 'Responde siempre en español, incluso si los documentos están en inglés.';
+  }
+  return 'Always respond in English.';
+}
+
+// Localized fallback message when no answer is found.
+function fallbackMessage(language: string): string {
+  if (language === 'es') {
+    return 'No pude encontrar una respuesta a tu pregunta.';
+  }
+  return 'I could not find an answer to your question.';
+}
+
 // Reads the system prompt/guardrails from Secrets Manager
 async function getGuardrails(): Promise<string> {
   try {
@@ -239,8 +257,9 @@ Never make up information or present uncertain answers as definitive.`;
 function checkEscalation(question: string, answer: string, confidence: number) {
   const combined = `${question} ${answer}`.toLowerCase();
 
-  // Check safety keywords
-  for (const keyword of SAFETY_KEYWORDS) {
+  // Check safety keywords in both English and Spanish
+  const allKeywords = [...SAFETY_KEYWORDS, ...SAFETY_KEYWORDS_ES];
+  for (const keyword of allKeywords) {
     if (combined.includes(keyword.toLowerCase())) {
       return { escalate: true, reason: `Safety keyword detected: "${keyword}"` };
     }
