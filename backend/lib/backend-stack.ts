@@ -143,6 +143,11 @@ export class BackendStack extends cdk.Stack {
       description: 'Cognito User Pool Client ID',
     });
 
+    new cdk.CfnOutput(this, 'IdentityPoolId', {
+      value: sharedResources.identityPool.ref,
+      description: 'Cognito Identity Pool ID (browser credentials for Transcribe/Polly voice)',
+    });
+
     new cdk.CfnOutput(this, 'DocumentStoreBucket', {
       value: sharedResources.documentStoreBucket.bucketName,
       description: 'S3 Bucket for document uploads',
