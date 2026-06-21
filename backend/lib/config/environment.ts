@@ -18,4 +18,11 @@ export const CONFIG = {
   // Thresholds
   CONFIDENCE_THRESHOLD: 0.7,
   SAFETY_KEYWORDS: ['abuse', 'emergency', 'injury', 'youth protection', 'danger', 'hurt'],
+
+  // Bilingual support
+  // Languages the assistant supports. 'en' is the default / KB document language.
+  SUPPORTED_LANGUAGES: ['en', 'es'],
+  DEFAULT_LANGUAGE: 'en',
+  // Spanish equivalents of SAFETY_KEYWORDS so escalation works in either language.
+  SAFETY_KEYWORDS_ES: ['abuso', 'emergencia', 'lesión', 'protección juvenil', 'peligro', 'herido', 'lastimado'],
 };
