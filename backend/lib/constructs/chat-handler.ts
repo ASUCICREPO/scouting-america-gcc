@@ -47,6 +47,9 @@ export class ChatHandler extends Construct {
         ESCALATION_FUNCTION_ARN: props.escalationFunctionArn || '',
         CONFIDENCE_THRESHOLD: CONFIG.CONFIDENCE_THRESHOLD.toString(),
         SAFETY_KEYWORDS: JSON.stringify(CONFIG.SAFETY_KEYWORDS),
+        SAFETY_KEYWORDS_ES: JSON.stringify(CONFIG.SAFETY_KEYWORDS_ES),
+        SUPPORTED_LANGUAGES: JSON.stringify(CONFIG.SUPPORTED_LANGUAGES),
+        DEFAULT_LANGUAGE: CONFIG.DEFAULT_LANGUAGE,
       },
       bundling: {
         minify: true,
@@ -69,6 +72,17 @@ export class ChatHandler extends Construct {
         'bedrock:GetInferenceProfile',
       ],
       resources: ['*'], // KB resources are account-wide
+    }));
+
+    // Grant permissions: bilingual support via Amazon Comprehend (language
+    // detection) and Amazon Translate (translate non-English queries for KB
+    // retrieval). Neither action supports resource-level scoping.
+    this.function.addToRolePolicy(new iam.PolicyStatement({
+      actions: [
+        'comprehend:DetectDominantLanguage',
+        'translate:TranslateText',
+      ],
+      resources: ['*'],
     }));
 
     // Grant permissions: invoke Escalation Router Lambda
