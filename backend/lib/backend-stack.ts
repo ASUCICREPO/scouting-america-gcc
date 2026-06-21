@@ -274,6 +274,10 @@ export class BackendStack extends cdk.Stack {
         id: 'AwsSolutions-CFR7',
         reason: 'ADR: Origin Access Control (OAC) used for S3 origin | Rationale: OAC is the current best practice replacing OAI | Alternative: N/A',
       },
+      {
+        id: 'AwsSolutions-COG7',
+        reason: 'ADR: Identity Pool allows guest (unauthenticated) access | Rationale: The chat assistant supports anonymous volunteers; guest credentials are scoped to only Transcribe streaming and Polly synthesis for bilingual voice | Alternative: Authenticated-only (rejected - would block anonymous voice use)',
+      },
     ]);
   }
 }

@@ -163,29 +163,49 @@ Before you deploy, you must have the following:
    echo "NEXT_PUBLIC_API_URL=[YOUR_API_ENDPOINT]" >> .env.local
    ```
 
+   Required `frontend/.env.local` values (from `BackendStack` outputs):
+
+   | Variable | Source output | Purpose |
+   |----------|---------------|---------|
+   | `NEXT_PUBLIC_API_URL` | API Gateway URL | Backend chat API |
+   | `NEXT_PUBLIC_USER_POOL_ID` | `UserPoolId` | Cognito auth |
+   | `NEXT_PUBLIC_CLIENT_ID` | `UserPoolClientId` | Cognito auth |
+   | `NEXT_PUBLIC_IDENTITY_POOL_ID` | `IdentityPoolId` | Browser creds for Amazon Transcribe/Polly (bilingual voice) |
+
+   > **Bilingual support:** The chat handler auto-detects English/Spanish with
+   > Amazon Comprehend, translates non-English questions to English for
+   > Knowledge Base retrieval via Amazon Translate, and instructs the model to
+   > answer in the user's language. Voice input/output uses Amazon Transcribe
+   > Streaming (`en-US`/`es-US`) and Amazon Polly, authorized through the
+   > Cognito Identity Pool.
+
 3. **Build the frontend**
    ```bash
    npm run build
    ```
+   This produces a static export in `frontend/out/` (the app is configured with
+   `output: 'export'` in `next.config.ts`).
 
-4. **Deploy the frontend**
-   
-   [INSERT_FRONTEND_DEPLOYMENT_METHOD]
-   
-   **Option A: Deploy to Vercel**
+4. **Deploy the frontend (CloudFront + S3, US-only)**
+
+   The `BackendStack` provisions a private S3 bucket and a CloudFront
+   distribution that is **geo-restricted to the United States** (`FrontendHosting`
+   construct). After `cdk deploy`, read the outputs and sync the build:
+
    ```bash
-   npx vercel --prod
+   # Outputs: FrontendBucketName, FrontendDistributionId, FrontendUrl
+   aws s3 sync out s3://<FrontendBucketName> --delete
+   aws cloudfront create-invalidation --distribution-id <FrontendDistributionId> --paths "/*"
    ```
-   
-   **Option B: Deploy to AWS Amplify**
-   ```bash
-   [INSERT_AMPLIFY_COMMANDS]
-   ```
-   
-   **Option C: [INSERT_ALTERNATIVE_DEPLOYMENT]**
-   ```bash
-   [INSERT_COMMANDS]
-   ```
+
+   Open `FrontendUrl` to access the site. Requests from outside the US are
+   blocked at the CloudFront edge; the backend API is independently restricted
+   to US traffic via an AWS WAFv2 geo-match rule.
+
+   > **Alternative (AWS Amplify Hosting):** Amplify has no native country
+   > blocking. If you host on Amplify instead, associate a CLOUDFRONT-scoped
+   > AWS WAFv2 Web ACL (in `us-east-1`) with a US geo-match rule to the Amplify
+   > app. The API-level WAF restriction still applies either way.
 
 ---
 
