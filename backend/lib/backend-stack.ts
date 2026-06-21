@@ -4,6 +4,7 @@ import { Construct } from 'constructs';
 import { AwsSolutionsChecks, NagSuppressions } from 'cdk-nag';
 import { SharedResources } from './constructs/shared-resources';
 import { ApiGateway } from './constructs/api-gateway';
+import { ApiGeoRestriction } from './constructs/waf';
 import { KnowledgeBase } from './constructs/knowledge-base';
 import { EscalationRouter } from './constructs/escalation-router';
 import { ChatHandler } from './constructs/chat-handler';
@@ -52,6 +53,15 @@ export class BackendStack extends cdk.Stack {
     // ---------------------------------------------------------------
     const apiGateway = new ApiGateway(this, 'ApiGateway', {
       userPool: sharedResources.userPool,
+    });
+
+    // ---------------------------------------------------------------
+    // US-only geo-restriction (AWS WAFv2) on the API
+    // ---------------------------------------------------------------
+    // Defense in depth: even though the frontend edge (CloudFront) is
+    // geo-restricted, the API is public, so we block non-US traffic here too.
+    new ApiGeoRestriction(this, 'ApiGeoRestriction', {
+      apiStageArn: apiGateway.api.deploymentStage.stageArn,
     });
 
     // ---------------------------------------------------------------
@@ -215,7 +225,7 @@ export class BackendStack extends cdk.Stack {
       },
       {
         id: 'AwsSolutions-APIG3',
-        reason: 'ADR: WAF not attached to API Gateway | Rationale: POC phase, cost optimization | Alternative: Attach WAF (will add for production)',
+        reason: 'ADR: WAFv2 Web ACL attached to API stage for US-only geo-restriction | Rationale: Geo-match allowlist (US) enforced at the API edge | Alternative: Add managed rule groups (will evaluate for production)',
       },
       {
         id: 'AwsSolutions-APIG4',
