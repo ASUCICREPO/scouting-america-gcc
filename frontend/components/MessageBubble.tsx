@@ -1,11 +1,14 @@
 "use client";
 
+import { useState } from "react";
 import {
   MessageCircle,
   ThumbsUp,
   ThumbsDown,
   ExternalLink,
   Link as LinkIcon,
+  Volume2,
+  VolumeX,
 } from "lucide-react";
 import { ChatMessage } from "@/lib/api";
 
@@ -18,6 +21,21 @@ export default function MessageBubble({
   message,
   onChipClick,
 }: MessageBubbleProps) {
+  const [isSpeaking, setIsSpeaking] = useState(false);
+
+  const toggleSpeech = () => {
+    if (isSpeaking) {
+      window.speechSynthesis.cancel();
+      setIsSpeaking(false);
+      return;
+    }
+    const utterance = new SpeechSynthesisUtterance(message.content);
+    utterance.onend = () => setIsSpeaking(false);
+    utterance.onerror = () => setIsSpeaking(false);
+    window.speechSynthesis.speak(utterance);
+    setIsSpeaking(true);
+  };
+
   if (message.role === "user") {
     return (
       <div className="user-message animate-in">
@@ -78,6 +96,14 @@ export default function MessageBubble({
           </button>
           <button className="feedback-btn" aria-label="Not helpful">
             <ThumbsDown size={13} />
+          </button>
+          <button
+            className="feedback-btn"
+            aria-label={isSpeaking ? "Stop speaking" : "Read aloud"}
+            onClick={toggleSpeech}
+            style={{ color: isSpeaking ? "#e53e3e" : undefined }}
+          >
+            {isSpeaking ? <VolumeX size={13} /> : <Volume2 size={13} />}
           </button>
         </div>
       </div>

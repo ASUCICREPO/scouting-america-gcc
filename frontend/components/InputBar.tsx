@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, KeyboardEvent } from "react";
-import { Paperclip, Camera, Send } from "lucide-react";
+import { useState, useRef, KeyboardEvent } from "react";
+import { Paperclip, Camera, Send, Mic, MicOff } from "lucide-react";
 
 interface InputBarProps {
   onSend: (message: string) => void;
@@ -10,6 +10,8 @@ interface InputBarProps {
 
 export default function InputBar({ onSend, disabled }: InputBarProps) {
   const [value, setValue] = useState("");
+  const [isListening, setIsListening] = useState(false);
+  const recognitionRef = useRef<any>(null);
 
   const handleSubmit = () => {
     if (!value.trim() || disabled) return;
@@ -22,6 +24,45 @@ export default function InputBar({ onSend, disabled }: InputBarProps) {
       e.preventDefault();
       handleSubmit();
     }
+  };
+
+  const toggleSpeechRecognition = () => {
+    if (isListening) {
+      // Stop listening
+      recognitionRef.current?.stop();
+      setIsListening(false);
+      return;
+    }
+
+    // Check browser support
+    const SpeechRecognition =
+      (window as any).SpeechRecognition ||
+      (window as any).webkitSpeechRecognition;
+
+    if (!SpeechRecognition) {
+      alert("Speech recognition is not supported in this browser.");
+      return;
+    }
+
+    const recognition = new SpeechRecognition();
+    recognition.continuous = false;
+    recognition.interimResults = true;
+    recognition.lang = "en-US";
+
+    recognition.onstart = () => setIsListening(true);
+
+    recognition.onresult = (event: any) => {
+      const transcript = Array.from(event.results)
+        .map((result: any) => result[0].transcript)
+        .join("");
+      setValue(transcript);
+    };
+
+    recognition.onerror = () => setIsListening(false);
+    recognition.onend = () => setIsListening(false);
+
+    recognitionRef.current = recognition;
+    recognition.start();
   };
 
   return (
@@ -51,6 +92,17 @@ export default function InputBar({ onSend, disabled }: InputBarProps) {
             aria-label="Chat message input"
           />
           <div className="input-actions">
+            <button
+              className="input-icon-btn"
+              aria-label={isListening ? "Stop recording" : "Voice input"}
+              type="button"
+              onClick={toggleSpeechRecognition}
+              style={{
+                color: isListening ? "#e53e3e" : undefined,
+              }}
+            >
+              {isListening ? <MicOff size={16} /> : <Mic size={16} />}
+            </button>
             <button
               className="input-icon-btn"
               aria-label="Take photo"

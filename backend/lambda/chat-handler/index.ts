@@ -1,6 +1,7 @@
 import {
   BedrockAgentRuntimeClient,
   RetrieveAndGenerateCommand,
+  RetrieveCommand,
 } from '@aws-sdk/client-bedrock-agent-runtime';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { DynamoDBDocumentClient, PutCommand, QueryCommand } from '@aws-sdk/lib-dynamodb';
@@ -86,8 +87,32 @@ async function handleChat(event: any) {
   const citations = kbResponse.citations || [];
   const sources = extractSources(citations);
 
-  // Calculate confidence based on how many citations were found
-  const confidence = citations.length > 0 ? Math.min(citations.length * 0.25, 1.0) : 0.3;
+  // Call Retrieve API separately to get actual retrieval scores (RetrieveAndGenerate doesn't return them)
+  let chunkScores: { source: string; score: number; chunkText: string }[] = [];
+  try {
+    const retrieveResponse = await bedrockClient.send(new RetrieveCommand({
+      knowledgeBaseId: KB_ID,
+      retrievalQuery: { text: question },
+      retrievalConfiguration: {
+        vectorSearchConfiguration: {
+          numberOfResults: 5,
+        },
+      },
+    }));
+    chunkScores = (retrieveResponse.retrievalResults || []).map((result: any) => ({
+      source: result.location?.s3Location?.uri || 'unknown',
+      score: result.score ?? 0,
+      chunkText: (result.content?.text || '').substring(0, 200),
+    }));
+  } catch (err) {
+    console.error('Failed to retrieve scores:', err);
+  }
+
+  // Calculate confidence using actual retrieval scores (average of chunk scores)
+  // Falls back to 0.3 if no scores available
+  const confidence = chunkScores.length > 0
+    ? chunkScores.reduce((sum, s) => sum + s.score, 0) / chunkScores.length
+    : 0.3;
 
   // Check if we need to escalate (safety keywords or low confidence)
   const needsEscalation = checkEscalation(question, answer, confidence);
@@ -104,7 +129,7 @@ async function handleChat(event: any) {
     });
   }
 
-  // Save this conversation to DynamoDB
+  // Save this conversation to DynamoDB (includes per-chunk CI scores)
   await dynamoClient.send(new PutCommand({
     TableName: CHAT_LOGS_TABLE,
     Item: {
@@ -115,6 +140,7 @@ async function handleChat(event: any) {
       answer,
       sources,
       confidence,
+      chunkScores, // Per-chunk retrieval scores for CI logging
       escalated: needsEscalation.escalate,
       category: 'general', // future: auto-categorize questions
       createdAt: timestamp,
@@ -224,6 +250,21 @@ function extractSources(citations: any[]): string[] {
     }
   }
   return sources;
+}
+
+// Extracts per-chunk retrieval scores (CI) from Bedrock KB citations
+function extractChunkScores(citations: any[]): { source: string; score: number; chunkText: string }[] {
+  const scores: { source: string; score: number; chunkText: string }[] = [];
+  for (const citation of citations) {
+    const refs = citation.retrievedReferences || [];
+    for (const ref of refs) {
+      const uri = ref.location?.s3Location?.uri || 'unknown';
+      const score = ref.score ?? 0;
+      const chunkText = (ref.content?.text || '').substring(0, 200); // First 200 chars for reference
+      scores.push({ source: uri, score, chunkText });
+    }
+  }
+  return scores;
 }
 
 // Helper to format API Gateway responses
