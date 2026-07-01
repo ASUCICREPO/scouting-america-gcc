@@ -145,15 +145,14 @@ export class KnowledgeBase extends Construct {
         },
       },
       vectorIngestionConfiguration: {
-        // FIXED_SIZE (not NONE): doc-processor copies whole PDFs, so NONE would make
-        // each entire document a single vector — overflowing even the 40KB total
-        // metadata budget and wrecking retrieval relevance. ~300 tokens/chunk keeps
-        // each vector's text well under the limit and improves recall.
+        // Semantic chunking splits by meaning boundaries for better context coherence.
+        // Max 800 tokens per chunk keeps vectors within S3 Vectors metadata limits.
         chunkingConfiguration: {
-          chunkingStrategy: 'FIXED_SIZE',
-          fixedSizeChunkingConfiguration: {
-            maxTokens: 300,
-            overlapPercentage: 20,
+          chunkingStrategy: 'SEMANTIC',
+          semanticChunkingConfiguration: {
+            maxTokens: 800,
+            bufferSize: 1,
+            breakpointPercentileThreshold: 95,
           },
         },
       },
