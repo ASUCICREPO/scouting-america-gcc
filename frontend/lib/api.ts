@@ -38,6 +38,9 @@ export async function sendMessage(
   });
 
   if (!response.ok) {
+    if (response.status === 401 || response.status === 403) {
+      throw new Error('Please log in to chat with the assistant.');
+    }
     throw new Error(`Chat API error: ${response.status}`);
   }
 
