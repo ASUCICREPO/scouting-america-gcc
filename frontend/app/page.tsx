@@ -9,7 +9,6 @@ import FAQView from "@/components/FAQView";
 import VoiceOverlay from "@/components/VoiceOverlay";
 import ChatDrawer from "@/components/ChatDrawer";
 import { sendMessage, ChatMessage, ChatResponse } from "@/lib/api";
-import { getStoredTokens } from "@/lib/auth";
 
 type View = "chat" | "faq" | "settings";
 
@@ -46,11 +45,9 @@ export default function Home() {
     setIsLoading(true);
 
     try {
-      const tokens = getStoredTokens();
       const response: ChatResponse = await sendMessage(
         text,
-        sessionId,
-        tokens?.idToken
+        sessionId
       );
 
       if (response.sessionId) {
@@ -66,14 +63,12 @@ export default function Home() {
       };
 
       setMessages((prev) => [...prev, aiMessage]);
-    } catch (error: any) {
+    } catch (error) {
       console.error("Chat error:", error);
-      const errMsg = error?.message?.includes("log in")
-        ? "Please log in to chat with the assistant. Tap the Log in button in the header."
-        : "I'm sorry, I'm having trouble connecting right now. Please try again.";
       const errorMessage: ChatMessage = {
         role: "assistant",
-        content: errMsg,
+        content:
+          "I'm sorry, I'm having trouble connecting right now. Please try again.",
         timestamp: new Date().toISOString(),
       };
       setMessages((prev) => [...prev, errorMessage]);
