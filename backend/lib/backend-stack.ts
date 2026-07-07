@@ -21,13 +21,6 @@ export class BackendStack extends cdk.Stack {
     Aspects.of(this).add(new AwsSolutionsChecks({ verbose: true }));
 
     // ---------------------------------------------------------------
-    // Doc Processor (must be created before SharedResources for S3 event)
-    // ---------------------------------------------------------------
-    // Note: We create DocProcessor first so we can pass its function
-    // reference to SharedResources for the S3 event notification.
-    // The actual bucket references are set below after SharedResources is created.
-
-    // ---------------------------------------------------------------
     // Shared Resources (S3, DynamoDB, Cognito, SNS, Secrets Manager)
     // ---------------------------------------------------------------
     const sharedResources = new SharedResources(this, 'SharedResources');
