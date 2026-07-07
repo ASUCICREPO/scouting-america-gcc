@@ -95,32 +95,27 @@ async function handleChat(event: APIGatewayProxyEvent): Promise<APIGatewayProxyR
   // Get system guardrails from Secrets Manager
   const guardrails = await getGuardrails();
 
-  // Call Bedrock Knowledge Base — this searches docs and generates an answer
-  const kbResponse = await bedrockClient.send(new RetrieveAndGenerateCommand({
-    input: { text: question },
-    retrieveAndGenerateConfiguration: {
-      type: 'KNOWLEDGE_BASE',
-      knowledgeBaseConfiguration: {
-        knowledgeBaseId: KB_ID,
-        modelArn: MODEL_ARN,
-        generationConfiguration: {
-          promptTemplate: {
-            textPromptTemplate: `${guardrails}\n\nSearch results:\n$search_results$\n\nUser question: $query$\n\nAnswer using only the provided search results. Cite sources.`,
+  // Generation (RetrieveAndGenerate) and score retrieval (Retrieve) are
+  // independent — RetrieveAndGenerate doesn't return retrieval scores, so we
+  // still need the second call for CI logging. Run them in parallel to avoid
+  // paying the latency of two sequential Bedrock round-trips.
+  const [kbResponse, retrieveResponse] = await Promise.all([
+    bedrockClient.send(new RetrieveAndGenerateCommand({
+      input: { text: question },
+      retrieveAndGenerateConfiguration: {
+        type: 'KNOWLEDGE_BASE',
+        knowledgeBaseConfiguration: {
+          knowledgeBaseId: KB_ID,
+          modelArn: MODEL_ARN,
+          generationConfiguration: {
+            promptTemplate: {
+              textPromptTemplate: `${guardrails}\n\nSearch results:\n$search_results$\n\nUser question: $query$\n\nAnswer using only the provided search results. Cite sources.`,
+            },
           },
         },
       },
-    },
-  }));
-
-  // Extract the answer and sources from Bedrock response
-  const answer = kbResponse.output?.text || 'I could not find an answer to your question.';
-  const citations = kbResponse.citations || [];
-  const sources = extractSources(citations);
-
-  // Call Retrieve API separately to get actual retrieval scores (RetrieveAndGenerate doesn't return them)
-  let chunkScores: { source: string; score: number; chunkText: string }[] = [];
-  try {
-    const retrieveResponse = await bedrockClient.send(new RetrieveCommand({
+    })),
+    bedrockClient.send(new RetrieveCommand({
       knowledgeBaseId: KB_ID,
       retrievalQuery: { text: question },
       retrievalConfiguration: {
@@ -128,15 +123,25 @@ async function handleChat(event: APIGatewayProxyEvent): Promise<APIGatewayProxyR
           numberOfResults: 5,
         },
       },
-    }));
-    chunkScores = (retrieveResponse.retrievalResults || []).map((result: any) => ({
+    })).catch((err) => {
+      // Score retrieval is best-effort — a failure shouldn't block the answer.
+      console.error('Failed to retrieve scores:', err);
+      return undefined;
+    }),
+  ]);
+
+  // Extract the answer and sources from the generation response
+  const answer = kbResponse.output?.text || 'I could not find an answer to your question.';
+  const citations = kbResponse.citations || [];
+  const sources = extractSources(citations);
+
+  // Per-chunk retrieval scores (CI logging)
+  const chunkScores: { source: string; score: number; chunkText: string }[] =
+    (retrieveResponse?.retrievalResults || []).map((result: any) => ({
       source: result.location?.s3Location?.uri || 'unknown',
       score: result.score ?? 0,
       chunkText: (result.content?.text || '').substring(0, 200),
     }));
-  } catch (err) {
-    console.error('Failed to retrieve scores:', err);
-  }
 
   // Calculate confidence using actual retrieval scores (average of chunk scores)
   // Falls back to 0.3 if no scores available
