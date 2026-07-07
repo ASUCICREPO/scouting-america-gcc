@@ -106,12 +106,31 @@ export default function OverviewPage() {
     URL.revokeObjectURL(url);
   }
 
-  // Chart calculations
-  const maxCount = Math.max(...chartData.map(d => d.count), 1);
+  // Chart pagination — window size based on period
+  const [chartPage, setChartPage] = useState(0);
+
+  const WINDOW_SIZES: Record<string, number> = { day: 7, week: 4, month: 6 };
+  const windowSize = WINDOW_SIZES[period] || 7;
+
+  // Reset page when period changes
+  useEffect(() => { setChartPage(0); }, [period]);
+
+  // Calculate windowed chart data
+  const totalPages = Math.ceil(chartData.length / windowSize);
+  // chartPage 0 = latest data (rightmost), negative = older
+  const startIdx = Math.max(0, chartData.length - windowSize * (chartPage + 1));
+  const endIdx = chartData.length - windowSize * chartPage;
+  const windowedData = chartData.slice(startIdx, endIdx);
+
+  const canGoBack = endIdx < chartData.length; // there's older data
+  const canGoForward = chartPage > 0; // we're looking at older data
+
+  // Chart calculations on windowed data
+  const maxCount = Math.max(...windowedData.map(d => d.count), 1);
   const chartWidth = 820;
   const chartHeight = 200;
-  const points = chartData.map((item, i) => {
-    const x = chartData.length > 1 ? (i / (chartData.length - 1)) * chartWidth : chartWidth / 2;
+  const points = windowedData.map((item, i) => {
+    const x = windowedData.length > 1 ? (i / (windowedData.length - 1)) * chartWidth : chartWidth / 2;
     const y = chartHeight - (item.count / maxCount) * chartHeight;
     return { x, y };
   });
@@ -203,8 +222,12 @@ export default function OverviewPage() {
             <button className={`toggle-btn ${period === 'month' ? 'active' : ''}`} onClick={() => setPeriod('month')}>Monthly</button>
           </div>
         </div>
-        <div className="chart-container">
-          {chartData.length > 1 ? (
+        <div className="chart-with-arrows">
+          <button className="chart-side-arrow left" disabled={!canGoBack} onClick={() => setChartPage(p => p + 1)}>
+            <ChevronLeft size={18} />
+          </button>
+          <div className="chart-container">
+          {windowedData.length > 1 ? (
             <svg viewBox="-40 -10 900 260" className="line-chart">
               {/* Y-axis labels */}
               {[0, 1, 2, 3, 4].map((i) => {
@@ -229,8 +252,8 @@ export default function OverviewPage() {
                 <circle key={i} cx={p.x} cy={p.y} r="3" fill="#005696" />
               ))}
               {/* X-axis labels */}
-              {chartData.map((item, i) => {
-                if (chartData.length > 10 && i % 2 !== 0) return null;
+              {windowedData.map((item, i) => {
+                if (windowedData.length > 10 && i % 2 !== 0) return null;
                 return (
                   <text key={i} x={points[i].x} y="230" textAnchor="middle" className="chart-label">
                     {item.date.length > 7 ? item.date.slice(5) : item.date}
@@ -247,6 +270,10 @@ export default function OverviewPage() {
           ) : (
             <div className="chart-empty">Not enough data points for chart</div>
           )}
+          </div>
+          <button className="chart-side-arrow right" disabled={!canGoForward} onClick={() => setChartPage(p => p - 1)}>
+            <ChevronRight size={18} />
+          </button>
         </div>
       </div>
 
