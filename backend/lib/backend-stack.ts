@@ -150,6 +150,10 @@ export class BackendStack extends cdk.Stack {
         reason: 'ADR: Plus tier not enabled for POC | Rationale: Cost optimization, nonprofit budget constraints | Alternative: Enable Plus tier (will evaluate for production)',
       },
       {
+        id: 'AwsSolutions-SQS3',
+        reason: 'ADR: DLQ queues are themselves dead-letter queues | Rationale: The escalation-router and doc-processor queues capture failed async invocations; a DLQ for a DLQ is unnecessary | Alternative: N/A',
+      },
+      {
         id: 'AwsSolutions-SNS2',
         reason: 'ADR: SNS encryption deferred | Rationale: Non-sensitive alert metadata only | Alternative: KMS encryption (will add if PII flows through topic)',
       },
