@@ -252,21 +252,6 @@ function extractSources(citations: any[]): string[] {
   return sources;
 }
 
-// Extracts per-chunk retrieval scores (CI) from Bedrock KB citations
-function extractChunkScores(citations: any[]): { source: string; score: number; chunkText: string }[] {
-  const scores: { source: string; score: number; chunkText: string }[] = [];
-  for (const citation of citations) {
-    const refs = citation.retrievedReferences || [];
-    for (const ref of refs) {
-      const uri = ref.location?.s3Location?.uri || 'unknown';
-      const score = ref.score ?? 0;
-      const chunkText = (ref.content?.text || '').substring(0, 200); // First 200 chars for reference
-      scores.push({ source: uri, score, chunkText });
-    }
-  }
-  return scores;
-}
-
 // Helper to format API Gateway responses
 function response(statusCode: number, body: any) {
   return {
