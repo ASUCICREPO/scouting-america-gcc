@@ -37,16 +37,18 @@ describe('S3 Vectors index metadata configuration', () => {
 
 describe('Bedrock data source chunking', () => {
   // Regression test: NONE chunking + whole-PDF copy made each document a single
-  // oversized vector, overflowing even the 40KB total metadata budget. FIXED_SIZE
-  // keeps each chunk small.
-  test('uses FIXED_SIZE chunking, not NONE', () => {
+  // oversized vector, overflowing even the 40KB total metadata budget. SEMANTIC
+  // chunking splits by meaning boundaries and caps each chunk at 800 tokens,
+  // keeping every vector within the S3 Vectors metadata limits.
+  test('uses SEMANTIC chunking, not NONE', () => {
     template.hasResourceProperties('AWS::Bedrock::DataSource', {
       VectorIngestionConfiguration: {
         ChunkingConfiguration: {
-          ChunkingStrategy: 'FIXED_SIZE',
-          FixedSizeChunkingConfiguration: {
-            MaxTokens: 300,
-            OverlapPercentage: 20,
+          ChunkingStrategy: 'SEMANTIC',
+          SemanticChunkingConfiguration: {
+            MaxTokens: 800,
+            BufferSize: 1,
+            BreakpointPercentileThreshold: 95,
           },
         },
       },
