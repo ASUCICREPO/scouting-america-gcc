@@ -5,14 +5,21 @@ import Header from "@/components/Header";
 import ChatArea from "@/components/ChatArea";
 import InputBar from "@/components/InputBar";
 import TabBar from "@/components/TabBar";
+import FAQView from "@/components/FAQView";
+import VoiceOverlay from "@/components/VoiceOverlay";
+import ChatDrawer from "@/components/ChatDrawer";
 import { sendMessage, ChatMessage, ChatResponse } from "@/lib/api";
-import { getStoredTokens } from "@/lib/auth";
+
+type View = "chat" | "faq" | "settings";
 
 export default function Home() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [sessionId, setSessionId] = useState<string | undefined>();
   const [showWelcome, setShowWelcome] = useState(true);
+  const [isVoiceActive, setIsVoiceActive] = useState(false);
+  const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+  const [currentView, setCurrentView] = useState<View>("chat");
   const chatEndRef = useRef<HTMLDivElement>(null);
 
   const scrollToBottom = () => {
@@ -38,11 +45,9 @@ export default function Home() {
     setIsLoading(true);
 
     try {
-      const tokens = getStoredTokens();
       const response: ChatResponse = await sendMessage(
         text,
-        sessionId,
-        tokens?.idToken
+        sessionId
       );
 
       if (response.sessionId) {
@@ -62,7 +67,8 @@ export default function Home() {
       console.error("Chat error:", error);
       const errorMessage: ChatMessage = {
         role: "assistant",
-        content: "I'm sorry, I'm having trouble connecting right now. Please try again.",
+        content:
+          "I'm sorry, I'm having trouble connecting right now. Please try again.",
         timestamp: new Date().toISOString(),
       };
       setMessages((prev) => [...prev, errorMessage]);
@@ -81,21 +87,63 @@ export default function Home() {
     setShowWelcome(true);
   };
 
+  const handleNewChat = () => {
+    handleEndChat();
+    setIsDrawerOpen(false);
+  };
+
+  const renderContent = () => {
+    switch (currentView) {
+      case "faq":
+        return <FAQView onBack={() => setCurrentView("chat")} />;
+      case "chat":
+      default:
+        return (
+          <>
+            <ChatArea
+              messages={messages}
+              isLoading={isLoading}
+              showWelcome={showWelcome}
+              onChipClick={handleChipClick}
+              onEndChat={handleEndChat}
+              chatEndRef={chatEndRef}
+            />
+            <p className="terms-text">
+              By messaging, you agree to our{" "}
+              <a href="#terms">Terms</a> &{" "}
+              <a href="#privacy">Privacy Policy</a>
+            </p>
+            <InputBar
+              onSend={handleSend}
+              disabled={isLoading}
+              onVoiceStart={() => setIsVoiceActive(true)}
+              onVoiceEnd={() => setIsVoiceActive(false)}
+            />
+          </>
+        );
+    }
+  };
+
   return (
     <div className="app-shell">
       <div className="status-bar-spacer" />
-      <Header />
-      <ChatArea
-        messages={messages}
-        isLoading={isLoading}
-        showWelcome={showWelcome}
-        onChipClick={handleChipClick}
-        onEndChat={handleEndChat}
-        chatEndRef={chatEndRef}
-      />
-      <InputBar onSend={handleSend} disabled={isLoading} />
+      <Header onMenuClick={() => setIsDrawerOpen(true)} />
+      {renderContent()}
       <TabBar />
       <div className="safe-bottom" />
+      <VoiceOverlay
+        isVisible={isVoiceActive}
+        onCancel={() => setIsVoiceActive(false)}
+      />
+      <ChatDrawer
+        isOpen={isDrawerOpen}
+        onClose={() => setIsDrawerOpen(false)}
+        onNewChat={handleNewChat}
+        onSettingsClick={() => {
+          setIsDrawerOpen(false);
+          setCurrentView("faq");
+        }}
+      />
     </div>
   );
 }

@@ -17,8 +17,6 @@ export interface ChatHandlerProps {
   // API Gateway resources to attach routes to
   chatResource: apigateway.Resource;
   chatHistoryResource: apigateway.Resource;
-  // Cognito authorizer for protecting routes
-  authorizer: apigateway.IAuthorizer;
   // Knowledge Base ID — we'll get this from the KB construct
   knowledgeBaseId: string;
   // Escalation Router Lambda ARN — wire after creating escalation construct
@@ -79,16 +77,14 @@ export class ChatHandler extends Construct {
       }));
     }
 
-    // Connect to API Gateway: POST /chat
+    // Connect to API Gateway: POST /chat (no auth — public endpoint)
     props.chatResource.addMethod('POST', new apigateway.LambdaIntegration(this.function), {
-      authorizer: props.authorizer,
-      authorizationType: apigateway.AuthorizationType.COGNITO,
+      authorizationType: apigateway.AuthorizationType.NONE,
     });
 
-    // Connect to API Gateway: GET /chat/history/{sessionId}
+    // Connect to API Gateway: GET /chat/history/{sessionId} (no auth — public endpoint)
     props.chatHistoryResource.addMethod('GET', new apigateway.LambdaIntegration(this.function), {
-      authorizer: props.authorizer,
-      authorizationType: apigateway.AuthorizationType.COGNITO,
+      authorizationType: apigateway.AuthorizationType.NONE,
     });
   }
 }

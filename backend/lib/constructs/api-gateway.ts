@@ -3,13 +3,12 @@ import * as cognito from 'aws-cdk-lib/aws-cognito';
 import { Construct } from 'constructs';
 
 export interface ApiGatewayProps {
-  // The Cognito User Pool — we need this to verify user login tokens
+  // The Cognito User Pool — kept for potential future admin routes
   userPool: cognito.IUserPool;
 }
 
 export class ApiGateway extends Construct {
   public readonly api: apigateway.RestApi;
-  public readonly authorizer: apigateway.CognitoUserPoolsAuthorizer;
   public readonly chatResource: apigateway.Resource;
   public readonly chatHistoryResource: apigateway.Resource;
 
@@ -40,15 +39,8 @@ export class ApiGateway extends Construct {
       },
     });
 
-    // Cognito authorizer — checks if user is logged in before allowing access
-    this.authorizer = new apigateway.CognitoUserPoolsAuthorizer(this, 'CognitoAuthorizer', {
-      cognitoUserPools: [props.userPool],
-      authorizerName: 'GCC-CognitoAuthorizer',
-      identitySource: 'method.request.header.Authorization',
-    });
-
     // Routes — Lambda integrations get added later in backend-stack.ts
-    // POST /chat — volunteer sends a question here
+    // POST /chat — volunteer sends a question here (public, no auth)
     this.chatResource = this.api.root.addResource('chat');
 
     // GET /chat/history/{sessionId} — volunteer retrieves past conversation

@@ -62,7 +62,6 @@ export class BackendStack extends cdk.Stack {
       guardrailsSecret: sharedResources.guardrailsSecret,
       chatResource: apiGateway.chatResource,
       chatHistoryResource: apiGateway.chatHistoryResource,
-      authorizer: apiGateway.authorizer,
       knowledgeBaseId: knowledgeBase.knowledgeBaseId,
       escalationFunctionArn: escalationRouter.function.functionArn,
     });

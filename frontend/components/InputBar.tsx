@@ -1,14 +1,21 @@
 "use client";
 
 import { useState, useRef, KeyboardEvent } from "react";
-import { Paperclip, Camera, Send, Mic, MicOff } from "lucide-react";
+import { Mic, Send } from "lucide-react";
 
 interface InputBarProps {
   onSend: (message: string) => void;
   disabled?: boolean;
+  onVoiceStart?: () => void;
+  onVoiceEnd?: () => void;
 }
 
-export default function InputBar({ onSend, disabled }: InputBarProps) {
+export default function InputBar({
+  onSend,
+  disabled,
+  onVoiceStart,
+  onVoiceEnd,
+}: InputBarProps) {
   const [value, setValue] = useState("");
   const [isListening, setIsListening] = useState(false);
   const recognitionRef = useRef<any>(null);
@@ -28,13 +35,12 @@ export default function InputBar({ onSend, disabled }: InputBarProps) {
 
   const toggleSpeechRecognition = () => {
     if (isListening) {
-      // Stop listening
       recognitionRef.current?.stop();
       setIsListening(false);
+      onVoiceEnd?.();
       return;
     }
 
-    // Check browser support
     const SpeechRecognition =
       (window as any).SpeechRecognition ||
       (window as any).webkitSpeechRecognition;
@@ -49,7 +55,10 @@ export default function InputBar({ onSend, disabled }: InputBarProps) {
     recognition.interimResults = true;
     recognition.lang = "en-US";
 
-    recognition.onstart = () => setIsListening(true);
+    recognition.onstart = () => {
+      setIsListening(true);
+      onVoiceStart?.();
+    };
 
     recognition.onresult = (event: any) => {
       const transcript = Array.from(event.results)
@@ -58,33 +67,28 @@ export default function InputBar({ onSend, disabled }: InputBarProps) {
       setValue(transcript);
     };
 
-    recognition.onerror = () => setIsListening(false);
-    recognition.onend = () => setIsListening(false);
+    recognition.onerror = () => {
+      setIsListening(false);
+      onVoiceEnd?.();
+    };
+
+    recognition.onend = () => {
+      setIsListening(false);
+      onVoiceEnd?.();
+    };
 
     recognitionRef.current = recognition;
     recognition.start();
   };
 
   return (
-    <>
-      <p className="terms-text">
-        By messaging, you agree to our{" "}
-        <a href="#terms">Terms</a> &{" "}
-        <a href="#privacy">Privacy Policy</a>
-      </p>
-      <div className="input-bar">
-        <div className="input-container">
-          <button
-            className="input-icon-btn"
-            aria-label="Attach file"
-            type="button"
-          >
-            <Paperclip size={16} />
-          </button>
+    <div className="input-section">
+      <div className="input-container">
+        <div className="input-row">
           <input
             type="text"
             className="input-field"
-            placeholder="Ask anything"
+            placeholder="Chat with Zarg"
             value={value}
             onChange={(e) => setValue(e.target.value)}
             onKeyDown={handleKeyDown}
@@ -93,38 +97,30 @@ export default function InputBar({ onSend, disabled }: InputBarProps) {
           />
           <div className="input-actions">
             <button
-              className="input-icon-btn"
-              aria-label={isListening ? "Stop recording" : "Voice input"}
-              type="button"
-              onClick={toggleSpeechRecognition}
-              style={{
-                color: isListening ? "#e53e3e" : undefined,
-              }}
-            >
-              {isListening ? <MicOff size={16} /> : <Mic size={16} />}
-            </button>
-            <button
-              className="input-icon-btn"
-              aria-label="Take photo"
-              type="button"
-            >
-              <Camera size={16} />
-            </button>
-            <button
-              className="input-icon-btn"
+              className="input-btn"
               aria-label="Send message"
               type="button"
               onClick={handleSubmit}
               disabled={disabled || !value.trim()}
-              style={{
-                color: value.trim() ? "#003B75" : undefined,
-              }}
             >
               <Send size={16} />
+            </button>
+            <button
+              className="input-btn-voice"
+              aria-label={isListening ? "Stop recording" : "Voice input"}
+              type="button"
+              onClick={toggleSpeechRecognition}
+              style={
+                isListening
+                  ? { background: "#CE1126" }
+                  : undefined
+              }
+            >
+              <Mic size={16} />
             </button>
           </div>
         </div>
       </div>
-    </>
+    </div>
   );
 }

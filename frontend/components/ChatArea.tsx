@@ -5,7 +5,6 @@ import { ChatMessage } from "@/lib/api";
 import WelcomeView from "./WelcomeView";
 import MessageBubble from "./MessageBubble";
 import TypingIndicator from "./TypingIndicator";
-import MediaControls from "./MediaControls";
 
 interface ChatAreaProps {
   messages: ChatMessage[];
@@ -38,9 +37,6 @@ export default function ChatArea({
             />
           ))}
           {isLoading && <TypingIndicator />}
-          {messages.length > 0 && (
-            <MediaControls onEndChat={onEndChat} />
-          )}
         </>
       )}
       <div ref={chatEndRef} />
