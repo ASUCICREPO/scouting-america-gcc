@@ -7,6 +7,7 @@ import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as cognito from 'aws-cdk-lib/aws-cognito';
 import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
 import * as iam from 'aws-cdk-lib/aws-iam';
+import * as logs from 'aws-cdk-lib/aws-logs';
 import { Construct } from 'constructs';
 
 export interface AdminHandlerProps {
@@ -39,6 +40,10 @@ export class AdminHandler extends Construct {
         KNOWLEDGE_BASE_BUCKET: knowledgeBaseBucket.bucketName,
         GUARDRAILS_SECRET_ARN: guardrailsSecret.secretArn,
       },
+      logGroup: new logs.LogGroup(this, 'AdminHandlerLogs', {
+        retention: logs.RetentionDays.ONE_MONTH,
+        removalPolicy: cdk.RemovalPolicy.DESTROY,
+      }),
       bundling: {
         minify: true,
         sourceMap: true,

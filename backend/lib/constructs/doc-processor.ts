@@ -6,6 +6,7 @@ import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as sqs from 'aws-cdk-lib/aws-sqs';
 import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
 import * as iam from 'aws-cdk-lib/aws-iam';
+import * as logs from 'aws-cdk-lib/aws-logs';
 import { Construct } from 'constructs';
 
 export interface DocProcessorProps {
@@ -51,6 +52,10 @@ export class DocProcessor extends Construct {
       },
       description: 'Copies uploaded documents to KB bucket and triggers Bedrock ingestion',
       deadLetterQueue,
+      logGroup: new logs.LogGroup(this, 'DocProcessorLogs', {
+        retention: logs.RetentionDays.ONE_MONTH,
+        removalPolicy: cdk.RemovalPolicy.DESTROY,
+      }),
       bundling: {
         minify: true,
         sourceMap: true,

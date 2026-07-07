@@ -4,6 +4,7 @@ import * as lambda from 'aws-cdk-lib/aws-lambda';
 import * as nodejs from 'aws-cdk-lib/aws-lambda-nodejs';
 import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
 import * as apigateway from 'aws-cdk-lib/aws-apigateway';
+import * as logs from 'aws-cdk-lib/aws-logs';
 import { Construct } from 'constructs';
 
 export interface AnalyticsConstructProps {
@@ -32,6 +33,10 @@ export class AnalyticsConstruct extends Construct {
         CHAT_LOGS_TABLE: props.chatLogsTable.tableName,
         ANALYTICS_LOGS_TABLE: props.analyticsLogsTable.tableName,
       },
+      logGroup: new logs.LogGroup(this, 'AnalyticsLogs', {
+        retention: logs.RetentionDays.ONE_MONTH,
+        removalPolicy: cdk.RemovalPolicy.DESTROY,
+      }),
       bundling: {
         minify: true,
         sourceMap: true,

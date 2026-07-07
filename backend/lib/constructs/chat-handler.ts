@@ -5,6 +5,7 @@ import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
 import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as apigateway from 'aws-cdk-lib/aws-apigateway';
+import * as logs from 'aws-cdk-lib/aws-logs';
 import { Construct } from 'constructs';
 import { CONFIG } from '../config/environment';
 import * as path from 'path';
@@ -46,6 +47,12 @@ export class ChatHandler extends Construct {
         CONFIDENCE_THRESHOLD: CONFIG.CONFIDENCE_THRESHOLD.toString(),
         SAFETY_KEYWORDS: JSON.stringify(CONFIG.SAFETY_KEYWORDS),
       },
+      // Bound log retention — chat logs may incidentally contain user-entered
+      // content, so they shouldn't be kept indefinitely.
+      logGroup: new logs.LogGroup(this, 'ChatHandlerLogs', {
+        retention: logs.RetentionDays.ONE_MONTH,
+        removalPolicy: cdk.RemovalPolicy.DESTROY,
+      }),
       bundling: {
         minify: true,
         sourceMap: true,

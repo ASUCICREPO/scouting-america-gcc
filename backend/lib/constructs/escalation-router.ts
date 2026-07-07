@@ -5,6 +5,7 @@ import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
 import * as sns from 'aws-cdk-lib/aws-sns';
 import * as sqs from 'aws-cdk-lib/aws-sqs';
 import * as iam from 'aws-cdk-lib/aws-iam';
+import * as logs from 'aws-cdk-lib/aws-logs';
 import { Construct } from 'constructs';
 import { CONFIG } from '../config/environment';
 import * as path from 'path';
@@ -46,6 +47,12 @@ export class EscalationRouter extends Construct {
         ANALYTICS_TABLE: props.analyticsLogsTable.tableName,
       },
       deadLetterQueue,
+      // Escalation alerts reference the volunteer's question/answer, so bound
+      // how long those logs are retained.
+      logGroup: new logs.LogGroup(this, 'EscalationRouterLogs', {
+        retention: logs.RetentionDays.ONE_MONTH,
+        removalPolicy: cdk.RemovalPolicy.DESTROY,
+      }),
       bundling: {
         minify: true,
         sourceMap: true,
