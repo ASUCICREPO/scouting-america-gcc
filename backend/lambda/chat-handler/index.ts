@@ -24,6 +24,10 @@ const ESCALATION_FUNCTION_ARN = process.env.ESCALATION_FUNCTION_ARN!;
 const CONFIDENCE_THRESHOLD = parseFloat(process.env.CONFIDENCE_THRESHOLD || '0.7');
 const SAFETY_KEYWORDS = JSON.parse(process.env.SAFETY_KEYWORDS || '[]');
 
+// Caps the size of a single question to bound prompt size, Bedrock cost, and
+// abuse on the public (unauthenticated) endpoint.
+const MAX_QUESTION_LENGTH = 4000;
+
 // Main handler — API Gateway sends requests here
 export const handler = async (event: any) => {
   const httpMethod = event.httpMethod;
@@ -49,14 +53,30 @@ export const handler = async (event: any) => {
 
 // Handles the main chat — volunteer asks a question, we get an answer from Bedrock KB
 async function handleChat(event: any) {
-  const body = JSON.parse(event.body || '{}');
-  const { question, sessionId: existingSessionId } = body;
+  let body: any;
+  try {
+    body = JSON.parse(event.body || '{}');
+  } catch {
+    return response(400, { error: 'Request body must be valid JSON' });
+  }
+
+  const { question: rawQuestion, sessionId: existingSessionId } = body;
 
   // Get userId from Cognito claims (API Gateway passes this)
   const userId = event.requestContext?.authorizer?.claims?.sub || 'anonymous';
 
-  if (!question) {
-    return response(400, { error: 'Question is required' });
+  // Validate the question: must be a non-empty string within the length cap.
+  if (typeof rawQuestion !== 'string' || rawQuestion.trim().length === 0) {
+    return response(400, { error: 'Question is required and must be a non-empty string' });
+  }
+  const question = rawQuestion.trim();
+  if (question.length > MAX_QUESTION_LENGTH) {
+    return response(400, { error: `Question exceeds the maximum length of ${MAX_QUESTION_LENGTH} characters` });
+  }
+
+  // If a session id is supplied it must be a string (it becomes a DynamoDB key).
+  if (existingSessionId !== undefined && typeof existingSessionId !== 'string') {
+    return response(400, { error: 'sessionId must be a string' });
   }
 
   const sessionId = existingSessionId || randomUUID();
