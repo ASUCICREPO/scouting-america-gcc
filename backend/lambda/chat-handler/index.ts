@@ -7,7 +7,17 @@ import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { DynamoDBDocumentClient, PutCommand, QueryCommand } from '@aws-sdk/lib-dynamodb';
 import { LambdaClient, InvokeCommand } from '@aws-sdk/client-lambda';
 import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-secrets-manager';
+import { APIGatewayProxyEvent, APIGatewayProxyResult } from 'aws-lambda';
 import { randomUUID } from 'crypto';
+
+interface EscalationPayload {
+  sessionId: string;
+  userId: string;
+  question: string;
+  answer: string;
+  reason: string;
+  confidence: number;
+}
 
 // AWS SDK clients
 const bedrockClient = new BedrockAgentRuntimeClient({});
@@ -29,7 +39,7 @@ const SAFETY_KEYWORDS = JSON.parse(process.env.SAFETY_KEYWORDS || '[]');
 const MAX_QUESTION_LENGTH = 4000;
 
 // Main handler — API Gateway sends requests here
-export const handler = async (event: any) => {
+export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> => {
   const httpMethod = event.httpMethod;
   const path = event.resource;
 
@@ -52,8 +62,8 @@ export const handler = async (event: any) => {
 };
 
 // Handles the main chat — volunteer asks a question, we get an answer from Bedrock KB
-async function handleChat(event: any) {
-  let body: any;
+async function handleChat(event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> {
+  let body: Record<string, unknown>;
   try {
     body = JSON.parse(event.body || '{}');
   } catch {
@@ -177,7 +187,7 @@ async function handleChat(event: any) {
 }
 
 // Returns conversation history for a given session
-async function getHistory(event: any) {
+async function getHistory(event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> {
   const sessionId = event.pathParameters?.sessionId;
 
   if (!sessionId) {
@@ -245,7 +255,7 @@ function checkEscalation(question: string, answer: string, confidence: number) {
 }
 
 // Triggers the Escalation Router Lambda asynchronously
-async function triggerEscalation(payload: any) {
+async function triggerEscalation(payload: EscalationPayload) {
   try {
     await lambdaClient.send(new InvokeCommand({
       FunctionName: ESCALATION_FUNCTION_ARN,
@@ -273,7 +283,7 @@ function extractSources(citations: any[]): string[] {
 }
 
 // Helper to format API Gateway responses
-function response(statusCode: number, body: any) {
+function response(statusCode: number, body: unknown): APIGatewayProxyResult {
   return {
     statusCode,
     headers: {
