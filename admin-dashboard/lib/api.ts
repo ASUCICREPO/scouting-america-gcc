@@ -1,3 +1,5 @@
+import { getIdToken } from './auth';
+
 const API_BASE = process.env.NEXT_PUBLIC_DASHBOARD_API_URL || 'http://localhost:3002';
 
 async function fetchApi(path: string, params?: Record<string, string>, options?: RequestInit) {
@@ -5,7 +7,30 @@ async function fetchApi(path: string, params?: Record<string, string>, options?:
   if (params) {
     Object.entries(params).forEach(([k, v]) => url.searchParams.set(k, v));
   }
-  const res = await fetch(url.toString(), options);
+
+  // Always include Authorization header with Cognito ID token
+  const token = getIdToken();
+  const headers: Record<string, string> = {
+    ...(options?.headers as Record<string, string> || {}),
+  };
+  if (token) {
+    headers['Authorization'] = token;
+  }
+
+  const res = await fetch(url.toString(), {
+    ...options,
+    headers,
+  });
+
+  if (res.status === 401 || res.status === 403) {
+    // Token expired or unauthorized — redirect to login
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem('gcc_admin_tokens');
+      window.location.href = '/';
+    }
+    throw new Error('Unauthorized');
+  }
+
   if (!res.ok) throw new Error(`API error: ${res.status}`);
   return res.json();
 }
@@ -24,6 +49,7 @@ export interface SummaryData {
   positiveCount: number;
   negativeCount: number;
   totalFeedback: number;
+  feedbackNote?: string;
 }
 
 export interface ConversationPoint {

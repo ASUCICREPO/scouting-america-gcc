@@ -928,3 +928,47 @@ html, body {
   color: #005696;
   margin-top: 8px;
 }
+
+
+/* Date Dropdown */
+.date-dropdown-wrapper {
+  position: relative;
+  display: inline-block;
+}
+
+.date-dropdown {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  background: #fff;
+  border: 1px solid #e0e8f1;
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+  z-index: 1000;
+  min-width: 160px;
+  overflow: hidden;
+  padding: 4px 0;
+}
+
+.date-dropdown button {
+  display: block;
+  width: 100%;
+  padding: 10px 16px;
+  border: none;
+  background: transparent;
+  text-align: left;
+  font-size: 13px;
+  color: #505f76;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.date-dropdown button:hover {
+  background: #f6f6f6;
+}
+
+.date-dropdown button.active {
+  background: #f0f3f9;
+  color: #005696;
+  font-weight: 600;
+}

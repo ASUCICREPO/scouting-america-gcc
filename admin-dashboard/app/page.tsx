@@ -9,6 +9,7 @@ export default function LoginPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
@@ -20,14 +21,18 @@ export default function LoginPage() {
 
   if (!mounted) return null;
 
-  function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError('');
+    setLoading(true);
 
-    if (login(email, password)) {
+    const result = await login(email, password);
+    setLoading(false);
+
+    if (result.success) {
       router.push('/dashboard');
     } else {
-      setError('Invalid credentials. Please try again.');
+      setError(result.error || 'Login failed');
     }
   }
 
@@ -48,8 +53,9 @@ export default function LoginPage() {
               type="email"
               value={email}
               onChange={e => setEmail(e.target.value)}
-              placeholder="admin@gcc.org"
+              placeholder="Enter your admin email"
               required
+              disabled={loading}
             />
           </div>
           <div className="login-field">
@@ -61,18 +67,19 @@ export default function LoginPage() {
               onChange={e => setPassword(e.target.value)}
               placeholder="••••••••"
               required
+              disabled={loading}
             />
           </div>
 
           {error && <p className="login-error">{error}</p>}
 
-          <button type="submit" className="login-btn">
-            Sign In
+          <button type="submit" className="login-btn" disabled={loading}>
+            {loading ? 'Signing in...' : 'Sign In'}
           </button>
         </form>
 
         <p className="login-hint">
-          Test credentials: admin@gcc.org / admin123
+          Admin access only. Contact your administrator for credentials.
         </p>
       </div>
     </div>

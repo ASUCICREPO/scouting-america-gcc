@@ -5,17 +5,27 @@ import { S3Client, ListObjectsV2Command, GetObjectCommand, DeleteObjectCommand, 
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 
 const ddbDocClient = DynamoDBDocumentClient.from(new DynamoDBClient({}));
-const s3Client = new S3Client({ region: 'us-east-1' });
+const s3Client = new S3Client({ region: process.env.AWS_REGION || 'us-east-1' });
 
-// These point to the EXISTING chatbot tables — read-only access
-// Read at function call time (not module load) to support local testing
-function getChatLogsTable() { return process.env.CHAT_LOGS_TABLE!; }
-function getAnalyticsLogsTable() { return process.env.ANALYTICS_LOGS_TABLE!; }
-const DOCUMENT_BUCKET = 'gcc-document-store';
-const KB_BUCKET = 'gcc-knowledge-base-data';
+// Config from environment (set by CDK stack)
+function getChatLogsTable() { return process.env.CHAT_LOGS_TABLE || 'GCC-ChatLogs'; }
+function getAnalyticsLogsTable() { return process.env.ANALYTICS_LOGS_TABLE || 'GCC-AnalyticsLogs'; }
+function getDocumentBucket() { return process.env.DOCUMENT_BUCKET || 'gcc-document-store'; }
+function getKbBucket() { return process.env.KB_BUCKET || 'gcc-knowledge-base-data'; }
+
+// Allowed content types for upload
+const ALLOWED_CONTENT_TYPES = [
+  'application/pdf',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'application/msword',
+  'application/vnd.ms-excel',
+];
+
+const MAX_FILE_SIZE_BYTES = 25 * 1024 * 1024; // 25MB
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Helpers
+// Auth & Helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
 function respond(statusCode: number, body: unknown): APIGatewayProxyResult {
@@ -25,26 +35,86 @@ function respond(statusCode: number, body: unknown): APIGatewayProxyResult {
       'Content-Type': 'application/json',
       'Access-Control-Allow-Origin': '*',
       'Access-Control-Allow-Headers': 'Content-Type,Authorization',
-      'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
+      'Access-Control-Allow-Methods': 'GET,POST,DELETE,OPTIONS',
     },
     body: JSON.stringify(body),
   };
 }
 
 /**
- * Paginated scan — fetches ALL items from a DynamoDB table.
- * Handles the 1MB per-scan limit by following LastEvaluatedKey.
- * This guarantees 100% accurate metrics with zero data loss.
+ * Validates that the caller belongs to the 'admin' Cognito group.
+ * Returns null if authorized, or an error response if not.
  */
-async function scanAllItems(tableName: string): Promise<Record<string, any>[]> {
+function validateAdmin(event: APIGatewayProxyEvent): APIGatewayProxyResult | null {
+  const claims = event.requestContext?.authorizer?.claims;
+  if (!claims) {
+    return respond(401, { message: 'Unauthorized: No authentication claims found' });
+  }
+
+  const groups: string | string[] = claims['cognito:groups'] || '';
+  const groupList = Array.isArray(groups) ? groups : groups.split(',').map((g: string) => g.trim());
+
+  if (!groupList.includes('admin')) {
+    return respond(403, { message: 'Forbidden: Admin group membership required' });
+  }
+
+  return null; // authorized
+}
+
+/**
+ * Validates an S3 key is safe — must start with allowed prefix, no path traversal.
+ */
+function validateS3Key(key: string, allowedPrefix: string): boolean {
+  if (!key) return false;
+  if (key.includes('..')) return false;
+  if (!key.startsWith(allowedPrefix)) return false;
+  // No control characters
+  if (/[\x00-\x1f]/.test(key)) return false;
+  return true;
+}
+
+/**
+ * Sanitize filename — strip path separators, limit length.
+ */
+function sanitizeFileName(fileName: string): string {
+  // Remove path separators and parent directory refs
+  let safe = fileName.replace(/[/\\]/g, '_').replace(/\.\./g, '');
+  // Limit length
+  if (safe.length > 200) safe = safe.substring(0, 200);
+  // Must have content
+  if (!safe || safe === '_') return '';
+  return safe;
+}
+
+/**
+ * Paginated scan with optional time filter to limit data scanned.
+ * Uses FilterExpression to bound by timestamp when provided.
+ */
+async function scanWithTimeFilter(tableName: string, daysBack?: number): Promise<Record<string, any>[]> {
   const allItems: Record<string, any>[] = [];
   let lastEvaluatedKey: Record<string, any> | undefined;
 
+  // Build filter for time-bounded queries
+  let filterExpression: string | undefined;
+  let expressionValues: Record<string, any> | undefined;
+
+  if (daysBack) {
+    const cutoff = new Date(Date.now() - daysBack * 86400000).toISOString();
+    filterExpression = '#ts >= :cutoff';
+    expressionValues = { ':cutoff': cutoff };
+  }
+
   do {
-    const result = await ddbDocClient.send(new ScanCommand({
+    const params: any = {
       TableName: tableName,
       ExclusiveStartKey: lastEvaluatedKey,
-    }));
+    };
+    if (filterExpression) {
+      params.FilterExpression = filterExpression;
+      params.ExpressionAttributeValues = expressionValues;
+      params.ExpressionAttributeNames = { '#ts': 'timestamp' };
+    }
+    const result = await ddbDocClient.send(new ScanCommand(params));
     allItems.push(...(result.Items || []));
     lastEvaluatedKey = result.LastEvaluatedKey;
   } while (lastEvaluatedKey);
@@ -53,7 +123,7 @@ async function scanAllItems(tableName: string): Promise<Record<string, any>[]> {
 }
 
 /**
- * Query by partition key — efficient for AnalyticsLogs table.
+ * Query by partition key on AnalyticsLogs table.
  */
 async function queryByEventType(eventType: string): Promise<Record<string, any>[]> {
   const allItems: Record<string, any>[] = [];
@@ -73,14 +143,76 @@ async function queryByEventType(eventType: string): Promise<Record<string, any>[
   return allItems;
 }
 
+/**
+ * Shared FAQ aggregation logic — normalizes and groups questions.
+ */
+function aggregateFaq(chatItems: Record<string, any>[]): {
+  question: string; count: number; avgConfidence: number; escalatedCount: number; lastAsked: string;
+}[] {
+  const groups: Record<string, {
+    question: string; count: number; confidenceSum: number; escalatedCount: number; lastAsked: string;
+  }> = {};
+
+  for (const item of chatItems) {
+    const q = (item.question as string || '').trim();
+    if (!q) continue;
+
+    // Normalize: lowercase, collapse whitespace, strip trailing punctuation
+    const key = q.toLowerCase().replace(/\s+/g, ' ').replace(/[?.!]+$/, '');
+    if (!groups[key]) {
+      groups[key] = { question: q, count: 0, confidenceSum: 0, escalatedCount: 0, lastAsked: '' };
+    }
+    groups[key].count++;
+    if (typeof item.confidence === 'number') groups[key].confidenceSum += item.confidence;
+    if (item.escalated) groups[key].escalatedCount++;
+    if (item.timestamp > groups[key].lastAsked) groups[key].lastAsked = item.timestamp;
+  }
+
+  return Object.values(groups)
+    .map(g => ({
+      question: g.question,
+      count: g.count,
+      avgConfidence: g.count > 0 ? Math.round((g.confidenceSum / g.count) * 10000) / 10000 : 0,
+      escalatedCount: g.escalatedCount,
+      lastAsked: g.lastAsked,
+    }))
+    .sort((a, b) => b.count - a.count);
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
-// GET /summary
-// Complete overview metrics computed from ALL records
+// Route Map — explicit method+path dispatch (not order-dependent)
+// ─────────────────────────────────────────────────────────────────────────────
+
+type RouteHandler = (event: APIGatewayProxyEvent) => Promise<APIGatewayProxyResult>;
+
+const routes: Record<string, Record<string, RouteHandler>> = {
+  'GET': {
+    '/dashboard/summary': getSummary,
+    '/dashboard/conversations': getConversations,
+    '/dashboard/faq': getFaq,
+    '/dashboard/faq/all': getFaqAll,
+    '/dashboard/confidence': getConfidence,
+    '/dashboard/escalations': getEscalations,
+    '/dashboard/negative-feedback': getNegativeFeedback,
+    '/dashboard/documents': getDocuments,
+    '/dashboard/documents/download': getDocumentDownloadUrl,
+  },
+  'POST': {
+    '/dashboard/documents/upload': getUploadUrl,
+  },
+  'DELETE': {
+    '/dashboard/documents': deleteDocument,
+  },
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GET /dashboard/summary
 // ─────────────────────────────────────────────────────────────────────────────
 
 async function getSummary(): Promise<APIGatewayProxyResult> {
+  // Use 90-day window to limit scan size
   const [chatItems, escalationItems, docItems] = await Promise.all([
-    scanAllItems(getChatLogsTable()),
+    scanWithTimeFilter(getChatLogsTable(), 90),
     queryByEventType('escalation'),
     queryByEventType('document_processing'),
   ]);
@@ -89,7 +221,6 @@ async function getSummary(): Promise<APIGatewayProxyResult> {
   const uniqueSessions = new Set(chatItems.map(i => i.sessionId)).size;
   const uniqueUsers = new Set(chatItems.map(i => i.userId).filter(Boolean)).size;
 
-  // Confidence — only valid numeric values
   const confidences = chatItems
     .map(i => i.confidence as number)
     .filter(c => typeof c === 'number' && !isNaN(c));
@@ -97,21 +228,16 @@ async function getSummary(): Promise<APIGatewayProxyResult> {
     ? confidences.reduce((s, c) => s + c, 0) / confidences.length
     : 0;
 
-  // Escalation rate
   const totalEscalations = escalationItems.length;
-  const escalationRate = totalChats > 0
-    ? (totalEscalations / totalChats) * 100
-    : 0;
+  const escalationRate = totalChats > 0 ? (totalEscalations / totalChats) * 100 : 0;
 
-  // Feedback (if any items have feedback field)
+  // Feedback metrics — will be 0 until chatbot adds feedback field
   const withFeedback = chatItems.filter(i => i.feedback === 'positive' || i.feedback === 'negative');
   const positiveCount = withFeedback.filter(i => i.feedback === 'positive').length;
   const negativeCount = withFeedback.filter(i => i.feedback === 'negative').length;
-  const satisfactionRate = withFeedback.length > 0
-    ? (positiveCount / withFeedback.length) * 100
-    : 0;
+  const satisfactionRate = withFeedback.length > 0 ? (positiveCount / withFeedback.length) * 100 : 0;
 
-  // Average session length (time between first and last message in a session)
+  // Average session length
   const sessionTimes: Record<string, { first: number; last: number; count: number }> = {};
   for (const item of chatItems) {
     const sid = item.sessionId;
@@ -124,22 +250,16 @@ async function getSummary(): Promise<APIGatewayProxyResult> {
       sessionTimes[sid].count++;
     }
   }
-  const sessionDurations = Object.values(sessionTimes)
-    .filter(s => s.count > 1)
-    .map(s => s.last - s.first);
-  const avgSessionMs = sessionDurations.length > 0
-    ? sessionDurations.reduce((s, d) => s + d, 0) / sessionDurations.length
-    : 0;
-  const avgSessionMinutes = Math.floor(avgSessionMs / 60000);
-  const avgSessionSeconds = Math.floor((avgSessionMs % 60000) / 1000);
+  const durations = Object.values(sessionTimes).filter(s => s.count > 1).map(s => s.last - s.first);
+  const avgMs = durations.length > 0 ? durations.reduce((s, d) => s + d, 0) / durations.length : 0;
 
   return respond(200, {
     totalChats,
     totalSessions: uniqueSessions,
     totalUsers: uniqueUsers,
     avgConfidence: Math.round(avgConfidence * 10000) / 10000,
-    avgSessionLength: `${avgSessionMinutes}m ${avgSessionSeconds}s`,
-    avgSessionMs,
+    avgSessionLength: `${Math.floor(avgMs / 60000)}m ${Math.floor((avgMs % 60000) / 1000)}s`,
+    avgSessionMs: avgMs,
     totalEscalations,
     escalationRate: Math.round(escalationRate * 100) / 100,
     totalDocuments: docItems.length,
@@ -147,41 +267,33 @@ async function getSummary(): Promise<APIGatewayProxyResult> {
     positiveCount,
     negativeCount,
     totalFeedback: withFeedback.length,
+    feedbackNote: withFeedback.length === 0 ? 'Feedback tracking pending chatbot integration' : undefined,
   });
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// GET /conversations?period=day|week|month
-// Conversation volume over time
+// GET /dashboard/conversations?period=day|week|month
 // ─────────────────────────────────────────────────────────────────────────────
 
 async function getConversations(event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> {
   const period = (event.queryStringParameters?.period as 'day' | 'week' | 'month') || 'day';
-  const chatItems = await scanAllItems(getChatLogsTable());
+  const chatItems = await scanWithTimeFilter(getChatLogsTable(), 90);
 
   const counts: Record<string, number> = {};
-
   for (const item of chatItems) {
     const timestamp = item.timestamp as string;
     if (!timestamp) continue;
     const date = new Date(timestamp);
-
     let dateKey: string;
     switch (period) {
-      case 'day':
-        dateKey = timestamp.slice(0, 10);
-        break;
+      case 'day': dateKey = timestamp.slice(0, 10); break;
       case 'week': {
         const day = date.getDay();
         const diff = date.getDate() - day + (day === 0 ? -6 : 1);
-        const monday = new Date(date);
-        monday.setDate(diff);
-        dateKey = monday.toISOString().slice(0, 10);
-        break;
+        const mon = new Date(date); mon.setDate(diff);
+        dateKey = mon.toISOString().slice(0, 10); break;
       }
-      case 'month':
-        dateKey = timestamp.slice(0, 7);
-        break;
+      case 'month': dateKey = timestamp.slice(0, 7); break;
     }
     counts[dateKey] = (counts[dateKey] || 0) + 1;
   }
@@ -194,65 +306,37 @@ async function getConversations(event: APIGatewayProxyEvent): Promise<APIGateway
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// GET /faq?limit=20
-// Frequently asked questions — grouped and ranked by occurrence
+// GET /dashboard/faq?limit=5
 // ─────────────────────────────────────────────────────────────────────────────
 
 async function getFaq(event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> {
-  const limit = parseInt(event.queryStringParameters?.limit || '20', 10);
-  const chatItems = await scanAllItems(getChatLogsTable());
-
-  // Normalize and group questions
-  const groups: Record<string, {
-    question: string;
-    count: number;
-    confidenceSum: number;
-    escalatedCount: number;
-    lastAsked: string;
-  }> = {};
-
-  for (const item of chatItems) {
-    const q = (item.question as string || '').trim();
-    if (!q) continue;
-
-    const key = q.toLowerCase();
-    if (!groups[key]) {
-      groups[key] = { question: q, count: 0, confidenceSum: 0, escalatedCount: 0, lastAsked: '' };
-    }
-    groups[key].count++;
-    if (typeof item.confidence === 'number') groups[key].confidenceSum += item.confidence;
-    if (item.escalated) groups[key].escalatedCount++;
-    if (item.timestamp > groups[key].lastAsked) groups[key].lastAsked = item.timestamp;
-  }
-
-  const faqList = Object.values(groups)
-    .map(g => ({
-      question: g.question,
-      count: g.count,
-      avgConfidence: g.count > 0 ? Math.round((g.confidenceSum / g.count) * 10000) / 10000 : 0,
-      escalatedCount: g.escalatedCount,
-      lastAsked: g.lastAsked,
-    }))
-    .sort((a, b) => b.count - a.count)
-    .slice(0, limit);
-
-  return respond(200, { faq: faqList, totalUnique: Object.keys(groups).length });
+  const limit = Math.min(parseInt(event.queryStringParameters?.limit || '5', 10), 100);
+  const chatItems = await scanWithTimeFilter(getChatLogsTable(), 30);
+  const allFaq = aggregateFaq(chatItems);
+  return respond(200, { faq: allFaq.slice(0, limit), totalUnique: allFaq.length });
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// GET /confidence?period=day|week|month
-// Confidence score distribution and trends
+// GET /dashboard/faq/all?limit=30&offset=0
+// ─────────────────────────────────────────────────────────────────────────────
+
+async function getFaqAll(event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> {
+  const limit = Math.min(parseInt(event.queryStringParameters?.limit || '30', 10), 100);
+  const offset = parseInt(event.queryStringParameters?.offset || '0', 10);
+  const chatItems = await scanWithTimeFilter(getChatLogsTable(), 90);
+  const allFaq = aggregateFaq(chatItems);
+  return respond(200, { faq: allFaq.slice(offset, offset + limit), total: allFaq.length, offset, limit });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GET /dashboard/confidence?period=day|week|month
 // ─────────────────────────────────────────────────────────────────────────────
 
 async function getConfidence(event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> {
   const period = (event.queryStringParameters?.period as 'day' | 'week' | 'month') || 'day';
-  const chatItems = await scanAllItems(getChatLogsTable());
+  const chatItems = await scanWithTimeFilter(getChatLogsTable(), 90);
+  const validItems = chatItems.filter(i => typeof i.confidence === 'number' && !isNaN(i.confidence));
 
-  const validItems = chatItems.filter(
-    i => typeof i.confidence === 'number' && !isNaN(i.confidence)
-  );
-
-  // Distribution buckets
   const distribution = { veryLow: 0, low: 0, medium: 0, high: 0, veryHigh: 0 };
   for (const item of validItems) {
     const c = item.confidence as number;
@@ -263,7 +347,6 @@ async function getConfidence(event: APIGatewayProxyEvent): Promise<APIGatewayPro
     else distribution.veryHigh++;
   }
 
-  // Trend over time
   const trend: Record<string, { sum: number; count: number }> = {};
   for (const item of validItems) {
     const ts = item.timestamp as string;
@@ -287,20 +370,14 @@ async function getConfidence(event: APIGatewayProxyEvent): Promise<APIGatewayPro
 
   const trendData = Object.entries(trend)
     .sort(([a], [b]) => a.localeCompare(b))
-    .map(([date, d]) => ({
-      date,
-      avgConfidence: Math.round((d.sum / d.count) * 10000) / 10000,
-      count: d.count,
-    }));
+    .map(([date, d]) => ({ date, avgConfidence: Math.round((d.sum / d.count) * 10000) / 10000, count: d.count }));
 
-  // Stats
   const all = validItems.map(i => i.confidence as number);
   const sorted = [...all].sort((a, b) => a - b);
   const avg = all.length > 0 ? all.reduce((s, c) => s + c, 0) / all.length : 0;
 
   return respond(200, {
-    distribution,
-    trend: trendData,
+    distribution, trend: trendData,
     stats: {
       total: all.length,
       average: Math.round(avg * 10000) / 10000,
@@ -312,48 +389,39 @@ async function getConfidence(event: APIGatewayProxyEvent): Promise<APIGatewayPro
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// GET /escalations
-// All escalation events with details
+// GET /dashboard/escalations
 // ─────────────────────────────────────────────────────────────────────────────
 
 async function getEscalations(): Promise<APIGatewayProxyResult> {
   const items = await queryByEventType('escalation');
-
-  // Group by reason
-  const grouped: Record<string, { count: number; lastOccurred: string; avgConfidence: number; confSum: number }> = {};
+  const grouped: Record<string, { count: number; lastOccurred: string; confSum: number }> = {};
   for (const item of items) {
     const reason = (item.reason as string) || (item.metadata?.reason as string) || 'unknown';
     const ts = item.timestamp as string;
     const conf = (item.metadata?.confidence as number) || 0;
-
-    if (!grouped[reason]) grouped[reason] = { count: 0, lastOccurred: '', avgConfidence: 0, confSum: 0 };
+    if (!grouped[reason]) grouped[reason] = { count: 0, lastOccurred: '', confSum: 0 };
     grouped[reason].count++;
     grouped[reason].confSum += conf;
     if (ts > grouped[reason].lastOccurred) grouped[reason].lastOccurred = ts;
   }
-
   const escalations = Object.entries(grouped)
     .map(([reason, d]) => ({
-      reason,
-      count: d.count,
-      lastOccurred: d.lastOccurred,
+      reason, count: d.count, lastOccurred: d.lastOccurred,
       avgConfidence: d.count > 0 ? Math.round((d.confSum / d.count) * 10000) / 10000 : 0,
     }))
     .sort((a, b) => b.count - a.count);
-
   return respond(200, { escalations, total: items.length });
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// GET /negative-feedback?limit=50&offset=0
-// Conversations that received negative feedback — for admin review
+// GET /dashboard/negative-feedback?limit=50&offset=0
+// NOTE: Will return empty until chatbot adds feedback field to ChatLogs
 // ─────────────────────────────────────────────────────────────────────────────
 
 async function getNegativeFeedback(event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> {
-  const limit = parseInt(event.queryStringParameters?.limit || '50', 10);
+  const limit = Math.min(parseInt(event.queryStringParameters?.limit || '50', 10), 200);
   const offset = parseInt(event.queryStringParameters?.offset || '0', 10);
-
-  const chatItems = await scanAllItems(getChatLogsTable());
+  const chatItems = await scanWithTimeFilter(getChatLogsTable(), 90);
 
   const negativeItems = chatItems
     .filter(i => i.feedback === 'negative')
@@ -362,29 +430,29 @@ async function getNegativeFeedback(event: APIGatewayProxyEvent): Promise<APIGate
   const total = negativeItems.length;
   const paginated = negativeItems.slice(offset, offset + limit);
 
-  const conversations = paginated.map(item => ({
-    sessionId: item.sessionId,
-    timestamp: item.timestamp,
-    userId: item.userId,
-    question: item.question,
-    answer: item.answer,
-    confidence: typeof item.confidence === 'number' ? Math.round(item.confidence * 10000) / 10000 : 0,
-    sources: item.sources || [],
-    escalated: item.escalated || false,
-  }));
-
-  return respond(200, { total, offset, limit, conversations });
+  return respond(200, {
+    total, offset, limit,
+    conversations: paginated.map(item => ({
+      sessionId: item.sessionId,
+      timestamp: item.timestamp,
+      userId: item.userId,
+      question: item.question,
+      answer: item.answer,
+      confidence: typeof item.confidence === 'number' ? Math.round(item.confidence * 10000) / 10000 : 0,
+      sources: item.sources || [],
+      escalated: item.escalated || false,
+    })),
+    note: total === 0 ? 'Feedback tracking pending chatbot integration — no feedback data exists yet' : undefined,
+  });
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// GET /documents
-// Document processing history — fetches actual files from S3
+// GET /dashboard/documents — list files from S3
 // ─────────────────────────────────────────────────────────────────────────────
 
 async function getDocuments(): Promise<APIGatewayProxyResult> {
-  // List actual files in the document store S3 bucket
   const listResult = await s3Client.send(new ListObjectsV2Command({
-    Bucket: DOCUMENT_BUCKET,
+    Bucket: getDocumentBucket(),
     Prefix: 'uploads/',
   }));
 
@@ -402,106 +470,82 @@ async function getDocuments(): Promise<APIGatewayProxyResult> {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// GET /documents/download?key=uploads/filename.pdf
-// Generate a pre-signed download URL for a document
+// GET /dashboard/documents/download?key=uploads/filename.pdf
 // ─────────────────────────────────────────────────────────────────────────────
 
 async function getDocumentDownloadUrl(event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> {
   const key = event.queryStringParameters?.key;
   if (!key) return respond(400, { message: 'key parameter is required' });
 
+  // Security: validate key is within uploads/ prefix, no path traversal
+  if (!validateS3Key(key, 'uploads/')) {
+    return respond(403, { message: 'Invalid document key' });
+  }
+
   const url = await getSignedUrl(s3Client, new GetObjectCommand({
-    Bucket: DOCUMENT_BUCKET,
+    Bucket: getDocumentBucket(),
     Key: key,
-  }), { expiresIn: 300 }); // 5 min expiry
-
-  return respond(200, { url, key });
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// DELETE /documents?key=uploads/filename.pdf
-// Delete a document from S3
-// ─────────────────────────────────────────────────────────────────────────────
-
-async function deleteDocument(event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> {
-  const key = event.queryStringParameters?.key;
-  if (!key) return respond(400, { message: 'key parameter is required' });
-
-  await s3Client.send(new DeleteObjectCommand({
-    Bucket: DOCUMENT_BUCKET,
-    Key: key,
-  }));
-
-  // Also try to delete from KB bucket
-  const kbKey = `documents/${key.replace('uploads/', '')}`;
-  try {
-    await s3Client.send(new DeleteObjectCommand({ Bucket: KB_BUCKET, Key: kbKey }));
-  } catch { /* ignore if not in KB bucket */ }
-
-  return respond(200, { status: 'deleted', key });
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// POST /documents/upload
-// Generate a pre-signed upload URL for a new document
-// ─────────────────────────────────────────────────────────────────────────────
-
-async function getUploadUrl(event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> {
-  const body = JSON.parse(event.body || '{}');
-  const { fileName, contentType } = body;
-  if (!fileName) return respond(400, { message: 'fileName is required' });
-
-  const key = `uploads/${fileName}`;
-  const url = await getSignedUrl(s3Client, new PutObjectCommand({
-    Bucket: DOCUMENT_BUCKET,
-    Key: key,
-    ContentType: contentType || 'application/pdf',
   }), { expiresIn: 300 });
 
   return respond(200, { url, key });
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// GET /faq/all?limit=30&offset=0
-// Full paginated FAQ list for "View All" popup
+// DELETE /dashboard/documents?key=uploads/filename.pdf
 // ─────────────────────────────────────────────────────────────────────────────
 
-async function getFaqAll(event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> {
-  const limit = parseInt(event.queryStringParameters?.limit || '30', 10);
-  const offset = parseInt(event.queryStringParameters?.offset || '0', 10);
-  const chatItems = await scanAllItems(getChatLogsTable());
+async function deleteDocument(event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> {
+  const key = event.queryStringParameters?.key;
+  if (!key) return respond(400, { message: 'key parameter is required' });
 
-  const groups: Record<string, {
-    question: string; count: number; confidenceSum: number; escalatedCount: number; lastAsked: string;
-  }> = {};
-
-  for (const item of chatItems) {
-    const q = (item.question as string || '').trim();
-    if (!q) continue;
-    const key = q.toLowerCase();
-    if (!groups[key]) {
-      groups[key] = { question: q, count: 0, confidenceSum: 0, escalatedCount: 0, lastAsked: '' };
-    }
-    groups[key].count++;
-    if (typeof item.confidence === 'number') groups[key].confidenceSum += item.confidence;
-    if (item.escalated) groups[key].escalatedCount++;
-    if (item.timestamp > groups[key].lastAsked) groups[key].lastAsked = item.timestamp;
+  if (!validateS3Key(key, 'uploads/')) {
+    return respond(403, { message: 'Invalid document key' });
   }
 
-  const allFaq = Object.values(groups)
-    .map(g => ({
-      question: g.question,
-      count: g.count,
-      avgConfidence: g.count > 0 ? Math.round((g.confidenceSum / g.count) * 10000) / 10000 : 0,
-      escalatedCount: g.escalatedCount,
-      lastAsked: g.lastAsked,
-    }))
-    .sort((a, b) => b.count - a.count);
+  await s3Client.send(new DeleteObjectCommand({ Bucket: getDocumentBucket(), Key: key }));
 
-  const total = allFaq.length;
-  const paginated = allFaq.slice(offset, offset + limit);
+  // Also remove from KB bucket
+  const kbKey = `documents/${key.replace('uploads/', '')}`;
+  try {
+    await s3Client.send(new DeleteObjectCommand({ Bucket: getKbBucket(), Key: kbKey }));
+  } catch (err) {
+    // Not critical if KB copy doesn't exist
+    console.log('KB bucket delete skipped:', kbKey);
+  }
 
-  return respond(200, { faq: paginated, total, offset, limit });
+  return respond(200, { status: 'deleted', key });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /dashboard/documents/upload
+// ─────────────────────────────────────────────────────────────────────────────
+
+async function getUploadUrl(event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> {
+  const body = JSON.parse(event.body || '{}');
+  const { fileName, contentType } = body;
+
+  if (!fileName) return respond(400, { message: 'fileName is required' });
+
+  // Sanitize filename
+  const safeName = sanitizeFileName(fileName);
+  if (!safeName) return respond(400, { message: 'Invalid fileName' });
+
+  // Validate content type
+  const ct = contentType || 'application/pdf';
+  if (!ALLOWED_CONTENT_TYPES.includes(ct)) {
+    return respond(400, { message: `Content type not allowed. Allowed: ${ALLOWED_CONTENT_TYPES.join(', ')}` });
+  }
+
+  const key = `uploads/${safeName}`;
+
+  const url = await getSignedUrl(s3Client, new PutObjectCommand({
+    Bucket: getDocumentBucket(),
+    Key: key,
+    ContentType: ct,
+    ContentLength: MAX_FILE_SIZE_BYTES, // Server-side size limit
+  }), { expiresIn: 300 });
+
+  return respond(200, { url, key, maxSizeBytes: MAX_FILE_SIZE_BYTES });
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -512,30 +556,31 @@ export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayPr
   console.log('Dashboard API:', event.httpMethod, event.path);
 
   if (event.httpMethod === 'OPTIONS') {
-    return respond(200, {});
+    return respond(204, '');
   }
 
-  // TODO: Add Cognito auth validation here when ready
-  // For now, open access during development
+  // Auth validation — check admin group membership
+  const authError = validateAdmin(event);
+  if (authError) return authError;
 
+  // Route dispatch — explicit method + path map
+  const method = event.httpMethod;
   const path = event.path;
 
-  try {
-    if (path.endsWith('/summary')) return await getSummary();
-    if (path.endsWith('/conversations')) return await getConversations(event);
-    if (path.endsWith('/faq/all')) return await getFaqAll(event);
-    if (path.endsWith('/faq')) return await getFaq(event);
-    if (path.endsWith('/confidence')) return await getConfidence(event);
-    if (path.endsWith('/escalations')) return await getEscalations();
-    if (path.endsWith('/negative-feedback')) return await getNegativeFeedback(event);
-    if (path.endsWith('/documents/download')) return await getDocumentDownloadUrl(event);
-    if (path.endsWith('/documents/upload') && event.httpMethod === 'POST') return await getUploadUrl(event);
-    if (path.endsWith('/documents') && event.httpMethod === 'DELETE') return await deleteDocument(event);
-    if (path.endsWith('/documents')) return await getDocuments();
+  const methodRoutes = routes[method];
+  if (!methodRoutes) {
+    return respond(405, { message: `Method not allowed: ${method}` });
+  }
 
-    return respond(404, { message: `Route not found: ${path}` });
+  const handler = methodRoutes[path];
+  if (!handler) {
+    return respond(404, { message: `Route not found: ${method} ${path}` });
+  }
+
+  try {
+    return await handler(event);
   } catch (error) {
     console.error('Dashboard API error:', error);
-    return respond(500, { message: error instanceof Error ? error.message : 'Internal error' });
+    return respond(500, { message: 'Internal server error' });
   }
 };

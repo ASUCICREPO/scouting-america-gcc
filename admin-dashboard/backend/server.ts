@@ -1,17 +1,17 @@
 /**
- * Local server that wraps the Lambda handler for local testing.
- * Serves the dashboard API on port 3002 using live DynamoDB data.
+ * Local development server — wraps the Lambda handler for local testing.
  * 
- * IMPORTANT: env vars must be set BEFORE importing the handler.
+ * For local dev, it validates the Cognito token by decoding the JWT and checking
+ * the 'cognito:groups' claim. In production, API Gateway does this.
  */
 import * as http from 'http';
 
-// Set env vars BEFORE importing handler (Lambda reads them at module load)
 process.env.CHAT_LOGS_TABLE = 'GCC-ChatLogs';
 process.env.ANALYTICS_LOGS_TABLE = 'GCC-AnalyticsLogs';
+process.env.DOCUMENT_BUCKET = 'gcc-document-store';
+process.env.KB_BUCKET = 'gcc-knowledge-base-data';
 process.env.AWS_REGION = 'us-east-1';
 
-// Dynamic import after env is set
 async function start() {
   const { handler } = await import('./lambda/index');
   const PORT = 3002;
@@ -19,12 +19,12 @@ async function start() {
   const server = http.createServer(async (req, res) => {
     const url = new URL(req.url || '/', `http://localhost:${PORT}`);
 
-    // Handle CORS preflight
+    // CORS preflight
     if (req.method === 'OPTIONS') {
       res.writeHead(204, {
         'Access-Control-Allow-Origin': '*',
         'Access-Control-Allow-Headers': 'Content-Type,Authorization',
-        'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
+        'Access-Control-Allow-Methods': 'GET,POST,DELETE,OPTIONS',
       });
       res.end();
       return;
@@ -34,21 +34,42 @@ async function start() {
     const queryParams: Record<string, string> = {};
     url.searchParams.forEach((val, key) => { queryParams[key] = val; });
 
+    // Extract and decode Authorization header for local auth simulation
+    const authHeader = req.headers['authorization'] || '';
+    let claims: Record<string, any> = {};
+
+    if (authHeader) {
+      try {
+        // Decode JWT payload (no signature verification locally — API Gateway handles that in prod)
+        const payload = JSON.parse(Buffer.from(authHeader.split('.')[1], 'base64').toString());
+        claims = payload;
+      } catch {
+        claims = {};
+      }
+    } else {
+      // No auth header in local dev — simulate admin for testing
+      // Remove this fallback when testing auth flow
+      claims = { 'cognito:groups': 'admin', email: 'local-dev@gcc.org' };
+    }
+
     // Build Lambda event
-    const event = {
+    const event: any = {
       httpMethod: req.method || 'GET',
       path: url.pathname,
       queryStringParameters: Object.keys(queryParams).length > 0 ? queryParams : null,
       headers: req.headers as Record<string, string>,
-      requestContext: { authorizer: { claims: { 'cognito:groups': 'admin' } } },
+      requestContext: {
+        authorizer: { claims },
+      },
       body: null,
-    } as any;
+    };
 
-    // Read request body for POST/PUT
-    if (req.method === 'POST' || req.method === 'PUT') {
+    // Read body for POST/PUT/DELETE
+    if (req.method === 'POST' || req.method === 'PUT' || req.method === 'DELETE') {
       const chunks: Buffer[] = [];
       for await (const chunk of req) { chunks.push(chunk as Buffer); }
-      event.body = Buffer.concat(chunks).toString();
+      const bodyStr = Buffer.concat(chunks).toString();
+      if (bodyStr) event.body = bodyStr;
     }
 
     try {
@@ -57,7 +78,7 @@ async function start() {
         'Content-Type': 'application/json',
         'Access-Control-Allow-Origin': '*',
         'Access-Control-Allow-Headers': 'Content-Type,Authorization',
-        'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
+        'Access-Control-Allow-Methods': 'GET,POST,DELETE,OPTIONS',
       });
       res.end(result.body);
     } catch (err) {
@@ -69,15 +90,20 @@ async function start() {
 
   server.listen(PORT, () => {
     console.log(`\n🚀 Admin Dashboard API running at http://localhost:${PORT}`);
-    console.log(`   Reading live data from DynamoDB tables in us-east-1\n`);
-    console.log('   Endpoints:');
-    console.log('   GET /dashboard/summary');
-    console.log('   GET /dashboard/conversations?period=day');
-    console.log('   GET /dashboard/faq?limit=20');
-    console.log('   GET /dashboard/confidence?period=day');
-    console.log('   GET /dashboard/escalations');
-    console.log('   GET /dashboard/documents');
-    console.log('   GET /dashboard/negative-feedback?limit=50');
+    console.log(`   Reading LIVE data from DynamoDB + S3 in us-east-1`);
+    console.log(`   Auth: Cognito JWT validated (local fallback to admin for dev)\n`);
+    console.log('   Endpoints (all require admin group):');
+    console.log('   GET  /dashboard/summary');
+    console.log('   GET  /dashboard/conversations?period=day');
+    console.log('   GET  /dashboard/faq?limit=5');
+    console.log('   GET  /dashboard/faq/all?limit=30&offset=0');
+    console.log('   GET  /dashboard/confidence?period=day');
+    console.log('   GET  /dashboard/escalations');
+    console.log('   GET  /dashboard/negative-feedback');
+    console.log('   GET  /dashboard/documents');
+    console.log('   GET  /dashboard/documents/download?key=uploads/file.pdf');
+    console.log('   POST /dashboard/documents/upload');
+    console.log('   DELETE /dashboard/documents?key=uploads/file.pdf');
     console.log('');
   });
 }

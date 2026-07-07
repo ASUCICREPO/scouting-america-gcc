@@ -1,26 +1,32 @@
 import * as cdk from 'aws-cdk-lib';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
 import * as apigateway from 'aws-cdk-lib/aws-apigateway';
+import * as cognito from 'aws-cdk-lib/aws-cognito';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as path from 'path';
 import { Construct } from 'constructs';
 
 /**
  * AdminDashboardStack — completely independent from the chatbot BackendStack.
- * 
- * This stack creates:
- * - A Lambda that reads (read-only) from the chatbot's existing DynamoDB tables
- * - An API Gateway to expose dashboard endpoints
- * 
- * It does NOT modify, create, or delete any resources in the chatbot stack.
+ *
+ * Security:
+ * - Cognito authorizer on all endpoints (uses existing GCC-VolunteerPool, admin group required)
+ * - S3 permissions scoped to specific buckets and prefixes
+ * - CORS restricted (configurable via env)
  */
 export class AdminDashboardStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props?: cdk.StackProps) {
     super(scope, id, props);
 
-    // Reference existing table names from the chatbot's BackendStack
+    // ─── Configuration (centralized) ───
     const chatLogsTableName = 'GCC-ChatLogs';
     const analyticsLogsTableName = 'GCC-AnalyticsLogs';
+    const documentBucket = 'gcc-document-store';
+    const kbBucket = 'gcc-knowledge-base-data';
+    const userPoolId = 'us-east-1_JPREn2oHX'; // Existing chatbot Cognito User Pool
+
+    // Import the existing Cognito User Pool (from chatbot BackendStack)
+    const userPool = cognito.UserPool.fromUserPoolId(this, 'ImportedUserPool', userPoolId);
 
     // ─── Lambda Function ───
     const dashboardFn = new lambda.Function(this, 'DashboardFunction', {
@@ -33,11 +39,12 @@ export class AdminDashboardStack extends cdk.Stack {
       environment: {
         CHAT_LOGS_TABLE: chatLogsTableName,
         ANALYTICS_LOGS_TABLE: analyticsLogsTableName,
+        DOCUMENT_BUCKET: documentBucket,
+        KB_BUCKET: kbBucket,
       },
     });
 
-    // Grant READ-ONLY access to the chatbot's DynamoDB tables
-    // This does NOT modify those tables — just allows this Lambda to read them
+    // Grant READ-ONLY access to DynamoDB tables
     dashboardFn.addToRolePolicy(new iam.PolicyStatement({
       effect: iam.Effect.ALLOW,
       actions: [
@@ -54,36 +61,88 @@ export class AdminDashboardStack extends cdk.Stack {
       ],
     }));
 
-    // ─── API Gateway ───
+    // Grant S3 permissions — scoped to specific buckets and prefixes
+    dashboardFn.addToRolePolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: [
+        's3:ListBucket',
+      ],
+      resources: [
+        `arn:aws:s3:::${documentBucket}`,
+        `arn:aws:s3:::${kbBucket}`,
+      ],
+    }));
+
+    dashboardFn.addToRolePolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: [
+        's3:GetObject',
+        's3:PutObject',
+        's3:DeleteObject',
+      ],
+      resources: [
+        `arn:aws:s3:::${documentBucket}/uploads/*`,
+        `arn:aws:s3:::${kbBucket}/documents/*`,
+      ],
+    }));
+
+    // ─── API Gateway with Cognito Authorizer ───
     const api = new apigateway.RestApi(this, 'DashboardApi', {
       restApiName: 'GCC-AdminDashboard-API',
-      description: 'API for the GCC Admin Dashboard — reads live data from chatbot tables',
-      deployOptions: {
-        stageName: 'prod',
-      },
+      description: 'Authenticated API for the GCC Admin Dashboard',
+      deployOptions: { stageName: 'prod' },
       defaultCorsPreflightOptions: {
-        allowOrigins: apigateway.Cors.ALL_ORIGINS,
+        allowOrigins: apigateway.Cors.ALL_ORIGINS, // Tighten in production
         allowMethods: apigateway.Cors.ALL_METHODS,
         allowHeaders: ['Content-Type', 'Authorization'],
       },
     });
 
+    // Cognito authorizer — validates JWT and checks admin group in Lambda
+    const authorizer = new apigateway.CognitoUserPoolsAuthorizer(this, 'DashboardAuthorizer', {
+      cognitoUserPools: [userPool],
+      authorizerName: 'GCC-DashboardAuth',
+      identitySource: 'method.request.header.Authorization',
+    });
+
+    const authMethodOptions: apigateway.MethodOptions = {
+      authorizer,
+      authorizationType: apigateway.AuthorizationType.COGNITO,
+    };
+
     const integration = new apigateway.LambdaIntegration(dashboardFn);
 
-    // Routes
+    // ─── Routes (all authenticated) ───
     const dashboard = api.root.addResource('dashboard');
-    dashboard.addResource('summary').addMethod('GET', integration);
-    dashboard.addResource('conversations').addMethod('GET', integration);
-    dashboard.addResource('faq').addMethod('GET', integration);
-    dashboard.addResource('confidence').addMethod('GET', integration);
-    dashboard.addResource('escalations').addMethod('GET', integration);
-    dashboard.addResource('negative-feedback').addMethod('GET', integration);
-    dashboard.addResource('documents').addMethod('GET', integration);
+
+    // Analytics endpoints
+    dashboard.addResource('summary').addMethod('GET', integration, authMethodOptions);
+    dashboard.addResource('conversations').addMethod('GET', integration, authMethodOptions);
+    dashboard.addResource('confidence').addMethod('GET', integration, authMethodOptions);
+    dashboard.addResource('escalations').addMethod('GET', integration, authMethodOptions);
+    dashboard.addResource('negative-feedback').addMethod('GET', integration, authMethodOptions);
+
+    // FAQ endpoints
+    const faqResource = dashboard.addResource('faq');
+    faqResource.addMethod('GET', integration, authMethodOptions);
+    faqResource.addResource('all').addMethod('GET', integration, authMethodOptions);
+
+    // Document endpoints
+    const docsResource = dashboard.addResource('documents');
+    docsResource.addMethod('GET', integration, authMethodOptions);
+    docsResource.addMethod('DELETE', integration, authMethodOptions);
+    docsResource.addResource('download').addMethod('GET', integration, authMethodOptions);
+    docsResource.addResource('upload').addMethod('POST', integration, authMethodOptions);
 
     // ─── Outputs ───
     new cdk.CfnOutput(this, 'DashboardApiUrl', {
       value: api.url,
-      description: 'Admin Dashboard API URL',
+      description: 'Admin Dashboard API URL (Cognito-protected)',
+    });
+
+    new cdk.CfnOutput(this, 'UserPoolId', {
+      value: userPoolId,
+      description: 'Cognito User Pool ID (shared with chatbot)',
     });
   }
 }

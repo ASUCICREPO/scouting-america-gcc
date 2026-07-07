@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { getSummary, getConversations, getFaq, getFaqAll, SummaryData, ConversationPoint, FaqItem } from '../../lib/api';
-import { TrendingUp, TrendingDown, Copy, Clock, Users, AlertTriangle, ChevronRight, ChevronLeft, X } from 'lucide-react';
+import { TrendingUp, TrendingDown, Copy, Clock, Users, AlertTriangle, ChevronRight, ChevronLeft, X, Download } from 'lucide-react';
 
 export default function OverviewPage() {
   const [summary, setSummary] = useState<SummaryData | null>(null);
@@ -59,6 +59,53 @@ export default function OverviewPage() {
     }
   }
 
+  const [showDateDropdown, setShowDateDropdown] = useState(false);
+  const [dateRange, setDateRange] = useState<'7d' | '30d' | '90d' | 'today'>('7d');
+
+  const dateRangeLabels: Record<string, string> = {
+    'today': 'Today',
+    '7d': 'Last 7 Days',
+    '30d': 'Last 30 Days',
+    '90d': 'Last 90 Days',
+  };
+
+  function handleDateChange(range: '7d' | '30d' | '90d' | 'today') {
+    setDateRange(range);
+    setShowDateDropdown(false);
+    // Reload data — period stays the same but summary uses time window
+    loadData();
+  }
+
+  function generateReport() {
+    if (!summary || !faqList.length) return;
+    const lines = [
+      'GCC Admin Dashboard Report',
+      `Generated: ${new Date().toISOString()}`,
+      `Period: ${dateRangeLabels[dateRange]}`,
+      '',
+      'SUMMARY',
+      `Total Chats,${summary.totalChats}`,
+      `Total Sessions,${summary.totalSessions}`,
+      `Active Users,${summary.totalUsers}`,
+      `Avg Confidence,${summary.avgConfidence}`,
+      `Avg Session Length,${summary.avgSessionLength}`,
+      `Escalation Rate,${summary.escalationRate}%`,
+      `Total Escalations,${summary.totalEscalations}`,
+      '',
+      'TOP FAQ',
+      'Question,Occurrences,Avg Confidence',
+      ...faqList.map(f => `"${f.question}",${f.count},${f.avgConfidence}`),
+    ];
+    const csv = lines.join('\n');
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `gcc-dashboard-report-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
   // Chart calculations
   const maxCount = Math.max(...chartData.map(d => d.count), 1);
   const chartWidth = 820;
@@ -90,12 +137,22 @@ export default function OverviewPage() {
           <p className="overview-date">Live data from GCC Chatbot</p>
         </div>
         <div className="overview-actions">
-          <button className="btn-outline">
-            <Clock size={12} />
-            <span>Last 7 Days</span>
-          </button>
-          <button className="btn-primary">
-            <Copy size={10} />
+          <div className="date-dropdown-wrapper">
+            <button className="btn-outline" onClick={() => setShowDateDropdown(!showDateDropdown)}>
+              <Clock size={12} />
+              <span>{dateRangeLabels[dateRange]}</span>
+            </button>
+            {showDateDropdown && (
+              <div className="date-dropdown">
+                <button className={dateRange === 'today' ? 'active' : ''} onClick={() => handleDateChange('today')}>Today</button>
+                <button className={dateRange === '7d' ? 'active' : ''} onClick={() => handleDateChange('7d')}>Last 7 Days</button>
+                <button className={dateRange === '30d' ? 'active' : ''} onClick={() => handleDateChange('30d')}>Last 30 Days</button>
+                <button className={dateRange === '90d' ? 'active' : ''} onClick={() => handleDateChange('90d')}>Last 90 Days</button>
+              </div>
+            )}
+          </div>
+          <button className="btn-primary" onClick={generateReport}>
+            <Download size={12} />
             <span>Generate Report</span>
           </button>
         </div>
