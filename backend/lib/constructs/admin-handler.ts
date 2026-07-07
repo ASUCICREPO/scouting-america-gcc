@@ -1,6 +1,7 @@
 import * as path from 'path';
 import * as cdk from 'aws-cdk-lib';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
+import * as nodejs from 'aws-cdk-lib/aws-lambda-nodejs';
 import * as apigateway from 'aws-cdk-lib/aws-apigateway';
 import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as cognito from 'aws-cdk-lib/aws-cognito';
@@ -27,16 +28,20 @@ export class AdminHandler extends Construct {
     // ---------------------------------------------------------------
     // Lambda Function
     // ---------------------------------------------------------------
-    this.lambdaFunction = new lambda.Function(this, 'AdminHandlerFunction', {
+    this.lambdaFunction = new nodejs.NodejsFunction(this, 'AdminHandlerFunction', {
       runtime: lambda.Runtime.NODEJS_20_X,
-      handler: 'index.handler',
-      code: lambda.Code.fromAsset(path.join(__dirname, '../../lambda/admin-handler')),
+      entry: path.join(__dirname, '../../lambda/admin-handler/index.ts'),
+      handler: 'handler',
       timeout: cdk.Duration.seconds(30),
       memorySize: 256,
       environment: {
         DOCUMENT_STORE_BUCKET: documentStoreBucket.bucketName,
         KNOWLEDGE_BASE_BUCKET: knowledgeBaseBucket.bucketName,
         GUARDRAILS_SECRET_ARN: guardrailsSecret.secretArn,
+      },
+      bundling: {
+        minify: true,
+        sourceMap: true,
       },
     });
 

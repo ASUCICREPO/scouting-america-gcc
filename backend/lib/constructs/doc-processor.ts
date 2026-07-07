@@ -1,6 +1,7 @@
 import * as path from 'path';
 import * as cdk from 'aws-cdk-lib';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
+import * as nodejs from 'aws-cdk-lib/aws-lambda-nodejs';
 import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
 import * as iam from 'aws-cdk-lib/aws-iam';
@@ -26,10 +27,10 @@ export class DocProcessor extends Construct {
   constructor(scope: Construct, id: string, props: DocProcessorProps) {
     super(scope, id);
 
-    this.function = new lambda.Function(this, 'DocProcessorFunction', {
+    this.function = new nodejs.NodejsFunction(this, 'DocProcessorFunction', {
       runtime: lambda.Runtime.NODEJS_20_X,
-      handler: 'index.handler',
-      code: lambda.Code.fromAsset(path.join(__dirname, '../../lambda/doc-processor')),
+      entry: path.join(__dirname, '../../lambda/doc-processor/index.ts'),
+      handler: 'handler',
       timeout: cdk.Duration.minutes(5),
       memorySize: 512,
       environment: {
@@ -39,6 +40,10 @@ export class DocProcessor extends Construct {
         DATA_SOURCE_ID: props.dataSourceId,
       },
       description: 'Copies uploaded documents to KB bucket and triggers Bedrock ingestion',
+      bundling: {
+        minify: true,
+        sourceMap: true,
+      },
     });
 
     // Grant read access to the document store bucket
