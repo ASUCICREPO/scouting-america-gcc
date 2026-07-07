@@ -24,13 +24,13 @@ export class KnowledgeBase extends Construct {
     // S3 Vectors: ~90% cost reduction vs OpenSearch Serverless ($700+/mo minimum)
     // Pay-per-query with no idle cost — ideal for a nonprofit with ~3,000 volunteers
     const vectorBucket = new s3vectors.CfnVectorBucket(this, 'VectorBucket', {
-      vectorBucketName: 'gcc-volunteer-vectors',
+      vectorBucketName: CONFIG.VECTOR_BUCKET,
     });
 
     // Vector index — Titan Text Embeddings v2 outputs 1024 dimensions
     const vectorIndex = new s3vectors.CfnIndex(this, 'VectorIndex', {
       vectorBucketName: vectorBucket.vectorBucketName!,
-      indexName: 'gcc-docs-index',
+      indexName: CONFIG.VECTOR_INDEX,
       dimension: 1024,
       distanceMetric: 'cosine',
       dataType: 'float32',
@@ -48,7 +48,7 @@ export class KnowledgeBase extends Construct {
 
     // IAM role that Bedrock KB uses to read source docs and access S3 Vectors
     const kbRole = new iam.Role(this, 'KBRole', {
-      roleName: 'GCC-BedrockKB-Role',
+      roleName: CONFIG.KB_ROLE_NAME,
       assumedBy: new iam.ServicePrincipal('bedrock.amazonaws.com'),
       description: 'Allows Bedrock KB to access S3 Vectors and source documents',
     });
