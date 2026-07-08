@@ -1,19 +1,18 @@
 "use client";
 
-import { ChevronLeft, MoreHorizontal } from "lucide-react";
-
+// Safari-style bottom bar. The center acts as a real link to the official
+// Scouting America site rather than decorative, non-functional chrome.
 export default function TabBar() {
   return (
-    <nav className="tab-bar" aria-label="Navigation">
-      <button className="tab-btn" aria-label="Back">
-        <ChevronLeft size={20} />
-      </button>
-      <div className="tab-search-bar">
+    <nav className="tab-bar" aria-label="Scouting.org">
+      <a
+        className="tab-search-bar"
+        href="https://www.scouting.org"
+        target="_blank"
+        rel="noopener noreferrer"
+      >
         Scouting.org
-      </div>
-      <button className="tab-btn" aria-label="More">
-        <MoreHorizontal size={20} />
-      </button>
+      </a>
     </nav>
   );
 }
