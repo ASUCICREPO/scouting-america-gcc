@@ -2,14 +2,6 @@
 
 import { X, Plus } from "lucide-react";
 
-const HISTORY_ITEMS = [
-  "What are the core values of Scouting?",
-  "Scouts BSA vs. Cub Scouts",
-  "Merit Badge Requirements",
-  "Upcoming Council Events",
-  "Registration Fees & Financial Assistance",
-];
-
 interface ChatDrawerProps {
   isOpen: boolean;
   onClose: () => void;
@@ -39,13 +31,9 @@ export default function ChatDrawer({
           <span>New chat</span>
         </button>
 
-        {/* Chat History */}
+        {/* Chat History — conversations are session-only and not persisted yet */}
         <p className="history-section-title">Chat History</p>
-        {HISTORY_ITEMS.map((item, idx) => (
-          <div key={idx} className="history-item">
-            {item}
-          </div>
-        ))}
+        <div className="history-empty">No past conversations</div>
 
         {/* Settings */}
         <p className="history-section-title">More information</p>

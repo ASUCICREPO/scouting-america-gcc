@@ -22,7 +22,7 @@ const FAQ_ITEMS = [
   {
     question: "Does the chatbot collect personal information?",
     answer:
-      "The chatbot processes your messages to provide relevant responses. We do not store personal information beyond the current session unless you explicitly provide it for account-related features.",
+      "Your questions and the assistant's answers are logged so the team can monitor quality and improve responses. Please avoid entering sensitive personal information in the chat.",
   },
   {
     question: "Can I share a conversation with others?",
