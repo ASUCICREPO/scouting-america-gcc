@@ -2,7 +2,61 @@
 
 import { useEffect, useState } from 'react';
 import { getSummary, getConversations, getFaq, getFaqAll, SummaryData, ConversationPoint, FaqItem } from '@/lib/dashboard/api';
-import { TrendingUp, TrendingDown, Copy, Clock, Users, AlertTriangle, ChevronRight, ChevronLeft, X, Download } from 'lucide-react';
+import { TrendingUp, TrendingDown, Copy, Clock, Users, AlertTriangle, ChevronLeft, ChevronRight, X, Download } from 'lucide-react';
+
+// Categorize raw questions into topics using keyword matching
+const CATEGORY_RULES: { category: string; keywords: string[] }[] = [
+  { category: 'Camp Geronimo', keywords: ['camp geronimo', 'geronimo', 'camp cost', 'summer camp'] },
+  { category: 'Camp Raymond', keywords: ['camp raymond', 'raymond'] },
+  { category: 'Volunteering', keywords: ['volunteer', 'volunteering', 'leader', 'scoutmaster', 'den leader'] },
+  { category: 'Registration & Fees', keywords: ['register', 'registration', 'fee', 'cost', 'price', 'pay', 'financial'] },
+  { category: 'Merit Badges', keywords: ['merit badge', 'badge', 'eagle scout', 'rank'] },
+  { category: 'Events & Activities', keywords: ['event', 'activity', 'activities', 'camporee', 'jamboree', 'hike'] },
+  { category: 'Donations & Supplies', keywords: ['donat', 'supply', 'supplies', 'fundrais', 'popcorn'] },
+  { category: 'Scouting Values & Programs', keywords: ['values', 'oath', 'law', 'promise', 'program', 'cub scout', 'scouts bsa', 'venturing'] },
+  { category: 'Safety & Youth Protection', keywords: ['safety', 'abuse', 'protection', 'emergency', 'ypt', 'youth protection'] },
+  { category: 'Council Information', keywords: ['council', 'gcc', 'grand canyon', 'office', 'contact', 'phone'] },
+  { category: 'Membership & Joining', keywords: ['join', 'membership', 'sign up', 'enroll', 'how to join'] },
+  { category: 'General / Greetings', keywords: ['hi', 'hello', 'hey', 'thanks', 'thank you', 'good morning', 'what can you'] },
+];
+
+function categorizeQuestion(question: string): string {
+  const q = question.toLowerCase();
+  for (const rule of CATEGORY_RULES) {
+    if (rule.keywords.some(kw => q.includes(kw))) {
+      return rule.category;
+    }
+  }
+  return 'Other';
+}
+
+interface CategorizedFaq {
+  category: string;
+  count: number;
+  avgConfidence: number;
+  questions: string[];
+}
+
+function categorizeFaqList(items: FaqItem[]): CategorizedFaq[] {
+  const map = new Map<string, { count: number; totalConf: number; confCount: number; questions: string[] }>();
+  for (const item of items) {
+    const cat = categorizeQuestion(item.question);
+    const existing = map.get(cat) || { count: 0, totalConf: 0, confCount: 0, questions: [] };
+    existing.count += item.count;
+    existing.totalConf += item.avgConfidence * item.count;
+    existing.confCount += item.count;
+    existing.questions.push(item.question);
+    map.set(cat, existing);
+  }
+  return Array.from(map.entries())
+    .map(([category, data]) => ({
+      category,
+      count: data.count,
+      avgConfidence: data.confCount > 0 ? data.totalConf / data.confCount : 0,
+      questions: data.questions,
+    }))
+    .sort((a, b) => b.count - a.count);
+}
 
 export default function OverviewPage() {
   const [summary, setSummary] = useState<SummaryData | null>(null);
@@ -179,30 +233,30 @@ export default function OverviewPage() {
       {/* Metric Cards */}
       <div className="metrics-grid">
         <MetricCard
-          label="Total Sessions"
+          label="Total Conversations"
           value={summary?.totalSessions?.toLocaleString() || '0'}
-          change={`${summary?.totalChats || 0} total chats`}
+          change={`+${summary?.totalChats || 0} today`}
           icon={<Copy size={13} />}
           positive
         />
         <MetricCard
-          label="Avg. Session Length"
-          value={summary?.avgSessionLength || '0m 0s'}
-          change="Across all sessions"
-          icon={<Clock size={13} />}
+          label="Total Upvotes"
+          value={summary?.positiveCount?.toLocaleString() || '0'}
+          change={`${summary?.satisfactionRate?.toFixed(0) || 0}% satisfaction`}
+          icon={<TrendingUp size={13} />}
           positive
         />
         <MetricCard
-          label="Total Chats"
-          value={summary?.totalChats?.toLocaleString() || '0'}
-          change="Messages exchanged"
-          icon={<Users size={13} />}
-          positive
+          label="Total Downvotes"
+          value={summary?.negativeCount?.toLocaleString() || '0'}
+          change={`${summary?.totalFeedback || 0} total feedback`}
+          icon={<TrendingDown size={13} />}
+          positive={false}
         />
         <MetricCard
-          label="Escalation Rate"
-          value={`${summary?.escalationRate?.toFixed(1) || '0'}%`}
-          change={`${summary?.totalEscalations || 0} total escalations`}
+          label="Escalations"
+          value={summary?.totalEscalations?.toLocaleString() || '0'}
+          change=""
           icon={<AlertTriangle size={13} />}
           positive={false}
         />
@@ -280,27 +334,27 @@ export default function OverviewPage() {
       <div className="card">
         <div className="card-header">
           <div>
-            <h2 className="card-title">Frequently Asked Questions</h2>
-            <p className="card-subtitle">Ranked by occurrence · live data</p>
+            <h2 className="card-title">Frequently Asked Topics</h2>
+            <p className="card-subtitle">Grouped by category · live data</p>
           </div>
           <button className="link-btn" onClick={openFaqModal}>View all →</button>
         </div>
         <div className="faq-table">
           <div className="faq-header-row">
             <span className="faq-th faq-col-num">#</span>
-            <span className="faq-th faq-col-question">Question</span>
-            <span className="faq-th faq-col-occ">Occurrences</span>
+            <span className="faq-th faq-col-question">Topic</span>
+            <span className="faq-th faq-col-occ">Questions</span>
             <span className="faq-th faq-col-trend">Confidence</span>
             <span className="faq-th faq-col-res">Resolution</span>
             <span className="faq-th faq-col-action" />
           </div>
           {faqList.length > 0 ? (
-            faqList.map((item, i) => {
+            categorizeFaqList(faqList).map((item, i) => {
               const confPercent = Math.round(item.avgConfidence * 100);
               return (
                 <div key={i} className="faq-row">
                   <span className="faq-td faq-col-num">{String(i + 1).padStart(2, '0')}</span>
-                  <span className="faq-td faq-col-question">{item.question}</span>
+                  <span className="faq-td faq-col-question">{item.category}</span>
                   <span className="faq-td faq-col-occ mono">{item.count.toLocaleString()}</span>
                   <span className={`faq-td faq-col-trend ${confPercent >= 70 ? 'positive' : 'negative'}`}>
                     {confPercent >= 70 ? <TrendingUp size={11} /> : <TrendingDown size={11} />}
@@ -313,7 +367,7 @@ export default function OverviewPage() {
                     <span className="progress-label">{confPercent}%</span>
                   </span>
                   <span className="faq-td faq-col-action">
-                    <button className="icon-btn"><ChevronRight size={14} /></button>
+                    <button className="icon-btn" style={{fontSize: 14, fontWeight: 600, fontStyle: 'italic'}}>i</button>
                   </span>
                 </div>
               );
