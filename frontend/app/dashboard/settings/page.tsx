@@ -2,8 +2,8 @@
 
 import { useState, useRef, useEffect } from 'react';
 import { Upload, ExternalLink } from 'lucide-react';
-import { getUser } from '../../../lib/auth';
-import { useSettings } from '../../../lib/settings-context';
+import { getUser } from '@/lib/dashboard/auth';
+import { useSettings } from '@/lib/dashboard/settings-context';
 
 type SettingsTab = 'profile' | 'appearance' | 'help' | 'about';
 

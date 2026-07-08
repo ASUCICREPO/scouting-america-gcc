@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, useRef } from 'react';
-import { getDocuments, getDocumentDownloadUrl, deleteDocument, getUploadUrl, DocumentItem } from '../../../lib/api';
+import { getDocuments, getDocumentDownloadUrl, deleteDocument, getUploadUrl, DocumentItem } from '@/lib/dashboard/api';
 import { Search, Paperclip, Upload, Pencil, Trash2, Download, FileText, ChevronLeft, ChevronRight } from 'lucide-react';
 
 export default function DocumentsPage() {

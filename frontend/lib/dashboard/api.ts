@@ -26,7 +26,7 @@ async function fetchApi(path: string, params?: Record<string, string>, options?:
     // Token expired or unauthorized — redirect to login
     if (typeof window !== 'undefined') {
       localStorage.removeItem('gcc_admin_tokens');
-      window.location.href = '/';
+      window.location.href = '/login';
     }
     throw new Error('Unauthorized');
   }
