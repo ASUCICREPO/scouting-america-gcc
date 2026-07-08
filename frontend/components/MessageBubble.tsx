@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { ThumbsUp, Copy, ExternalLink, ChevronRight } from "lucide-react";
 import { ChatMessage } from "@/lib/api";
+import MarkdownContent from "./MarkdownContent";
 
 interface MessageBubbleProps {
   message: ChatMessage;
@@ -35,12 +36,9 @@ export default function MessageBubble({
 
   return (
     <div className="ai-response animate-in">
-      {/* Response text */}
-      <div className="ai-response-body">
-        {message.content.split("\n\n").map((paragraph, idx) => (
-          <p key={idx}>{paragraph}</p>
-        ))}
-      </div>
+      {/* Response text (rendered as markdown) */}
+      <MarkdownContent content={message.content} className="ai-response-body" />
+
 
       {/* Link cards */}
       {message.links && message.links.length > 0 && (
