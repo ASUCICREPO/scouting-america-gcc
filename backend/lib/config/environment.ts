@@ -1,14 +1,28 @@
+// Optional per-deployment prefix so multiple environments (dev/stage/prod) can
+// coexist without global name collisions — S3 buckets, DynamoDB tables, and IAM
+// roles are account/globally unique. Set RESOURCE_PREFIX at synth/deploy time
+// (e.g. RESOURCE_PREFIX=dev). Defaults to no prefix, preserving the existing
+// resource names so the current deployment is unaffected.
+const PREFIX = process.env.RESOURCE_PREFIX ? `${process.env.RESOURCE_PREFIX}-` : '';
+
 export const CONFIG = {
   // DynamoDB Tables
-  CHAT_LOGS_TABLE: 'GCC-ChatLogs',
-  ANALYTICS_LOGS_TABLE: 'GCC-AnalyticsLogs',
+  CHAT_LOGS_TABLE: `${PREFIX}GCC-ChatLogs`,
+  ANALYTICS_LOGS_TABLE: `${PREFIX}GCC-AnalyticsLogs`,
 
   // S3 Buckets
-  DOCUMENT_STORE_BUCKET: 'gcc-document-store',
-  KNOWLEDGE_BASE_BUCKET: 'gcc-knowledge-base-data',
+  DOCUMENT_STORE_BUCKET: `${PREFIX}gcc-document-store`,
+  KNOWLEDGE_BASE_BUCKET: `${PREFIX}gcc-knowledge-base-data`,
+
+  // S3 Vectors (Bedrock KB storage)
+  VECTOR_BUCKET: `${PREFIX}gcc-volunteer-vectors`,
+  VECTOR_INDEX: 'gcc-docs-index',
+
+  // IAM
+  KB_ROLE_NAME: `${PREFIX}GCC-BedrockKB-Role`,
 
   // SNS/SES
-  STAFF_ALERT_TOPIC: 'gcc-staff-alerts',
+  STAFF_ALERT_TOPIC: `${PREFIX}gcc-staff-alerts`,
   STAFF_EMAIL: 'staff@grandcanyonbsa.org',
 
   // Bedrock

@@ -1,8 +1,10 @@
 import * as path from 'path';
 import * as cdk from 'aws-cdk-lib';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
+import * as nodejs from 'aws-cdk-lib/aws-lambda-nodejs';
 import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
 import * as apigateway from 'aws-cdk-lib/aws-apigateway';
+import * as logs from 'aws-cdk-lib/aws-logs';
 import { Construct } from 'constructs';
 
 export interface AnalyticsConstructProps {
@@ -21,15 +23,23 @@ export class AnalyticsConstruct extends Construct {
     // ---------------------------------------------------------------
     // Analytics Lambda Function
     // ---------------------------------------------------------------
-    this.analyticsFunction = new lambda.Function(this, 'AnalyticsFunction', {
+    this.analyticsFunction = new nodejs.NodejsFunction(this, 'AnalyticsFunction', {
       runtime: lambda.Runtime.NODEJS_20_X,
-      handler: 'index.handler',
-      code: lambda.Code.fromAsset(path.join(__dirname, '../../lambda/analytics')),
+      entry: path.join(__dirname, '../../lambda/analytics/index.ts'),
+      handler: 'handler',
       timeout: cdk.Duration.seconds(30),
       memorySize: 256,
       environment: {
         CHAT_LOGS_TABLE: props.chatLogsTable.tableName,
         ANALYTICS_LOGS_TABLE: props.analyticsLogsTable.tableName,
+      },
+      logGroup: new logs.LogGroup(this, 'AnalyticsLogs', {
+        retention: logs.RetentionDays.ONE_MONTH,
+        removalPolicy: cdk.RemovalPolicy.DESTROY,
+      }),
+      bundling: {
+        minify: true,
+        sourceMap: true,
       },
     });
 

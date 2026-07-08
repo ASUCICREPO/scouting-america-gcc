@@ -5,6 +5,7 @@ import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
 import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as apigateway from 'aws-cdk-lib/aws-apigateway';
+import * as logs from 'aws-cdk-lib/aws-logs';
 import { Construct } from 'constructs';
 import { CONFIG } from '../config/environment';
 import * as path from 'path';
@@ -39,13 +40,19 @@ export class ChatHandler extends Construct {
       memorySize: 512,
       environment: {
         KB_ID: props.knowledgeBaseId,
-        MODEL_ARN: `arn:aws:bedrock:us-east-1:${cdk.Aws.ACCOUNT_ID}:inference-profile/${CONFIG.MODEL_ID}`,
+        MODEL_ARN: `arn:aws:bedrock:${cdk.Aws.REGION}:${cdk.Aws.ACCOUNT_ID}:inference-profile/${CONFIG.MODEL_ID}`,
         CHAT_LOGS_TABLE: props.chatLogsTable.tableName,
         SECRETS_ARN: props.guardrailsSecret.secretArn,
         ESCALATION_FUNCTION_ARN: props.escalationFunctionArn || '',
         CONFIDENCE_THRESHOLD: CONFIG.CONFIDENCE_THRESHOLD.toString(),
         SAFETY_KEYWORDS: JSON.stringify(CONFIG.SAFETY_KEYWORDS),
       },
+      // Bound log retention — chat logs may incidentally contain user-entered
+      // content, so they shouldn't be kept indefinitely.
+      logGroup: new logs.LogGroup(this, 'ChatHandlerLogs', {
+        retention: logs.RetentionDays.ONE_MONTH,
+        removalPolicy: cdk.RemovalPolicy.DESTROY,
+      }),
       bundling: {
         minify: true,
         sourceMap: true,

@@ -13,8 +13,22 @@ const SNS_TOPIC_ARN = process.env.SNS_TOPIC_ARN!;
 const STAFF_EMAIL = process.env.STAFF_EMAIL!;
 const ANALYTICS_TABLE = process.env.ANALYTICS_TABLE!;
 
+// Payload sent by the Chat Handler when an escalation is needed
+interface EscalationEvent {
+  sessionId: string;
+  userId: string;
+  question: string;
+  answer: string;
+  reason: string;
+  confidence: number;
+}
+
+interface AlertData extends EscalationEvent {
+  severity: string;
+}
+
 // Called asynchronously by Chat Handler when escalation is needed
-export const handler = async (event: any) => {
+export const handler = async (event: EscalationEvent) => {
   const { sessionId, userId, question, answer, reason, confidence } = event;
 
   console.log('Escalation triggered:', { sessionId, reason, confidence });
@@ -42,7 +56,7 @@ export const handler = async (event: any) => {
 };
 
 // Publishes alert to SNS topic — staff subscribed to this get notified
-async function sendSnsAlert(message: string, severity: string) {
+async function sendSnsAlert(message: string, severity: string): Promise<void> {
   try {
     await snsClient.send(new PublishCommand({
       TopicArn: SNS_TOPIC_ARN,
@@ -55,7 +69,7 @@ async function sendSnsAlert(message: string, severity: string) {
 }
 
 // Sends direct email to staff for HIGH severity cases
-async function sendEmailAlert(message: string, severity: string) {
+async function sendEmailAlert(message: string, severity: string): Promise<void> {
   try {
     await sesClient.send(new SendEmailCommand({
       Source: STAFF_EMAIL, // must be verified in SES
@@ -73,7 +87,7 @@ async function sendEmailAlert(message: string, severity: string) {
 }
 
 // Saves escalation event to DynamoDB for analytics tracking
-async function logEscalation(data: any) {
+async function logEscalation(data: { sessionId: string; userId: string; reason: string; confidence: number; severity: string; timestamp: string }): Promise<void> {
   try {
     await dynamoClient.send(new PutCommand({
       TableName: ANALYTICS_TABLE,
@@ -96,7 +110,7 @@ async function logEscalation(data: any) {
 }
 
 // Formats a readable alert message for staff
-function formatAlertMessage(data: any): string {
+function formatAlertMessage(data: AlertData): string {
   return `
 🚨 ESCALATION ALERT — ${data.severity} SEVERITY
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━

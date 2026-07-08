@@ -7,7 +7,17 @@ import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { DynamoDBDocumentClient, PutCommand, QueryCommand } from '@aws-sdk/lib-dynamodb';
 import { LambdaClient, InvokeCommand } from '@aws-sdk/client-lambda';
 import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-secrets-manager';
+import { APIGatewayProxyEvent, APIGatewayProxyResult } from 'aws-lambda';
 import { randomUUID } from 'crypto';
+
+interface EscalationPayload {
+  sessionId: string;
+  userId: string;
+  question: string;
+  answer: string;
+  reason: string;
+  confidence: number;
+}
 
 // AWS SDK clients
 const bedrockClient = new BedrockAgentRuntimeClient({});
@@ -24,8 +34,12 @@ const ESCALATION_FUNCTION_ARN = process.env.ESCALATION_FUNCTION_ARN!;
 const CONFIDENCE_THRESHOLD = parseFloat(process.env.CONFIDENCE_THRESHOLD || '0.7');
 const SAFETY_KEYWORDS = JSON.parse(process.env.SAFETY_KEYWORDS || '[]');
 
+// Caps the size of a single question to bound prompt size, Bedrock cost, and
+// abuse on the public (unauthenticated) endpoint.
+const MAX_QUESTION_LENGTH = 4000;
+
 // Main handler — API Gateway sends requests here
-export const handler = async (event: any) => {
+export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> => {
   const httpMethod = event.httpMethod;
   const path = event.resource;
 
@@ -48,15 +62,31 @@ export const handler = async (event: any) => {
 };
 
 // Handles the main chat — volunteer asks a question, we get an answer from Bedrock KB
-async function handleChat(event: any) {
-  const body = JSON.parse(event.body || '{}');
-  const { question, sessionId: existingSessionId } = body;
+async function handleChat(event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> {
+  let body: Record<string, unknown>;
+  try {
+    body = JSON.parse(event.body || '{}');
+  } catch {
+    return response(400, { error: 'Request body must be valid JSON' });
+  }
+
+  const { question: rawQuestion, sessionId: existingSessionId } = body;
 
   // Get userId from Cognito claims (API Gateway passes this)
   const userId = event.requestContext?.authorizer?.claims?.sub || 'anonymous';
 
-  if (!question) {
-    return response(400, { error: 'Question is required' });
+  // Validate the question: must be a non-empty string within the length cap.
+  if (typeof rawQuestion !== 'string' || rawQuestion.trim().length === 0) {
+    return response(400, { error: 'Question is required and must be a non-empty string' });
+  }
+  const question = rawQuestion.trim();
+  if (question.length > MAX_QUESTION_LENGTH) {
+    return response(400, { error: `Question exceeds the maximum length of ${MAX_QUESTION_LENGTH} characters` });
+  }
+
+  // If a session id is supplied it must be a string (it becomes a DynamoDB key).
+  if (existingSessionId !== undefined && typeof existingSessionId !== 'string') {
+    return response(400, { error: 'sessionId must be a string' });
   }
 
   const sessionId = existingSessionId || randomUUID();
@@ -65,32 +95,27 @@ async function handleChat(event: any) {
   // Get system guardrails from Secrets Manager
   const guardrails = await getGuardrails();
 
-  // Call Bedrock Knowledge Base — this searches docs and generates an answer
-  const kbResponse = await bedrockClient.send(new RetrieveAndGenerateCommand({
-    input: { text: question },
-    retrieveAndGenerateConfiguration: {
-      type: 'KNOWLEDGE_BASE',
-      knowledgeBaseConfiguration: {
-        knowledgeBaseId: KB_ID,
-        modelArn: MODEL_ARN,
-        generationConfiguration: {
-          promptTemplate: {
-            textPromptTemplate: `${guardrails}\n\nSearch results:\n$search_results$\n\nUser question: $query$\n\nAnswer using only the provided search results. Cite sources.`,
+  // Generation (RetrieveAndGenerate) and score retrieval (Retrieve) are
+  // independent — RetrieveAndGenerate doesn't return retrieval scores, so we
+  // still need the second call for CI logging. Run them in parallel to avoid
+  // paying the latency of two sequential Bedrock round-trips.
+  const [kbResponse, retrieveResponse] = await Promise.all([
+    bedrockClient.send(new RetrieveAndGenerateCommand({
+      input: { text: question },
+      retrieveAndGenerateConfiguration: {
+        type: 'KNOWLEDGE_BASE',
+        knowledgeBaseConfiguration: {
+          knowledgeBaseId: KB_ID,
+          modelArn: MODEL_ARN,
+          generationConfiguration: {
+            promptTemplate: {
+              textPromptTemplate: `${guardrails}\n\nSearch results:\n$search_results$\n\nUser question: $query$\n\nAnswer using only the provided search results. Cite sources.`,
+            },
           },
         },
       },
-    },
-  }));
-
-  // Extract the answer and sources from Bedrock response
-  const answer = kbResponse.output?.text || 'I could not find an answer to your question.';
-  const citations = kbResponse.citations || [];
-  const sources = extractSources(citations);
-
-  // Call Retrieve API separately to get actual retrieval scores (RetrieveAndGenerate doesn't return them)
-  let chunkScores: { source: string; score: number; chunkText: string }[] = [];
-  try {
-    const retrieveResponse = await bedrockClient.send(new RetrieveCommand({
+    })),
+    bedrockClient.send(new RetrieveCommand({
       knowledgeBaseId: KB_ID,
       retrievalQuery: { text: question },
       retrievalConfiguration: {
@@ -98,15 +123,25 @@ async function handleChat(event: any) {
           numberOfResults: 5,
         },
       },
-    }));
-    chunkScores = (retrieveResponse.retrievalResults || []).map((result: any) => ({
+    })).catch((err) => {
+      // Score retrieval is best-effort — a failure shouldn't block the answer.
+      console.error('Failed to retrieve scores:', err);
+      return undefined;
+    }),
+  ]);
+
+  // Extract the answer and sources from the generation response
+  const answer = kbResponse.output?.text || 'I could not find an answer to your question.';
+  const citations = kbResponse.citations || [];
+  const sources = extractSources(citations);
+
+  // Per-chunk retrieval scores (CI logging)
+  const chunkScores: { source: string; score: number; chunkText: string }[] =
+    (retrieveResponse?.retrievalResults || []).map((result: any) => ({
       source: result.location?.s3Location?.uri || 'unknown',
       score: result.score ?? 0,
       chunkText: (result.content?.text || '').substring(0, 200),
     }));
-  } catch (err) {
-    console.error('Failed to retrieve scores:', err);
-  }
 
   // Calculate confidence using actual retrieval scores (average of chunk scores)
   // Falls back to 0.3 if no scores available
@@ -157,7 +192,7 @@ async function handleChat(event: any) {
 }
 
 // Returns conversation history for a given session
-async function getHistory(event: any) {
+async function getHistory(event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> {
   const sessionId = event.pathParameters?.sessionId;
 
   if (!sessionId) {
@@ -225,7 +260,7 @@ function checkEscalation(question: string, answer: string, confidence: number) {
 }
 
 // Triggers the Escalation Router Lambda asynchronously
-async function triggerEscalation(payload: any) {
+async function triggerEscalation(payload: EscalationPayload) {
   try {
     await lambdaClient.send(new InvokeCommand({
       FunctionName: ESCALATION_FUNCTION_ARN,
@@ -252,29 +287,13 @@ function extractSources(citations: any[]): string[] {
   return sources;
 }
 
-// Extracts per-chunk retrieval scores (CI) from Bedrock KB citations
-function extractChunkScores(citations: any[]): { source: string; score: number; chunkText: string }[] {
-  const scores: { source: string; score: number; chunkText: string }[] = [];
-  for (const citation of citations) {
-    const refs = citation.retrievedReferences || [];
-    for (const ref of refs) {
-      const uri = ref.location?.s3Location?.uri || 'unknown';
-      const score = ref.score ?? 0;
-      const chunkText = (ref.content?.text || '').substring(0, 200); // First 200 chars for reference
-      scores.push({ source: uri, score, chunkText });
-    }
-  }
-  return scores;
-}
-
 // Helper to format API Gateway responses
-function response(statusCode: number, body: any) {
+function response(statusCode: number, body: unknown): APIGatewayProxyResult {
   return {
     statusCode,
     headers: {
       'Content-Type': 'application/json',
       'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Credentials': true,
     },
     body: JSON.stringify(body),
   };

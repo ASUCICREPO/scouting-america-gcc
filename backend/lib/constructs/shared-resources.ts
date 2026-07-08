@@ -4,18 +4,8 @@ import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
 import * as cognito from 'aws-cdk-lib/aws-cognito';
 import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
 import * as sns from 'aws-cdk-lib/aws-sns';
-import * as s3n from 'aws-cdk-lib/aws-s3-notifications';
-import * as lambda from 'aws-cdk-lib/aws-lambda';
 import { Construct } from 'constructs';
 import { CONFIG } from '../config/environment';
-
-export interface SharedResourcesProps {
-  /**
-   * Optional Lambda function to trigger on S3 ObjectCreated events
-   * in the document store bucket. Pass the Doc Processor Lambda here.
-   */
-  docProcessorFunction?: lambda.IFunction;
-}
 
 export class SharedResources extends Construct {
   // S3 Buckets
@@ -36,7 +26,7 @@ export class SharedResources extends Construct {
   // SNS
   public readonly staffAlertTopic: sns.Topic;
 
-  constructor(scope: Construct, id: string, props?: SharedResourcesProps) {
+  constructor(scope: Construct, id: string) {
     super(scope, id);
 
     // ---------------------------------------------------------------
@@ -62,14 +52,8 @@ export class SharedResources extends Construct {
       enforceSSL: true,
     });
 
-    // S3 event notification — triggers Doc Processor on new uploads
-    if (props?.docProcessorFunction) {
-      this.documentStoreBucket.addEventNotification(
-        s3.EventType.OBJECT_CREATED,
-        new s3n.LambdaDestination(props.docProcessorFunction),
-        { prefix: 'uploads/' },
-      );
-    }
+    // Note: the S3 -> Doc Processor event notification is wired in backend-stack.ts
+    // after both the bucket and the Doc Processor Lambda exist.
 
     // ---------------------------------------------------------------
     // DynamoDB Tables

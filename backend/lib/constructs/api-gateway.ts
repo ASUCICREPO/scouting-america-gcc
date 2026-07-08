@@ -24,7 +24,9 @@ export class ApiGateway extends Construct {
         throttlingRateLimit: 100,   // max 100 requests/sec per user
         throttlingBurstLimit: 200,  // allow short bursts up to 200
       },
-      // CORS — lets the browser-based frontend call this API
+      // CORS — lets the browser-based frontend call this API.
+      // No credentials: the chat API is public and uses no cookies, and
+      // `Access-Control-Allow-Credentials: true` is invalid with `*` origins.
       defaultCorsPreflightOptions: {
         allowOrigins: apigateway.Cors.ALL_ORIGINS,
         allowMethods: apigateway.Cors.ALL_METHODS,
@@ -35,7 +37,6 @@ export class ApiGateway extends Construct {
           'X-Api-Key',
           'X-Amz-Security-Token',
         ],
-        allowCredentials: true,
       },
     });
 

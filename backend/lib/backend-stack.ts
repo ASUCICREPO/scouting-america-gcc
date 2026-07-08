@@ -21,13 +21,6 @@ export class BackendStack extends cdk.Stack {
     Aspects.of(this).add(new AwsSolutionsChecks({ verbose: true }));
 
     // ---------------------------------------------------------------
-    // Doc Processor (must be created before SharedResources for S3 event)
-    // ---------------------------------------------------------------
-    // Note: We create DocProcessor first so we can pass its function
-    // reference to SharedResources for the S3 event notification.
-    // The actual bucket references are set below after SharedResources is created.
-
-    // ---------------------------------------------------------------
     // Shared Resources (S3, DynamoDB, Cognito, SNS, Secrets Manager)
     // ---------------------------------------------------------------
     const sharedResources = new SharedResources(this, 'SharedResources');
@@ -157,6 +150,10 @@ export class BackendStack extends cdk.Stack {
         reason: 'ADR: Plus tier not enabled for POC | Rationale: Cost optimization, nonprofit budget constraints | Alternative: Enable Plus tier (will evaluate for production)',
       },
       {
+        id: 'AwsSolutions-SQS3',
+        reason: 'ADR: DLQ queues are themselves dead-letter queues | Rationale: The escalation-router and doc-processor queues capture failed async invocations; a DLQ for a DLQ is unnecessary | Alternative: N/A',
+      },
+      {
         id: 'AwsSolutions-SNS2',
         reason: 'ADR: SNS encryption deferred | Rationale: Non-sensitive alert metadata only | Alternative: KMS encryption (will add if PII flows through topic)',
       },
@@ -174,43 +171,15 @@ export class BackendStack extends cdk.Stack {
       },
       {
         id: 'AwsSolutions-IAM5',
-        reason: 'ADR: Wildcard permissions for Bedrock KB | Rationale: KB resources are account-scoped, ARN not known at synth time | Alternative: Narrow after deployment',
-      },
-      {
-        id: 'AwsSolutions-APIG2',
-        reason: 'ADR: API Gateway request validation deferred | Rationale: Lambda handles validation | Alternative: Add models (will add for production)',
+        reason: 'ADR: Wildcard permissions for Bedrock KB and scoped S3 object actions | Rationale: KB resources are account-scoped (ARN not known at synth time); S3 actions are scoped to specific buckets | Alternative: Narrow after deployment (impractical for dynamic uploads)',
       },
       {
         id: 'AwsSolutions-APIG1',
         reason: 'ADR: API Gateway access logging deferred | Rationale: POC phase, CloudWatch Lambda logs sufficient | Alternative: Enable (will add for production)',
       },
       {
-        id: 'AwsSolutions-APIG4',
-        reason: 'ADR: Default authorization on OPTIONS deferred | Rationale: CORS preflight must be unauthenticated | Alternative: N/A for CORS',
-      },
-      {
-        id: 'AwsSolutions-COG4',
-        reason: 'ADR: Cognito authorizer on OPTIONS not possible | Rationale: CORS preflight requests cannot carry auth tokens | Alternative: N/A',
-      },
-      {
-        id: 'AwsSolutions-L1',
-        reason: 'ADR: Using Node.js 20.x | Rationale: Latest LTS supported by Lambda | Alternative: Update when newer LTS available',
-      },
-      {
-        id: 'AwsSolutions-IAM4',
-        reason: 'ADR: AWS managed policies for Lambda basic execution | Rationale: Standard pattern for Lambda logging | Alternative: Custom policy (unnecessary overhead)',
-      },
-      {
-        id: 'AwsSolutions-IAM5',
-        reason: 'ADR: Wildcard permissions for Textract and S3 object actions | Rationale: Resources are scoped to specific buckets, Textract requires * | Alternative: Per-object ARNs (impractical for dynamic uploads)',
-      },
-      {
         id: 'AwsSolutions-APIG2',
-        reason: 'ADR: API Gateway request validation deferred | Rationale: POC phase, validation done in Lambda | Alternative: Enable request validators (will add for production)',
-      },
-      {
-        id: 'AwsSolutions-APIG1',
-        reason: 'ADR: API Gateway access logging deferred | Rationale: POC phase, CloudWatch Lambda logs sufficient | Alternative: Enable access logs (will add for production)',
+        reason: 'ADR: API Gateway request validation deferred | Rationale: Lambda handles validation | Alternative: Add request validator models (will add for production)',
       },
       {
         id: 'AwsSolutions-APIG3',
@@ -218,19 +187,19 @@ export class BackendStack extends cdk.Stack {
       },
       {
         id: 'AwsSolutions-APIG4',
-        reason: 'ADR: OPTIONS method without auth for CORS | Rationale: CORS preflight requests cannot include auth headers | Alternative: None (browser limitation)',
-      },
-      {
-        id: 'AwsSolutions-COG4',
-        reason: 'ADR: OPTIONS method without Cognito auth | Rationale: CORS preflight cannot carry auth | Alternative: None (browser spec requirement)',
-      },
-      {
-        id: 'AwsSolutions-L1',
-        reason: 'ADR: Using Node.js 20.x | Rationale: Stable LTS runtime | Alternative: Node.js 22.x (not yet widely supported in CDK)',
+        reason: 'ADR: OPTIONS method without auth for CORS | Rationale: CORS preflight requests cannot carry auth tokens | Alternative: N/A (browser limitation)',
       },
       {
         id: 'AwsSolutions-APIG6',
         reason: 'ADR: CloudWatch stage logging deferred | Rationale: POC phase, Lambda-level logging sufficient | Alternative: Enable stage logging (will add for production)',
+      },
+      {
+        id: 'AwsSolutions-COG4',
+        reason: 'ADR: Cognito authorizer on OPTIONS not possible | Rationale: CORS preflight requests cannot carry auth tokens | Alternative: N/A (browser spec requirement)',
+      },
+      {
+        id: 'AwsSolutions-L1',
+        reason: 'ADR: Using Node.js 20.x | Rationale: Stable LTS runtime supported by Lambda | Alternative: Update when a newer LTS is widely supported in CDK',
       },
     ]);
   }

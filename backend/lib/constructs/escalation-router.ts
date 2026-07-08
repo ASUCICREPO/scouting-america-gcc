@@ -3,7 +3,9 @@ import * as lambda from 'aws-cdk-lib/aws-lambda';
 import * as nodejs from 'aws-cdk-lib/aws-lambda-nodejs';
 import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
 import * as sns from 'aws-cdk-lib/aws-sns';
+import * as sqs from 'aws-cdk-lib/aws-sqs';
 import * as iam from 'aws-cdk-lib/aws-iam';
+import * as logs from 'aws-cdk-lib/aws-logs';
 import { Construct } from 'constructs';
 import { CONFIG } from '../config/environment';
 import * as path from 'path';
@@ -22,6 +24,15 @@ export class EscalationRouter extends Construct {
   constructor(scope: Construct, id: string, props: EscalationRouterProps) {
     super(scope, id);
 
+    // Dead-letter queue: this function is invoked asynchronously by the chat
+    // handler, so failed events (after retries) land here instead of being lost.
+    const deadLetterQueue = new sqs.Queue(this, 'EscalationRouterDLQ', {
+      queueName: 'GCC-EscalationRouter-DLQ',
+      encryption: sqs.QueueEncryption.SQS_MANAGED,
+      enforceSSL: true,
+      retentionPeriod: cdk.Duration.days(14),
+    });
+
     // Lambda that processes escalations and alerts staff
     this.function = new nodejs.NodejsFunction(this, 'EscalationRouterFn', {
       functionName: 'GCC-EscalationRouter',
@@ -35,6 +46,13 @@ export class EscalationRouter extends Construct {
         STAFF_EMAIL: CONFIG.STAFF_EMAIL,
         ANALYTICS_TABLE: props.analyticsLogsTable.tableName,
       },
+      deadLetterQueue,
+      // Escalation alerts reference the volunteer's question/answer, so bound
+      // how long those logs are retained.
+      logGroup: new logs.LogGroup(this, 'EscalationRouterLogs', {
+        retention: logs.RetentionDays.ONE_MONTH,
+        removalPolicy: cdk.RemovalPolicy.DESTROY,
+      }),
       bundling: {
         minify: true,
         sourceMap: true,
