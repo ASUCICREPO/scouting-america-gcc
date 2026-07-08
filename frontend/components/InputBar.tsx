@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, KeyboardEvent } from "react";
+import { useState, useRef, useEffect, KeyboardEvent } from "react";
 import { Mic, Send } from "lucide-react";
 
 interface InputBarProps {
@@ -19,6 +19,16 @@ export default function InputBar({
   const [value, setValue] = useState("");
   const [isListening, setIsListening] = useState(false);
   const recognitionRef = useRef<any>(null);
+  // Text already typed when voice input starts, so transcripts append instead
+  // of overwriting it.
+  const baseValueRef = useRef("");
+
+  // Stop any in-progress recognition if the component unmounts.
+  useEffect(() => {
+    return () => {
+      recognitionRef.current?.stop();
+    };
+  }, []);
 
   const handleSubmit = () => {
     if (!value.trim() || disabled) return;
@@ -56,6 +66,7 @@ export default function InputBar({
     recognition.lang = "en-US";
 
     recognition.onstart = () => {
+      baseValueRef.current = value.trim();
       setIsListening(true);
       onVoiceStart?.();
     };
@@ -64,7 +75,8 @@ export default function InputBar({
       const transcript = Array.from(event.results)
         .map((result: any) => result[0].transcript)
         .join("");
-      setValue(transcript);
+      const base = baseValueRef.current;
+      setValue(base ? `${base} ${transcript}` : transcript);
     };
 
     recognition.onerror = () => {
