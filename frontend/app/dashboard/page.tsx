@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { getSummary, getConversations, getFaq, getFaqAll, SummaryData, ConversationPoint, FaqItem } from '../../lib/api';
+import { getSummary, getConversations, getFaq, getFaqAll, SummaryData, ConversationPoint, FaqItem } from '@/lib/dashboard/api';
 import { TrendingUp, TrendingDown, Copy, Clock, Users, AlertTriangle, ChevronRight, ChevronLeft, X, Download } from 'lucide-react';
 
 export default function OverviewPage() {

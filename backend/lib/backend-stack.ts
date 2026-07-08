@@ -8,8 +8,7 @@ import { KnowledgeBase } from './constructs/knowledge-base';
 import { EscalationRouter } from './constructs/escalation-router';
 import { ChatHandler } from './constructs/chat-handler';
 import { DocProcessor } from './constructs/doc-processor';
-import { AdminHandler } from './constructs/admin-handler';
-import { AnalyticsConstruct } from './constructs/analytics';
+import { DashboardApi } from './constructs/dashboard-api';
 
 export class BackendStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props?: cdk.StackProps) {
@@ -78,35 +77,26 @@ export class BackendStack extends cdk.Stack {
     );
 
     // ---------------------------------------------------------------
-    // Admin Handler Lambda + Admin API Gateway
+    // Admin Dashboard API (metrics + document management, Cognito-authed)
+    // Consolidated single admin surface — replaces the former standalone
+    // admin-dashboard CDK app and the unused analytics/admin-handler lambdas.
     // ---------------------------------------------------------------
-    const adminHandler = new AdminHandler(this, 'AdminHandler', {
-      documentStoreBucket: sharedResources.documentStoreBucket,
-      knowledgeBaseBucket: sharedResources.knowledgeBaseBucket,
-      guardrailsSecret: sharedResources.guardrailsSecret,
-      userPool: sharedResources.userPool,
-    });
-
-    // ---------------------------------------------------------------
-    // Analytics Lambda (attached to Admin API Gateway)
-    // ---------------------------------------------------------------
-    const cognitoAuthorizer = new cdk.aws_apigateway.CognitoUserPoolsAuthorizer(this, 'AnalyticsCognitoAuth', {
-      cognitoUserPools: [sharedResources.userPool],
-    });
-
-    new AnalyticsConstruct(this, 'Analytics', {
+    const dashboardApi = new DashboardApi(this, 'DashboardApi', {
       chatLogsTable: sharedResources.chatLogsTable,
       analyticsLogsTable: sharedResources.analyticsLogsTable,
-      adminApi: adminHandler.api,
-      cognitoAuthorizer: cognitoAuthorizer,
+      documentStoreBucket: sharedResources.documentStoreBucket,
+      knowledgeBaseBucket: sharedResources.knowledgeBaseBucket,
+      userPool: sharedResources.userPool,
+      knowledgeBaseId: knowledgeBase.knowledgeBaseId,
+      dataSourceId: knowledgeBase.dataSourceId,
     });
 
     // ---------------------------------------------------------------
     // Stack Outputs
     // ---------------------------------------------------------------
-    new cdk.CfnOutput(this, 'AdminApiUrl', {
-      value: adminHandler.api.url,
-      description: 'Admin API Gateway URL',
+    new cdk.CfnOutput(this, 'DashboardApiUrl', {
+      value: dashboardApi.api.url,
+      description: 'Admin Dashboard API URL (Cognito-protected)',
     });
 
     new cdk.CfnOutput(this, 'UserPoolId', {

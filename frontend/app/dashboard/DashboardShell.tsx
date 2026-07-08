@@ -2,8 +2,8 @@
 
 import { useEffect, useState, useRef } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
-import { isAuthenticated, logout, getUser } from '../../lib/auth';
-import { useSettings } from '../../lib/settings-context';
+import { isAuthenticated, logout, getUser } from '@/lib/dashboard/auth';
+import { useSettings } from '@/lib/dashboard/settings-context';
 import { LayoutDashboard, FileText, Bell, User, LogOut, Settings } from 'lucide-react';
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
@@ -18,7 +18,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   useEffect(() => {
     setMounted(true);
     if (!isAuthenticated()) {
-      router.push('/');
+      router.push('/login');
     }
 
     // Close profile menu on outside click

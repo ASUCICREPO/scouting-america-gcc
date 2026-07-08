@@ -2,8 +2,9 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { login, isAuthenticated } from '../lib/auth';
+import { login, isAuthenticated } from '@/lib/dashboard/auth';
 import { Mail, Lock, Eye, EyeOff } from 'lucide-react';
+import '../dashboard/dashboard.css';
 
 export default function LoginPage() {
   const router = useRouter();

@@ -147,5 +147,5 @@ function clearTokens(): void {
 
 export function logout(): void {
   clearTokens();
-  window.location.href = '/';
+  window.location.href = '/login';
 }
