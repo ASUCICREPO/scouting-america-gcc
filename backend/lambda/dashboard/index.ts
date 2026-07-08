@@ -2,16 +2,20 @@ import { APIGatewayProxyEvent, APIGatewayProxyResult } from 'aws-lambda';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { DynamoDBDocumentClient, ScanCommand, QueryCommand } from '@aws-sdk/lib-dynamodb';
 import { S3Client, ListObjectsV2Command, GetObjectCommand, DeleteObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
+import { BedrockAgentClient, StartIngestionJobCommand } from '@aws-sdk/client-bedrock-agent';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 
 const ddbDocClient = DynamoDBDocumentClient.from(new DynamoDBClient({}));
-const s3Client = new S3Client({ region: process.env.AWS_REGION || 'us-east-1' });
+const s3Client = new S3Client({});
+const bedrockAgent = new BedrockAgentClient({});
 
-// Config from environment (set by CDK stack)
-function getChatLogsTable() { return process.env.CHAT_LOGS_TABLE || 'GCC-ChatLogs'; }
-function getAnalyticsLogsTable() { return process.env.ANALYTICS_LOGS_TABLE || 'GCC-AnalyticsLogs'; }
-function getDocumentBucket() { return process.env.DOCUMENT_BUCKET || 'gcc-document-store'; }
-function getKbBucket() { return process.env.KB_BUCKET || 'gcc-knowledge-base-data'; }
+// Config from environment (set by the CDK construct from shared-resource references)
+const CHAT_LOGS_TABLE = process.env.CHAT_LOGS_TABLE!;
+const ANALYTICS_LOGS_TABLE = process.env.ANALYTICS_LOGS_TABLE!;
+const DOCUMENT_BUCKET = process.env.DOCUMENT_BUCKET!;
+const KB_BUCKET = process.env.KB_BUCKET!;
+const KNOWLEDGE_BASE_ID = process.env.KNOWLEDGE_BASE_ID!;
+const DATA_SOURCE_ID = process.env.DATA_SOURCE_ID!;
 
 // Allowed content types for upload
 const ALLOWED_CONTENT_TYPES = [
@@ -22,7 +26,7 @@ const ALLOWED_CONTENT_TYPES = [
   'application/vnd.ms-excel',
 ];
 
-const MAX_FILE_SIZE_BYTES = 25 * 1024 * 1024; // 25MB
+const MAX_FILE_SIZE_BYTES = 25 * 1024 * 1024; // 25MB (advisory hint returned to the client)
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Auth & Helpers
@@ -58,46 +62,57 @@ function validateAdmin(event: APIGatewayProxyEvent): APIGatewayProxyResult | nul
     return respond(403, { message: 'Forbidden: Admin group membership required' });
   }
 
-  return null; // authorized
+  return null;
 }
 
 /**
- * Validates an S3 key is safe — must start with allowed prefix, no path traversal.
+ * Validates an S3 key is safe — must start with the allowed prefix, no traversal.
  */
 function validateS3Key(key: string, allowedPrefix: string): boolean {
   if (!key) return false;
   if (key.includes('..')) return false;
   if (!key.startsWith(allowedPrefix)) return false;
-  // No control characters
   if (/[\x00-\x1f]/.test(key)) return false;
   return true;
 }
 
 /**
- * Sanitize filename — strip path separators, limit length.
+ * Sanitize a filename — strip path separators, limit length.
  */
 function sanitizeFileName(fileName: string): string {
-  // Remove path separators and parent directory refs
   let safe = fileName.replace(/[/\\]/g, '_').replace(/\.\./g, '');
-  // Limit length
   if (safe.length > 200) safe = safe.substring(0, 200);
-  // Must have content
   if (!safe || safe === '_') return '';
   return safe;
 }
 
 /**
- * Paginated scan with optional time filter to limit data scanned.
- * Uses FilterExpression to bound by timestamp when provided.
+ * Starts a Bedrock KB ingestion job so the vector store reflects the current
+ * contents of the KB bucket (removes deleted documents). Best-effort: only one
+ * job runs per data source at a time, so a conflict is logged, not surfaced.
+ */
+async function syncKnowledgeBase(): Promise<void> {
+  try {
+    await bedrockAgent.send(new StartIngestionJobCommand({
+      knowledgeBaseId: KNOWLEDGE_BASE_ID,
+      dataSourceId: DATA_SOURCE_ID,
+    }));
+  } catch (err) {
+    console.error('Failed to start KB ingestion after document change:', err);
+  }
+}
+
+/**
+ * Paginated scan with an optional time filter to bound the returned data.
+ * NOTE: a FilterExpression still reads the whole table — for true scale this
+ * should become a timestamp-ranged query on a GSI (tracked separately).
  */
 async function scanWithTimeFilter(tableName: string, daysBack?: number): Promise<Record<string, any>[]> {
   const allItems: Record<string, any>[] = [];
   let lastEvaluatedKey: Record<string, any> | undefined;
 
-  // Build filter for time-bounded queries
   let filterExpression: string | undefined;
   let expressionValues: Record<string, any> | undefined;
-
   if (daysBack) {
     const cutoff = new Date(Date.now() - daysBack * 86400000).toISOString();
     filterExpression = '#ts >= :cutoff';
@@ -105,10 +120,7 @@ async function scanWithTimeFilter(tableName: string, daysBack?: number): Promise
   }
 
   do {
-    const params: any = {
-      TableName: tableName,
-      ExclusiveStartKey: lastEvaluatedKey,
-    };
+    const params: any = { TableName: tableName, ExclusiveStartKey: lastEvaluatedKey };
     if (filterExpression) {
       params.FilterExpression = filterExpression;
       params.ExpressionAttributeValues = expressionValues;
@@ -123,7 +135,7 @@ async function scanWithTimeFilter(tableName: string, daysBack?: number): Promise
 }
 
 /**
- * Query by partition key on AnalyticsLogs table.
+ * Query by partition key on the AnalyticsLogs table.
  */
 async function queryByEventType(eventType: string): Promise<Record<string, any>[]> {
   const allItems: Record<string, any>[] = [];
@@ -131,7 +143,7 @@ async function queryByEventType(eventType: string): Promise<Record<string, any>[
 
   do {
     const result = await ddbDocClient.send(new QueryCommand({
-      TableName: getAnalyticsLogsTable(),
+      TableName: ANALYTICS_LOGS_TABLE,
       KeyConditionExpression: 'eventType = :et',
       ExpressionAttributeValues: { ':et': eventType },
       ExclusiveStartKey: lastEvaluatedKey,
@@ -144,7 +156,7 @@ async function queryByEventType(eventType: string): Promise<Record<string, any>[
 }
 
 /**
- * Shared FAQ aggregation logic — normalizes and groups questions.
+ * Shared FAQ aggregation — normalizes and groups questions by frequency.
  */
 function aggregateFaq(chatItems: Record<string, any>[]): {
   question: string; count: number; avgConfidence: number; escalatedCount: number; lastAsked: string;
@@ -156,8 +168,6 @@ function aggregateFaq(chatItems: Record<string, any>[]): {
   for (const item of chatItems) {
     const q = (item.question as string || '').trim();
     if (!q) continue;
-
-    // Normalize: lowercase, collapse whitespace, strip trailing punctuation
     const key = q.toLowerCase().replace(/\s+/g, ' ').replace(/[?.!]+$/, '');
     if (!groups[key]) {
       groups[key] = { question: q, count: 0, confidenceSum: 0, escalatedCount: 0, lastAsked: '' };
@@ -180,39 +190,13 @@ function aggregateFaq(chatItems: Record<string, any>[]): {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Route Map — explicit method+path dispatch (not order-dependent)
+// Route handlers
 // ─────────────────────────────────────────────────────────────────────────────
 
-type RouteHandler = (event: APIGatewayProxyEvent) => Promise<APIGatewayProxyResult>;
-
-const routes: Record<string, Record<string, RouteHandler>> = {
-  'GET': {
-    '/dashboard/summary': getSummary,
-    '/dashboard/conversations': getConversations,
-    '/dashboard/faq': getFaq,
-    '/dashboard/faq/all': getFaqAll,
-    '/dashboard/confidence': getConfidence,
-    '/dashboard/escalations': getEscalations,
-    '/dashboard/negative-feedback': getNegativeFeedback,
-    '/dashboard/documents': getDocuments,
-    '/dashboard/documents/download': getDocumentDownloadUrl,
-  },
-  'POST': {
-    '/dashboard/documents/upload': getUploadUrl,
-  },
-  'DELETE': {
-    '/dashboard/documents': deleteDocument,
-  },
-};
-
-// ─────────────────────────────────────────────────────────────────────────────
 // GET /dashboard/summary
-// ─────────────────────────────────────────────────────────────────────────────
-
 async function getSummary(): Promise<APIGatewayProxyResult> {
-  // Use 90-day window to limit scan size
   const [chatItems, escalationItems, docItems] = await Promise.all([
-    scanWithTimeFilter(getChatLogsTable(), 90),
+    scanWithTimeFilter(CHAT_LOGS_TABLE, 90),
     queryByEventType('escalation'),
     queryByEventType('document_processing'),
   ]);
@@ -231,13 +215,11 @@ async function getSummary(): Promise<APIGatewayProxyResult> {
   const totalEscalations = escalationItems.length;
   const escalationRate = totalChats > 0 ? (totalEscalations / totalChats) * 100 : 0;
 
-  // Feedback metrics — will be 0 until chatbot adds feedback field
   const withFeedback = chatItems.filter(i => i.feedback === 'positive' || i.feedback === 'negative');
   const positiveCount = withFeedback.filter(i => i.feedback === 'positive').length;
   const negativeCount = withFeedback.filter(i => i.feedback === 'negative').length;
   const satisfactionRate = withFeedback.length > 0 ? (positiveCount / withFeedback.length) * 100 : 0;
 
-  // Average session length
   const sessionTimes: Record<string, { first: number; last: number; count: number }> = {};
   for (const item of chatItems) {
     const sid = item.sessionId;
@@ -271,13 +253,10 @@ async function getSummary(): Promise<APIGatewayProxyResult> {
   });
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
 // GET /dashboard/conversations?period=day|week|month
-// ─────────────────────────────────────────────────────────────────────────────
-
 async function getConversations(event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> {
   const period = (event.queryStringParameters?.period as 'day' | 'week' | 'month') || 'day';
-  const chatItems = await scanWithTimeFilter(getChatLogsTable(), 90);
+  const chatItems = await scanWithTimeFilter(CHAT_LOGS_TABLE, 90);
 
   const counts: Record<string, number> = {};
   for (const item of chatItems) {
@@ -305,36 +284,27 @@ async function getConversations(event: APIGatewayProxyEvent): Promise<APIGateway
   return respond(200, { period, data, total: chatItems.length });
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
 // GET /dashboard/faq?limit=5
-// ─────────────────────────────────────────────────────────────────────────────
-
 async function getFaq(event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> {
   const limit = Math.min(parseInt(event.queryStringParameters?.limit || '5', 10), 100);
-  const chatItems = await scanWithTimeFilter(getChatLogsTable(), 30);
+  const chatItems = await scanWithTimeFilter(CHAT_LOGS_TABLE, 30);
   const allFaq = aggregateFaq(chatItems);
   return respond(200, { faq: allFaq.slice(0, limit), totalUnique: allFaq.length });
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
 // GET /dashboard/faq/all?limit=30&offset=0
-// ─────────────────────────────────────────────────────────────────────────────
-
 async function getFaqAll(event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> {
   const limit = Math.min(parseInt(event.queryStringParameters?.limit || '30', 10), 100);
   const offset = parseInt(event.queryStringParameters?.offset || '0', 10);
-  const chatItems = await scanWithTimeFilter(getChatLogsTable(), 90);
+  const chatItems = await scanWithTimeFilter(CHAT_LOGS_TABLE, 90);
   const allFaq = aggregateFaq(chatItems);
   return respond(200, { faq: allFaq.slice(offset, offset + limit), total: allFaq.length, offset, limit });
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
 // GET /dashboard/confidence?period=day|week|month
-// ─────────────────────────────────────────────────────────────────────────────
-
 async function getConfidence(event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> {
   const period = (event.queryStringParameters?.period as 'day' | 'week' | 'month') || 'day';
-  const chatItems = await scanWithTimeFilter(getChatLogsTable(), 90);
+  const chatItems = await scanWithTimeFilter(CHAT_LOGS_TABLE, 90);
   const validItems = chatItems.filter(i => typeof i.confidence === 'number' && !isNaN(i.confidence));
 
   const distribution = { veryLow: 0, low: 0, medium: 0, high: 0, veryHigh: 0 };
@@ -388,10 +358,7 @@ async function getConfidence(event: APIGatewayProxyEvent): Promise<APIGatewayPro
   });
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
 // GET /dashboard/escalations
-// ─────────────────────────────────────────────────────────────────────────────
-
 async function getEscalations(): Promise<APIGatewayProxyResult> {
   const items = await queryByEventType('escalation');
   const grouped: Record<string, { count: number; lastOccurred: string; confSum: number }> = {};
@@ -413,15 +380,11 @@ async function getEscalations(): Promise<APIGatewayProxyResult> {
   return respond(200, { escalations, total: items.length });
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
 // GET /dashboard/negative-feedback?limit=50&offset=0
-// NOTE: Will return empty until chatbot adds feedback field to ChatLogs
-// ─────────────────────────────────────────────────────────────────────────────
-
 async function getNegativeFeedback(event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> {
   const limit = Math.min(parseInt(event.queryStringParameters?.limit || '50', 10), 200);
   const offset = parseInt(event.queryStringParameters?.offset || '0', 10);
-  const chatItems = await scanWithTimeFilter(getChatLogsTable(), 90);
+  const chatItems = await scanWithTimeFilter(CHAT_LOGS_TABLE, 90);
 
   const negativeItems = chatItems
     .filter(i => i.feedback === 'negative')
@@ -446,13 +409,10 @@ async function getNegativeFeedback(event: APIGatewayProxyEvent): Promise<APIGate
   });
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
 // GET /dashboard/documents — list files from S3
-// ─────────────────────────────────────────────────────────────────────────────
-
 async function getDocuments(): Promise<APIGatewayProxyResult> {
   const listResult = await s3Client.send(new ListObjectsV2Command({
-    Bucket: getDocumentBucket(),
+    Bucket: DOCUMENT_BUCKET,
     Prefix: 'uploads/',
   }));
 
@@ -469,68 +429,59 @@ async function getDocuments(): Promise<APIGatewayProxyResult> {
   return respond(200, { documents, total: documents.length });
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
 // GET /dashboard/documents/download?key=uploads/filename.pdf
-// ─────────────────────────────────────────────────────────────────────────────
-
 async function getDocumentDownloadUrl(event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> {
   const key = event.queryStringParameters?.key;
   if (!key) return respond(400, { message: 'key parameter is required' });
-
-  // Security: validate key is within uploads/ prefix, no path traversal
-  if (!validateS3Key(key, 'uploads/')) {
-    return respond(403, { message: 'Invalid document key' });
-  }
+  if (!validateS3Key(key, 'uploads/')) return respond(403, { message: 'Invalid document key' });
 
   const url = await getSignedUrl(s3Client, new GetObjectCommand({
-    Bucket: getDocumentBucket(),
+    Bucket: DOCUMENT_BUCKET,
     Key: key,
   }), { expiresIn: 300 });
 
   return respond(200, { url, key });
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
 // DELETE /dashboard/documents?key=uploads/filename.pdf
-// ─────────────────────────────────────────────────────────────────────────────
-
 async function deleteDocument(event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> {
   const key = event.queryStringParameters?.key;
   if (!key) return respond(400, { message: 'key parameter is required' });
+  if (!validateS3Key(key, 'uploads/')) return respond(403, { message: 'Invalid document key' });
 
-  if (!validateS3Key(key, 'uploads/')) {
-    return respond(403, { message: 'Invalid document key' });
-  }
+  await s3Client.send(new DeleteObjectCommand({ Bucket: DOCUMENT_BUCKET, Key: key }));
 
-  await s3Client.send(new DeleteObjectCommand({ Bucket: getDocumentBucket(), Key: key }));
-
-  // Also remove from KB bucket
+  // Remove the copy from the KB bucket so it stops being ingested
   const kbKey = `documents/${key.replace('uploads/', '')}`;
   try {
-    await s3Client.send(new DeleteObjectCommand({ Bucket: getKbBucket(), Key: kbKey }));
+    await s3Client.send(new DeleteObjectCommand({ Bucket: KB_BUCKET, Key: kbKey }));
   } catch (err) {
-    // Not critical if KB copy doesn't exist
     console.log('KB bucket delete skipped:', kbKey);
   }
+
+  // Re-sync the knowledge base so the deleted document's vectors are removed and
+  // it stops appearing in chat answers.
+  await syncKnowledgeBase();
 
   return respond(200, { status: 'deleted', key });
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
 // POST /dashboard/documents/upload
-// ─────────────────────────────────────────────────────────────────────────────
-
 async function getUploadUrl(event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> {
-  const body = JSON.parse(event.body || '{}');
-  const { fileName, contentType } = body;
+  let body: Record<string, unknown>;
+  try {
+    body = JSON.parse(event.body || '{}');
+  } catch {
+    return respond(400, { message: 'Request body must be valid JSON' });
+  }
+  const fileName = body.fileName as string | undefined;
+  const contentType = body.contentType as string | undefined;
 
   if (!fileName) return respond(400, { message: 'fileName is required' });
 
-  // Sanitize filename
   const safeName = sanitizeFileName(fileName);
   if (!safeName) return respond(400, { message: 'Invalid fileName' });
 
-  // Validate content type
   const ct = contentType || 'application/pdf';
   if (!ALLOWED_CONTENT_TYPES.includes(ct)) {
     return respond(400, { message: `Content type not allowed. Allowed: ${ALLOWED_CONTENT_TYPES.join(', ')}` });
@@ -538,18 +489,47 @@ async function getUploadUrl(event: APIGatewayProxyEvent): Promise<APIGatewayProx
 
   const key = `uploads/${safeName}`;
 
+  // Presigned PUT for the browser to upload directly to S3.
+  // NOTE: a strict server-side size cap requires a presigned POST with a
+  // content-length-range condition (would change the client upload flow);
+  // tracked as a follow-up. MAX_FILE_SIZE_BYTES is returned as a client hint.
   const url = await getSignedUrl(s3Client, new PutObjectCommand({
-    Bucket: getDocumentBucket(),
+    Bucket: DOCUMENT_BUCKET,
     Key: key,
     ContentType: ct,
-    ContentLength: MAX_FILE_SIZE_BYTES, // Server-side size limit
   }), { expiresIn: 300 });
 
   return respond(200, { url, key, maxSizeBytes: MAX_FILE_SIZE_BYTES });
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Main Handler
+// Route map — explicit method + path dispatch
+// ─────────────────────────────────────────────────────────────────────────────
+
+type RouteHandler = (event: APIGatewayProxyEvent) => Promise<APIGatewayProxyResult>;
+
+const routes: Record<string, Record<string, RouteHandler>> = {
+  GET: {
+    '/dashboard/summary': getSummary,
+    '/dashboard/conversations': getConversations,
+    '/dashboard/faq': getFaq,
+    '/dashboard/faq/all': getFaqAll,
+    '/dashboard/confidence': getConfidence,
+    '/dashboard/escalations': getEscalations,
+    '/dashboard/negative-feedback': getNegativeFeedback,
+    '/dashboard/documents': getDocuments,
+    '/dashboard/documents/download': getDocumentDownloadUrl,
+  },
+  POST: {
+    '/dashboard/documents/upload': getUploadUrl,
+  },
+  DELETE: {
+    '/dashboard/documents': deleteDocument,
+  },
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Main handler
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> => {
@@ -559,26 +539,21 @@ export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayPr
     return respond(204, '');
   }
 
-  // Auth validation — check admin group membership
   const authError = validateAdmin(event);
   if (authError) return authError;
 
-  // Route dispatch — explicit method + path map
-  const method = event.httpMethod;
-  const path = event.path;
-
-  const methodRoutes = routes[method];
+  const methodRoutes = routes[event.httpMethod];
   if (!methodRoutes) {
-    return respond(405, { message: `Method not allowed: ${method}` });
+    return respond(405, { message: `Method not allowed: ${event.httpMethod}` });
   }
 
-  const handler = methodRoutes[path];
-  if (!handler) {
-    return respond(404, { message: `Route not found: ${method} ${path}` });
+  const routeHandler = methodRoutes[event.path];
+  if (!routeHandler) {
+    return respond(404, { message: `Route not found: ${event.httpMethod} ${event.path}` });
   }
 
   try {
-    return await handler(event);
+    return await routeHandler(event);
   } catch (error) {
     console.error('Dashboard API error:', error);
     return respond(500, { message: 'Internal server error' });
