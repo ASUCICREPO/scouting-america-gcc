@@ -86,7 +86,6 @@ export default function OverviewPage() {
       'SUMMARY',
       `Total Chats,${summary.totalChats}`,
       `Total Sessions,${summary.totalSessions}`,
-      `Active Users,${summary.totalUsers}`,
       `Avg Confidence,${summary.avgConfidence}`,
       `Avg Session Length,${summary.avgSessionLength}`,
       `Escalation Rate,${summary.escalationRate}%`,
@@ -194,9 +193,9 @@ export default function OverviewPage() {
           positive
         />
         <MetricCard
-          label="Active Users"
-          value={summary?.totalUsers?.toLocaleString() || '0'}
-          change="Unique users"
+          label="Total Chats"
+          value={summary?.totalChats?.toLocaleString() || '0'}
+          change="Messages exchanged"
           icon={<Users size={13} />}
           positive
         />
