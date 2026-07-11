@@ -94,6 +94,11 @@ export class ScoutingAmericaChatbot extends cdk.Stack {
     // ---------------------------------------------------------------
     // Stack Outputs
     // ---------------------------------------------------------------
+    new cdk.CfnOutput(this, 'ChatApiUrl', {
+      value: apiGateway.api.url,
+      description: 'Public chat API URL (POST /chat, GET /chat/history/{sessionId})',
+    });
+
     new cdk.CfnOutput(this, 'DashboardApiUrl', {
       value: dashboardApi.api.url,
       description: 'Admin Dashboard API URL (Cognito-protected)',
@@ -189,7 +194,7 @@ export class ScoutingAmericaChatbot extends cdk.Stack {
       },
       {
         id: 'AwsSolutions-L1',
-        reason: 'ADR: Using Node.js 20.x | Rationale: Stable LTS runtime supported by Lambda | Alternative: Update when a newer LTS is widely supported in CDK',
+        reason: 'ADR: Lambdas run on Python 3.13 (latest runtime) | Rationale: CDK-provided helper functions (e.g. S3 bucket notifications) may lag the newest runtime | Alternative: N/A for our own handlers, which are all on the latest runtime',
       },
     ]);
   }
