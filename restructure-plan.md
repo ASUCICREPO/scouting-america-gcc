@@ -39,12 +39,15 @@ Each step: write `backend/lambda/<name>/index.py`, delete `index.ts`, switch the
 - [x] Update `backend.test.ts` for the renamed stack; add assertion that every function `Runtime` is `python3.13`.
 - [x] `npx jest` green (4/4); `npx cdk synth` clean (cdk-nag passes).
 
-## Phase 4 — One-step deploy + CI
-- [ ] `deploy.sh` (Cincinnati-style): `cdk deploy`, capture outputs (chat API URL, dashboard API URL, Cognito pool/client), write `frontend/.env.local`, seed an admin Cognito user in the `admin` group, optionally kick a KB ingestion.
-- [ ] `buildspec.yml` for CodeBuild.
+## Phase 4 — One-step deploy + CI ✅
+- [x] `deploy.sh` (Cincinnati-style): `cdk deploy`, capture outputs (chat API URL, dashboard API URL, Cognito pool/client), write `frontend/.env.local`, seed an admin Cognito user in the `admin` group, optionally sync docs to the upload bucket.
+- [x] `buildspec.yml` for CodeBuild.
+- [x] Added `ChatApiUrl` CfnOutput (frontend needs it; was previously missing).
 
-## Phase 5 — Repo cleanup
-- [ ] Remove root clutter: `*-review.md`, `hardening-plan.md`, `next-cleanup-plan.md`, `restructure-plan.md`, `ai_dlc_*`, stray images — as the final commit.
+## Phase 5 — Repo cleanup (partial)
+- [x] Removed untracked working-note clutter: `*-review.md`, `hardening-plan.md`, `next-cleanup-plan.md`.
+- [ ] `ai_dlc_*` + `ai-dlc.png` are *tracked* files pre-dating this branch — left in place pending owner confirmation (may be intentional AI-DLC framework docs).
+- [ ] `restructure-plan.md` kept as a record of the migration.
 
 ## Phase 6 — Fresh deploy + re-ingest (ops, documented in deploy.sh)
 - Fresh `cdk deploy` (new stack name), then `aws s3 sync` docs → KB bucket + one `start-ingestion-job`.
