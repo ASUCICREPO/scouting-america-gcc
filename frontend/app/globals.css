@@ -859,3 +859,148 @@ body {
 .animate-in {
   animation: fadeInUp 0.3s ease-out forwards;
 }
+
+/* Desktop responsive layout */
+@media (min-width: 768px) {
+  .app-shell {
+    max-width: 100%;
+    background: #f9f9f9;
+  }
+  
+  .header {
+    padding: 16px 40px;
+    max-width: 900px;
+    margin: 0 auto;
+    width: 100%;
+  }
+  
+  .chat-area {
+    max-width: 720px;
+    margin: 0 auto;
+    width: 100%;
+    padding: 16px 32px;
+  }
+  
+  .welcome-container {
+    padding-top: 80px;
+  }
+  
+  .welcome-title {
+    font-size: 32px;
+  }
+  
+  .input-section {
+    max-width: 720px;
+    margin: 0 auto;
+    width: 100%;
+    padding: 0 32px 24px;
+  }
+  
+  .terms-text {
+    max-width: 720px;
+    margin: 0 auto;
+    width: 100%;
+  }
+  
+  .user-bubble {
+    max-width: 500px;
+  }
+  
+  .tab-bar {
+    display: none;
+  }
+  
+  .status-bar-spacer {
+    display: none;
+  }
+  
+  .safe-bottom {
+    display: none;
+  }
+}
+
+/* PWA Install Banner */
+.pwa-banner {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 90;
+  padding: 12px 16px;
+  background: white;
+  border-top: 1px solid var(--border-light);
+  box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.08);
+}
+
+.pwa-banner-content {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  max-width: 720px;
+  margin: 0 auto;
+}
+
+.pwa-banner-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  background: #f0f5ff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.pwa-banner-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.pwa-banner-title {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.pwa-banner-sub {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.pwa-banner-install {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  border-radius: 20px;
+  border: none;
+  background: var(--primary-blue);
+  color: white;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.2s;
+}
+
+.pwa-banner-install:hover {
+  background: #004578;
+}
+
+.pwa-banner-close {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: none;
+  background: transparent;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.pwa-banner-close:hover {
+  background: var(--bg-input);
+}

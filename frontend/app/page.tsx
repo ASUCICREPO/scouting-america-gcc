@@ -7,6 +7,7 @@ import InputBar from "@/components/InputBar";
 import TabBar from "@/components/TabBar";
 import FAQView from "@/components/FAQView";
 import ChatDrawer from "@/components/ChatDrawer";
+import PwaInstallBanner from "@/components/PwaInstallBanner";
 import { sendMessage, ChatMessage, ChatResponse } from "@/lib/api";
 
 type View = "chat" | "faq" | "settings";
@@ -136,6 +137,7 @@ export default function Home() {
           setCurrentView("faq");
         }}
       />
+      <PwaInstallBanner />
     </div>
   );
 }
