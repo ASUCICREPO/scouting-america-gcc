@@ -1,12 +1,12 @@
 import * as cdk from 'aws-cdk-lib';
 import { Template, Match } from 'aws-cdk-lib/assertions';
-import { BackendStack } from '../lib/backend-stack';
+import { ScoutingAmericaChatbot } from '../lib/backend-stack';
 
 let template: Template;
 
 beforeAll(() => {
   const app = new cdk.App();
-  const stack = new BackendStack(app, 'TestStack', {
+  const stack = new ScoutingAmericaChatbot(app, 'TestStack', {
     env: { account: '123456789012', region: 'us-east-1' },
   });
   template = Template.fromStack(stack);
@@ -32,6 +32,21 @@ describe('S3 Vectors index metadata configuration', () => {
       Dimension: 1024,
       DistanceMetric: 'cosine',
     });
+  });
+});
+
+describe('Lambda runtime', () => {
+  // All handlers were migrated to Python 3.13 (team standard, Cincinnati
+  // alignment). Guard against a regression back to a Node.js runtime.
+  test('all Lambda functions run on python3.13', () => {
+    const functions = template.findResources('AWS::Lambda::Function');
+    const runtimes = Object.values(functions).map(
+      (fn: any) => fn.Properties?.Runtime,
+    );
+    expect(runtimes.length).toBeGreaterThan(0);
+    for (const runtime of runtimes) {
+      expect(runtime).toBe('python3.13');
+    }
   });
 });
 

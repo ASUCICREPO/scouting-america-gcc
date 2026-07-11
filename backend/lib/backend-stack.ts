@@ -10,7 +10,7 @@ import { ChatHandler } from './constructs/chat-handler';
 import { DocProcessor } from './constructs/doc-processor';
 import { DashboardApi } from './constructs/dashboard-api';
 
-export class BackendStack extends cdk.Stack {
+export class ScoutingAmericaChatbot extends cdk.Stack {
   constructor(scope: Construct, id: string, props?: cdk.StackProps) {
     super(scope, id, props);
 
