@@ -1,6 +1,5 @@
 import * as cdk from 'aws-cdk-lib';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
-import * as nodejs from 'aws-cdk-lib/aws-lambda-nodejs';
 import * as apigateway from 'aws-cdk-lib/aws-apigateway';
 import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
 import * as s3 from 'aws-cdk-lib/aws-s3';
@@ -40,12 +39,12 @@ export class DashboardApi extends Construct {
   constructor(scope: Construct, id: string, props: DashboardApiProps) {
     super(scope, id);
 
-    // ─── Lambda ───
-    this.function = new nodejs.NodejsFunction(this, 'DashboardFunction', {
+    // ─── Lambda (Python 3.13, boto3 in the runtime — no bundling) ───
+    this.function = new lambda.Function(this, 'DashboardFunction', {
       functionName: 'GCC-AdminDashboard',
-      runtime: lambda.Runtime.NODEJS_20_X,
-      entry: path.join(__dirname, '../../lambda/dashboard/index.ts'),
-      handler: 'handler',
+      runtime: lambda.Runtime.PYTHON_3_13,
+      handler: 'index.handler',
+      code: lambda.Code.fromAsset(path.join(__dirname, '../../lambda/dashboard')),
       timeout: cdk.Duration.seconds(30),
       memorySize: 512,
       environment: {
@@ -60,10 +59,6 @@ export class DashboardApi extends Construct {
         retention: logs.RetentionDays.ONE_MONTH,
         removalPolicy: cdk.RemovalPolicy.DESTROY,
       }),
-      bundling: {
-        minify: true,
-        sourceMap: true,
-      },
     });
 
     // ─── IAM (scoped to shared resources by reference — no hardcoded ARNs) ───

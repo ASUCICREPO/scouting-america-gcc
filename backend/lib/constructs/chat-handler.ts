@@ -1,6 +1,5 @@
 import * as cdk from 'aws-cdk-lib';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
-import * as nodejs from 'aws-cdk-lib/aws-lambda-nodejs';
 import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
 import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
 import * as iam from 'aws-cdk-lib/aws-iam';
@@ -31,11 +30,12 @@ export class ChatHandler extends Construct {
     super(scope, id);
 
     // The Lambda function that handles volunteer chat requests
-    this.function = new nodejs.NodejsFunction(this, 'ChatHandlerFn', {
+    // (Python 3.13, boto3 in the runtime — no bundling).
+    this.function = new lambda.Function(this, 'ChatHandlerFn', {
       functionName: 'GCC-ChatHandler',
-      runtime: lambda.Runtime.NODEJS_20_X,
-      entry: path.join(__dirname, '../../lambda/chat-handler/index.ts'),
-      handler: 'handler',
+      runtime: lambda.Runtime.PYTHON_3_13,
+      handler: 'index.handler',
+      code: lambda.Code.fromAsset(path.join(__dirname, '../../lambda/chat-handler')),
       timeout: cdk.Duration.seconds(30), // Bedrock calls can take a few seconds
       memorySize: 512,
       environment: {
@@ -53,10 +53,6 @@ export class ChatHandler extends Construct {
         retention: logs.RetentionDays.ONE_MONTH,
         removalPolicy: cdk.RemovalPolicy.DESTROY,
       }),
-      bundling: {
-        minify: true,
-        sourceMap: true,
-      },
     });
 
     // Grant permissions: read/write to ChatLogs table

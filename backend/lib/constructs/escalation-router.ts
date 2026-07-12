@@ -1,6 +1,5 @@
 import * as cdk from 'aws-cdk-lib';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
-import * as nodejs from 'aws-cdk-lib/aws-lambda-nodejs';
 import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
 import * as sns from 'aws-cdk-lib/aws-sns';
 import * as sqs from 'aws-cdk-lib/aws-sqs';
@@ -33,12 +32,12 @@ export class EscalationRouter extends Construct {
       retentionPeriod: cdk.Duration.days(14),
     });
 
-    // Lambda that processes escalations and alerts staff
-    this.function = new nodejs.NodejsFunction(this, 'EscalationRouterFn', {
+    // Lambda that processes escalations and alerts staff (Python 3.13, boto3)
+    this.function = new lambda.Function(this, 'EscalationRouterFn', {
       functionName: 'GCC-EscalationRouter',
-      runtime: lambda.Runtime.NODEJS_20_X,
-      entry: path.join(__dirname, '../../lambda/escalation-router/index.ts'),
-      handler: 'handler',
+      runtime: lambda.Runtime.PYTHON_3_13,
+      handler: 'index.handler',
+      code: lambda.Code.fromAsset(path.join(__dirname, '../../lambda/escalation-router')),
       timeout: cdk.Duration.seconds(15),
       memorySize: 256,
       environment: {
@@ -53,10 +52,6 @@ export class EscalationRouter extends Construct {
         retention: logs.RetentionDays.ONE_MONTH,
         removalPolicy: cdk.RemovalPolicy.DESTROY,
       }),
-      bundling: {
-        minify: true,
-        sourceMap: true,
-      },
     });
 
     // Permission: publish to SNS staff alerts topic

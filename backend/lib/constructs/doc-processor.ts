@@ -1,7 +1,6 @@
 import * as path from 'path';
 import * as cdk from 'aws-cdk-lib';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
-import * as nodejs from 'aws-cdk-lib/aws-lambda-nodejs';
 import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as sqs from 'aws-cdk-lib/aws-sqs';
 import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
@@ -38,10 +37,10 @@ export class DocProcessor extends Construct {
       retentionPeriod: cdk.Duration.days(14),
     });
 
-    this.function = new nodejs.NodejsFunction(this, 'DocProcessorFunction', {
-      runtime: lambda.Runtime.NODEJS_20_X,
-      entry: path.join(__dirname, '../../lambda/doc-processor/index.ts'),
-      handler: 'handler',
+    this.function = new lambda.Function(this, 'DocProcessorFunction', {
+      runtime: lambda.Runtime.PYTHON_3_13,
+      handler: 'index.handler',
+      code: lambda.Code.fromAsset(path.join(__dirname, '../../lambda/doc-processor')),
       timeout: cdk.Duration.minutes(5),
       memorySize: 512,
       environment: {
@@ -56,10 +55,6 @@ export class DocProcessor extends Construct {
         retention: logs.RetentionDays.ONE_MONTH,
         removalPolicy: cdk.RemovalPolicy.DESTROY,
       }),
-      bundling: {
-        minify: true,
-        sourceMap: true,
-      },
     });
 
     // Grant read access to the document store bucket
