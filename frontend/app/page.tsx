@@ -6,7 +6,6 @@ import ChatArea from "@/components/ChatArea";
 import InputBar from "@/components/InputBar";
 import TabBar from "@/components/TabBar";
 import FAQView from "@/components/FAQView";
-import VoiceOverlay from "@/components/VoiceOverlay";
 import ChatDrawer from "@/components/ChatDrawer";
 import { sendMessage, ChatMessage, ChatResponse } from "@/lib/api";
 
@@ -17,7 +16,6 @@ export default function Home() {
   const [isLoading, setIsLoading] = useState(false);
   const [sessionId, setSessionId] = useState<string | undefined>();
   const [showWelcome, setShowWelcome] = useState(true);
-  const [isVoiceActive, setIsVoiceActive] = useState(false);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [currentView, setCurrentView] = useState<View>("chat");
   const chatEndRef = useRef<HTMLDivElement>(null);
@@ -116,8 +114,6 @@ export default function Home() {
             <InputBar
               onSend={handleSend}
               disabled={isLoading}
-              onVoiceStart={() => setIsVoiceActive(true)}
-              onVoiceEnd={() => setIsVoiceActive(false)}
             />
           </>
         );
@@ -131,10 +127,6 @@ export default function Home() {
       {renderContent()}
       <TabBar />
       <div className="safe-bottom" />
-      <VoiceOverlay
-        isVisible={isVoiceActive}
-        onCancel={() => setIsVoiceActive(false)}
-      />
       <ChatDrawer
         isOpen={isDrawerOpen}
         onClose={() => setIsDrawerOpen(false)}

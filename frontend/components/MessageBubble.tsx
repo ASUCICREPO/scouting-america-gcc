@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { ThumbsUp, Copy, ExternalLink, ChevronRight } from "lucide-react";
+import { ThumbsUp, Copy, Volume2, VolumeX, ExternalLink, ChevronRight } from "lucide-react";
 import { ChatMessage } from "@/lib/api";
 import MarkdownContent from "./MarkdownContent";
 
@@ -15,6 +15,7 @@ export default function MessageBubble({
   onChipClick,
 }: MessageBubbleProps) {
   const [copied, setCopied] = useState(false);
+  const [isSpeaking, setIsSpeaking] = useState(false);
 
   const handleCopy = async () => {
     try {
@@ -24,6 +25,19 @@ export default function MessageBubble({
     } catch {
       // fallback
     }
+  };
+
+  const toggleSpeech = () => {
+    if (isSpeaking) {
+      window.speechSynthesis.cancel();
+      setIsSpeaking(false);
+      return;
+    }
+    const utterance = new SpeechSynthesisUtterance(message.content);
+    utterance.onend = () => setIsSpeaking(false);
+    utterance.onerror = () => setIsSpeaking(false);
+    window.speechSynthesis.speak(utterance);
+    setIsSpeaking(true);
   };
 
   if (message.role === "user") {
@@ -38,7 +52,6 @@ export default function MessageBubble({
     <div className="ai-response animate-in">
       {/* Response text (rendered as markdown) */}
       <MarkdownContent content={message.content} className="ai-response-body" />
-
 
       {/* Link cards */}
       {message.links && message.links.length > 0 && (
@@ -88,6 +101,14 @@ export default function MessageBubble({
           style={copied ? { opacity: 1, color: "#006747" } : undefined}
         >
           <Copy size={16} />
+        </button>
+        <button
+          className="feedback-btn"
+          aria-label={isSpeaking ? "Stop speaking" : "Read aloud"}
+          onClick={toggleSpeech}
+          style={isSpeaking ? { opacity: 1, color: "#CE1126" } : undefined}
+        >
+          {isSpeaking ? <VolumeX size={16} /> : <Volume2 size={16} />}
         </button>
       </div>
     </div>

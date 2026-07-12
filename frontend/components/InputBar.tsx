@@ -1,34 +1,84 @@
 "use client";
 
 import { useState, useRef, useEffect, KeyboardEvent } from "react";
-import { Mic, Send } from "lucide-react";
+import { Mic, Send, X, Check } from "lucide-react";
 
 interface InputBarProps {
   onSend: (message: string) => void;
   disabled?: boolean;
-  onVoiceStart?: () => void;
-  onVoiceEnd?: () => void;
 }
 
-export default function InputBar({
-  onSend,
-  disabled,
-  onVoiceStart,
-  onVoiceEnd,
-}: InputBarProps) {
+export default function InputBar({ onSend, disabled }: InputBarProps) {
   const [value, setValue] = useState("");
   const [isListening, setIsListening] = useState(false);
+  const [transcript, setTranscript] = useState("");
+  const [barHeights, setBarHeights] = useState<number[]>(new Array(40).fill(3));
   const recognitionRef = useRef<any>(null);
-  // Text already typed when voice input starts, so transcripts append instead
-  // of overwriting it.
-  const baseValueRef = useRef("");
+  const analyserRef = useRef<AnalyserNode | null>(null);
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const animFrameRef = useRef<number | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
 
-  // Stop any in-progress recognition if the component unmounts.
+  // Cleanup on unmount
   useEffect(() => {
     return () => {
-      recognitionRef.current?.stop();
+      if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
+      if (audioContextRef.current) audioContextRef.current.close();
+      if (streamRef.current) streamRef.current.getTracks().forEach(t => t.stop());
     };
   }, []);
+
+  const startAudioAnalysis = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      streamRef.current = stream;
+      const audioContext = new AudioContext();
+      audioContextRef.current = audioContext;
+      const source = audioContext.createMediaStreamSource(stream);
+      const analyser = audioContext.createAnalyser();
+      analyser.fftSize = 128;
+      source.connect(analyser);
+      analyserRef.current = analyser;
+
+      const dataArray = new Uint8Array(analyser.frequencyBinCount);
+      const barCount = 40;
+
+      const updateBars = () => {
+        analyser.getByteFrequencyData(dataArray);
+        // Map frequency data to bar heights (3px min = dot, 28px max)
+        const newHeights: number[] = [];
+        const step = Math.floor(dataArray.length / barCount);
+        for (let i = 0; i < barCount; i++) {
+          const val = dataArray[i * step] || 0;
+          // Normalize 0-255 to 3-28px
+          const height = Math.max(3, (val / 255) * 28);
+          newHeights.push(height);
+        }
+        setBarHeights(newHeights);
+        animFrameRef.current = requestAnimationFrame(updateBars);
+      };
+      updateBars();
+    } catch {
+      // Fallback: static dots if mic access fails
+    }
+  };
+
+  const stopAudioAnalysis = () => {
+    if (animFrameRef.current) {
+      cancelAnimationFrame(animFrameRef.current);
+      animFrameRef.current = null;
+    }
+    if (audioContextRef.current) {
+      audioContextRef.current.close();
+      audioContextRef.current = null;
+    }
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(t => t.stop());
+      streamRef.current = null;
+    }
+    analyserRef.current = null;
+    setBarHeights(new Array(40).fill(3));
+  };
 
   const handleSubmit = () => {
     if (!value.trim() || disabled) return;
@@ -43,14 +93,7 @@ export default function InputBar({
     }
   };
 
-  const toggleSpeechRecognition = () => {
-    if (isListening) {
-      recognitionRef.current?.stop();
-      setIsListening(false);
-      onVoiceEnd?.();
-      return;
-    }
-
+  const startListening = () => {
     const SpeechRecognition =
       (window as any).SpeechRecognition ||
       (window as any).webkitSpeechRecognition;
@@ -61,38 +104,92 @@ export default function InputBar({
     }
 
     const recognition = new SpeechRecognition();
-    recognition.continuous = false;
+    recognition.continuous = true;
     recognition.interimResults = true;
     recognition.lang = "en-US";
 
     recognition.onstart = () => {
-      baseValueRef.current = value.trim();
       setIsListening(true);
-      onVoiceStart?.();
+      setTranscript("");
+      startAudioAnalysis();
     };
 
     recognition.onresult = (event: any) => {
-      const transcript = Array.from(event.results)
-        .map((result: any) => result[0].transcript)
+      const result = Array.from(event.results)
+        .map((r: any) => r[0].transcript)
         .join("");
-      const base = baseValueRef.current;
-      setValue(base ? `${base} ${transcript}` : transcript);
+      setTranscript(result);
     };
 
     recognition.onerror = () => {
       setIsListening(false);
-      onVoiceEnd?.();
+      stopAudioAnalysis();
     };
 
     recognition.onend = () => {
       setIsListening(false);
-      onVoiceEnd?.();
+      stopAudioAnalysis();
     };
 
     recognitionRef.current = recognition;
     recognition.start();
   };
 
+  const cancelListening = () => {
+    recognitionRef.current?.stop();
+    setIsListening(false);
+    setTranscript("");
+    stopAudioAnalysis();
+  };
+
+  const confirmListening = () => {
+    recognitionRef.current?.stop();
+    setIsListening(false);
+    setValue(transcript);
+    setTranscript("");
+    stopAudioAnalysis();
+  };
+
+  // Recording state
+  if (isListening) {
+    return (
+      <div className="input-section">
+        <div className="input-container input-recording">
+          <div className="input-row">
+            <div className="recording-waveform">
+              {barHeights.map((h, i) => (
+                <div
+                  key={i}
+                  className="recording-bar"
+                  style={{ height: `${h}px`, animation: "none" }}
+                />
+              ))}
+            </div>
+            <div className="recording-actions">
+              <button
+                className="recording-cancel-btn"
+                onClick={cancelListening}
+                aria-label="Cancel recording"
+                type="button"
+              >
+                <X size={18} />
+              </button>
+              <button
+                className="recording-confirm-btn"
+                onClick={confirmListening}
+                aria-label="Confirm recording"
+                type="button"
+              >
+                <Check size={18} />
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Normal state
   return (
     <div className="input-section">
       <div className="input-container">
@@ -119,14 +216,9 @@ export default function InputBar({
             </button>
             <button
               className="input-btn-voice"
-              aria-label={isListening ? "Stop recording" : "Voice input"}
+              aria-label="Voice input"
               type="button"
-              onClick={toggleSpeechRecognition}
-              style={
-                isListening
-                  ? { background: "#CE1126" }
-                  : undefined
-              }
+              onClick={startListening}
             >
               <Mic size={16} />
             </button>

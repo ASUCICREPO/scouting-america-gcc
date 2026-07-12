@@ -1,5 +1,7 @@
 "use client";
 
+import { Mic } from "lucide-react";
+
 interface VoiceOverlayProps {
   isVisible: boolean;
   onCancel: () => void;
@@ -10,16 +12,12 @@ export default function VoiceOverlay({ isVisible, onCancel }: VoiceOverlayProps)
 
   return (
     <div className="voice-overlay animate-in">
-      <p className="voice-text">Listening</p>
-      <div className="voice-waveform">
-        {Array.from({ length: 24 }).map((_, i) => (
-          <div
-            key={i}
-            className="voice-bar"
-            style={{ animationDelay: `${i * 0.06}s` }}
-          />
-        ))}
+      <div className="voice-ring">
+        <div className="voice-ring-inner">
+          <Mic size={32} color="white" />
+        </div>
       </div>
+      <p className="voice-text">Listening...</p>
       <button className="voice-cancel-btn" onClick={onCancel}>
         Cancel
       </button>
