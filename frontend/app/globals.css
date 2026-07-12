@@ -864,14 +864,32 @@ body {
 @media (min-width: 768px) {
   .app-shell {
     max-width: 100%;
-    background: #f9f9f9;
+    background: linear-gradient(
+      179.5deg,
+      rgb(255, 255, 255) 0%,
+      rgb(255, 255, 255) 44%,
+      rgb(255, 123, 0) 171%
+    );
   }
   
   .header {
     padding: 16px 40px;
-    max-width: 900px;
-    margin: 0 auto;
     width: 100%;
+    justify-content: flex-start;
+  }
+
+  .header-menu-btn {
+    display: none;
+  }
+
+  .header-left {
+    gap: 12px;
+  }
+
+  .header-avatar-btn {
+    width: 36px;
+    height: 36px;
+    cursor: pointer;
   }
   
   .chat-area {
@@ -917,18 +935,27 @@ body {
   .safe-bottom {
     display: none;
   }
+
+  /* PWA banner — small bottom-right card on desktop */
+  .pwa-banner {
+    bottom: 20px;
+    right: 20px;
+    border-radius: 16px;
+  }
 }
 
 /* PWA Install Banner */
 .pwa-banner {
   position: fixed;
   bottom: 0;
-  left: 0;
   right: 0;
+  left: auto;
+  width: 320px;
   z-index: 90;
-  padding: 12px 16px;
+  padding: 16px;
   background: white;
-  border-top: 1px solid var(--border-light);
+  border-radius: 16px 16px 0 0;
+  border: 1px solid var(--border-light);
   box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.08);
 }
 
