@@ -6,6 +6,8 @@ import ChatArea from "@/components/ChatArea";
 import InputBar from "@/components/InputBar";
 import TabBar from "@/components/TabBar";
 import FAQView from "@/components/FAQView";
+import Sidebar from "@/components/Sidebar";
+import SettingsView from "@/components/SettingsView";
 import ChatDrawer from "@/components/ChatDrawer";
 import PwaInstallBanner from "@/components/PwaInstallBanner";
 import { sendMessage, ChatMessage, ChatResponse } from "@/lib/api";
@@ -44,10 +46,7 @@ export default function Home() {
     setIsLoading(true);
 
     try {
-      const response: ChatResponse = await sendMessage(
-        text,
-        sessionId
-      );
+      const response: ChatResponse = await sendMessage(text, sessionId);
 
       if (response.sessionId) {
         setSessionId(response.sessionId);
@@ -95,6 +94,8 @@ export default function Home() {
     switch (currentView) {
       case "faq":
         return <FAQView onBack={() => setCurrentView("chat")} />;
+      case "settings":
+        return <SettingsView onBack={() => setCurrentView("chat")} />;
       case "chat":
       default:
         return (
@@ -112,22 +113,31 @@ export default function Home() {
               <a href="#terms">Terms</a> &{" "}
               <a href="#privacy">Privacy Policy</a>
             </p>
-            <InputBar
-              onSend={handleSend}
-              disabled={isLoading}
-            />
+            <InputBar onSend={handleSend} disabled={isLoading} />
           </>
         );
     }
   };
 
   return (
-    <div className="app-shell">
-      <div className="status-bar-spacer" />
-      <Header onMenuClick={() => setIsDrawerOpen(true)} />
-      {renderContent()}
-      <TabBar />
-      <div className="safe-bottom" />
+    <div className="app-layout">
+      {/* Desktop persistent sidebar */}
+      <Sidebar
+        onNewChat={handleNewChat}
+        onFaqClick={() => setCurrentView("faq")}
+        onSettingsClick={() => setCurrentView("settings")}
+      />
+
+      {/* Main chat area */}
+      <div className="app-shell">
+        <div className="status-bar-spacer" />
+        <Header onMenuClick={() => setIsDrawerOpen(true)} />
+        {renderContent()}
+        <TabBar />
+        <div className="safe-bottom" />
+      </div>
+
+      {/* Mobile drawer (hidden on desktop) */}
       <ChatDrawer
         isOpen={isDrawerOpen}
         onClose={() => setIsDrawerOpen(false)}
