@@ -108,11 +108,18 @@ export async function deleteDocument(key: string): Promise<{ status: string }> {
   return fetchApi('/dashboard/documents', { key }, { method: 'DELETE' });
 }
 
-export async function getUploadUrl(fileName: string, contentType: string): Promise<{ url: string; key: string }> {
+/**
+ * Request a presigned PUT URL for a document upload.
+ *
+ * `relativePath` carries the folder structure (e.g. "folderA/sub/report.pdf")
+ * so the backend mirrors the dropped layout under uploads/ in S3. It also
+ * doubles as the flat filename for single-file uploads.
+ */
+export async function getUploadUrl(relativePath: string, contentType: string): Promise<{ url: string; key: string }> {
   return fetchApi('/dashboard/documents/upload', undefined, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ fileName, contentType }),
+    body: JSON.stringify({ relativePath, contentType }),
   });
 }
 
