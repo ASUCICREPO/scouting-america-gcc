@@ -2,7 +2,16 @@
 
 import { useEffect, useState, useRef } from 'react';
 import { getDocuments, getDocumentDownloadUrl, deleteDocument, getUploadUrl, DocumentItem } from '@/lib/dashboard/api';
-import { Search, Paperclip, Upload, Pencil, Trash2, Download, FileText, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Search, Paperclip, Upload, FolderUp, Pencil, Trash2, Download, FileText, ChevronLeft, ChevronRight } from 'lucide-react';
+import { toast } from 'sonner';
+import {
+  ACCEPT_ATTR,
+  CollectedFile,
+  collectFilesFromDataTransfer,
+  collectFilesFromInput,
+  contentTypeFor,
+  partitionByType,
+} from '@/lib/dashboard/upload-utils';
 
 export default function DocumentsPage() {
   const [documents, setDocuments] = useState<DocumentItem[]>([]);
@@ -12,7 +21,9 @@ export default function DocumentsPage() {
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
   const [error, setError] = useState('');
   const [page, setPage] = useState(1);
+  const [dragActive, setDragActive] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const folderInputRef = useRef<HTMLInputElement>(null);
   const ITEMS_PER_PAGE = 10;
 
   useEffect(() => {
@@ -37,7 +48,7 @@ export default function DocumentsPage() {
       const { url } = await getDocumentDownloadUrl(key);
       window.open(url, '_blank');
     } catch (err) {
-      alert('Download failed');
+      toast.error('Download failed');
       console.error(err);
     }
   }
@@ -49,7 +60,7 @@ export default function DocumentsPage() {
       await loadDocuments();
       setSelectedKeys(prev => { const n = new Set(prev); n.delete(key); return n; });
     } catch (err) {
-      alert('Delete failed');
+      toast.error('Delete failed');
       console.error(err);
     }
   }
@@ -69,29 +80,69 @@ export default function DocumentsPage() {
     await loadDocuments();
   }
 
-  async function handleUpload(file: File) {
-    setUploading(true);
-    try {
-      const { url } = await getUploadUrl(file.name, file.type || 'application/pdf');
-      // Upload directly to S3 using pre-signed URL
-      await fetch(url, {
-        method: 'PUT',
-        headers: { 'Content-Type': file.type || 'application/pdf' },
-        body: file,
-      });
-      await loadDocuments();
-    } catch (err) {
-      alert('Upload failed');
-      console.error(err);
-    } finally {
-      setUploading(false);
+  // Upload a single collected file to S3 via a presigned URL, preserving its
+  // relative folder path so the S3 layout mirrors what was dropped.
+  async function uploadOne(item: CollectedFile) {
+    const ct = contentTypeFor(item.file);
+    const { url } = await getUploadUrl(item.relativePath, ct);
+    const res = await fetch(url, {
+      method: 'PUT',
+      headers: { 'Content-Type': ct },
+      body: item.file,
+    });
+    if (!res.ok) {
+      throw new Error(`PUT failed (${res.status}) for ${item.relativePath}`);
     }
   }
 
-  function handleDrop(e: React.DragEvent) {
+  // Validate a batch, surface unsupported files as a bottom-right error toast,
+  // then upload the valid ones (mirroring folder structure).
+  async function handleFiles(collected: CollectedFile[]) {
+    if (collected.length === 0) return;
+
+    const { valid, invalid } = partitionByType(collected);
+
+    if (invalid.length > 0) {
+      const names = invalid.map((f) => f.relativePath).join(', ');
+      toast.error(
+        `${invalid.length} file${invalid.length > 1 ? 's' : ''} skipped (unsupported type)`,
+        { description: names },
+      );
+    }
+
+    if (valid.length === 0) return;
+
+    setUploading(true);
+    const failed: string[] = [];
+    let succeeded = 0;
+    for (const item of valid) {
+      try {
+        await uploadOne(item);
+        succeeded += 1;
+      } catch (err) {
+        console.error(err);
+        failed.push(item.relativePath);
+      }
+    }
+    setUploading(false);
+
+    if (succeeded > 0) {
+      toast.success(`Uploaded ${succeeded} file${succeeded > 1 ? 's' : ''}`);
+    }
+    if (failed.length > 0) {
+      toast.error(
+        `${failed.length} file${failed.length > 1 ? 's' : ''} failed to upload`,
+        { description: failed.join(', ') },
+      );
+    }
+    await loadDocuments();
+  }
+
+  async function handleDrop(e: React.DragEvent) {
     e.preventDefault();
-    const files = e.dataTransfer.files;
-    if (files.length > 0) handleUpload(files[0]);
+    setDragActive(false);
+    const collected = await collectFilesFromDataTransfer(e.dataTransfer);
+    await handleFiles(collected);
   }
 
   function toggleSelect(key: string) {
@@ -143,22 +194,43 @@ export default function DocumentsPage() {
         </div>
         <button className="btn-attachment" onClick={() => fileInputRef.current?.click()}>
           <Paperclip size={14} />
-          <span>Attachment</span>
+          <span>Files</span>
+        </button>
+        <button className="btn-attachment" onClick={() => folderInputRef.current?.click()}>
+          <FolderUp size={14} />
+          <span>Folder</span>
         </button>
         <input
           ref={fileInputRef}
           type="file"
-          accept=".pdf,.doc,.docx,.xls,.xlsx"
+          accept={ACCEPT_ATTR}
+          multiple
           style={{ display: 'none' }}
-          onChange={e => { if (e.target.files?.[0]) handleUpload(e.target.files[0]); e.target.value = ''; }}
+          onChange={e => { if (e.target.files) handleFiles(collectFilesFromInput(e.target.files)); e.target.value = ''; }}
+        />
+        <input
+          ref={folderInputRef}
+          type="file"
+          // @ts-expect-error non-standard directory-picker attributes
+          webkitdirectory=""
+          directory=""
+          multiple
+          style={{ display: 'none' }}
+          onChange={e => { if (e.target.files) handleFiles(collectFilesFromInput(e.target.files)); e.target.value = ''; }}
         />
       </div>
 
       {/* Upload Zone */}
-      <div className="upload-zone" onDragOver={e => e.preventDefault()} onDrop={handleDrop} onClick={() => fileInputRef.current?.click()}>
+      <div
+        className={`upload-zone${dragActive ? ' drag-active' : ''}`}
+        onDragOver={e => { e.preventDefault(); setDragActive(true); }}
+        onDragLeave={e => { e.preventDefault(); setDragActive(false); }}
+        onDrop={handleDrop}
+        onClick={() => fileInputRef.current?.click()}
+      >
         <div className="upload-icon-wrapper"><Upload size={22} /></div>
-        <p className="upload-text">Drop your documents here, or select click to browse</p>
-        <p className="upload-hint">PDF, DOCX, XLSX (max 25MB)</p>
+        <p className="upload-text">Drop files or folders here, or click to browse</p>
+        <p className="upload-hint">CSV, PDF, TXT, DOCX, SVG, PNG, JPEG — folders keep their structure</p>
         {uploading && <p className="upload-progress">Uploading...</p>}
       </div>
 
