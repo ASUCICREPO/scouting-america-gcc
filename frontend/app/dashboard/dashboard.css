@@ -794,7 +794,6 @@ html, body {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  margin-left: 10px;
   padding: 2px 8px;
   border-radius: 999px;
   font-size: 11px;
@@ -856,6 +855,7 @@ html, body {
 .doc-col-check { width: 40px; }
 .doc-col-name { flex: 1; }
 .doc-col-date { width: 150px; }
+.doc-col-status { width: 130px; }
 .doc-col-ops { width: 160px; text-align: center; }
 
 .doc-row {

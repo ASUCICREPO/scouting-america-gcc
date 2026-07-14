@@ -317,6 +317,7 @@ export default function DocumentsPage() {
           </span>
           <span className="doc-th doc-col-name">Document Name</span>
           <span className="doc-th doc-col-date">Document Date</span>
+          <span className="doc-th doc-col-status">Status</span>
           <span className="doc-th doc-col-ops">Operation Selected</span>
         </div>
         {loading ? (
@@ -330,10 +331,12 @@ export default function DocumentsPage() {
               <span className="doc-td doc-col-name">
                 <FileText size={20} className="file-icon" />
                 <span className="doc-name-text">{doc.fileName}</span>
-                <StatusBadge status={doc.status} />
               </span>
               <span className="doc-td doc-col-date">
                 {new Date(doc.lastModified).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+              </span>
+              <span className="doc-td doc-col-status">
+                <StatusBadge status={doc.status} />
               </span>
               <span className="doc-td doc-col-ops">
                 <button className="op-btn" title="Edit"><Pencil size={13.5} /></button>
