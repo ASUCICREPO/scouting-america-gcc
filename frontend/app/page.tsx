@@ -10,7 +10,7 @@ import Sidebar from "@/components/Sidebar";
 import SettingsView from "@/components/SettingsView";
 import ChatDrawer from "@/components/ChatDrawer";
 import PwaInstallBanner from "@/components/PwaInstallBanner";
-import { sendMessage, ChatMessage, ChatResponse } from "@/lib/api";
+import { sendMessage, getChatHistory, saveSession, ChatMessage, ChatResponse } from "@/lib/api";
 
 type View = "chat" | "faq" | "settings";
 
@@ -66,6 +66,10 @@ export default function Home() {
 
       if (response.sessionId) {
         setSessionId(response.sessionId);
+        // Save session to history on first message
+        if (!sessionId) {
+          saveSession(response.sessionId, text);
+        }
       }
 
       const aiMessage: ChatMessage = {
@@ -106,6 +110,18 @@ export default function Home() {
     setIsDrawerOpen(false);
   };
 
+  const handleLoadSession = async (sid: string) => {
+    try {
+      const history = await getChatHistory(sid);
+      setMessages(history);
+      setSessionId(sid);
+      setShowWelcome(false);
+      setCurrentView("chat");
+    } catch (err) {
+      console.error("Failed to load session:", err);
+    }
+  };
+
   const renderContent = () => {
     switch (currentView) {
       case "faq":
@@ -142,6 +158,8 @@ export default function Home() {
         onNewChat={handleNewChat}
         onFaqClick={() => setCurrentView("faq")}
         onSettingsClick={() => setCurrentView("settings")}
+        onLoadSession={handleLoadSession}
+        activeSessionId={sessionId}
       />
 
       {/* Main chat area */}

@@ -1171,6 +1171,54 @@ body {
     display: none;
   }
 
+  .sidebar-history-list {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 4px 0;
+    overflow-y: auto;
+    max-height: 300px;
+  }
+
+  .sidebar-history-item {
+    display: flex;
+    align-items: center;
+    padding: 8px 12px;
+    border-radius: 8px;
+    border: none;
+    background: transparent;
+    cursor: pointer;
+    width: 100%;
+    text-align: left;
+    transition: background 0.2s;
+    overflow: hidden;
+  }
+
+  .sidebar-history-item:hover {
+    background: var(--bg-input);
+  }
+
+  .sidebar-history-item.active {
+    background: var(--bg-input);
+  }
+
+  .sidebar-history-text {
+    font-size: 13px;
+    color: var(--text-secondary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .sidebar-history-item:hover .sidebar-history-text {
+    color: var(--text-primary);
+  }
+
+  .sidebar-history-item.active .sidebar-history-text {
+    color: var(--text-primary);
+    font-weight: 500;
+  }
+
   .sidebar-spacer {
     flex: 1;
   }

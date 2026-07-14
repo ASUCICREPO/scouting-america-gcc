@@ -9,21 +9,40 @@ import {
   Info,
   Settings,
 } from "lucide-react";
+import { getSavedSessions, SavedSession } from "@/lib/api";
 
 interface SidebarProps {
   onNewChat: () => void;
   onFaqClick: () => void;
   onSettingsClick: () => void;
+  onLoadSession: (sessionId: string) => void;
+  activeSessionId?: string;
 }
 
 const STORAGE_KEY = "sidebar_collapsed";
 
-export default function Sidebar({ onNewChat, onFaqClick, onSettingsClick }: SidebarProps) {
+export default function Sidebar({
+  onNewChat,
+  onFaqClick,
+  onSettingsClick,
+  onLoadSession,
+  activeSessionId,
+}: SidebarProps) {
   const [collapsed, setCollapsed] = useState(false);
+  const [sessions, setSessions] = useState<SavedSession[]>([]);
 
   useEffect(() => {
     const stored = localStorage.getItem(STORAGE_KEY);
     if (stored === "true") setCollapsed(true);
+    setSessions(getSavedSessions());
+  }, []);
+
+  // Refresh sessions when sidebar renders (e.g., after a new chat)
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setSessions(getSavedSessions());
+    }, 2000);
+    return () => clearInterval(interval);
   }, []);
 
   const toggleCollapse = () => {
@@ -55,11 +74,30 @@ export default function Sidebar({ onNewChat, onFaqClick, onSettingsClick }: Side
           <MessageSquare size={14} />
           {!collapsed && <span>Chat History</span>}
         </div>
-        <div className="sidebar-empty">
-          {!collapsed && (
-            <p>Your conversations will appear here</p>
-          )}
-        </div>
+        {sessions.length > 0 ? (
+          <div className="sidebar-history-list">
+            {sessions.map((session) => (
+              <button
+                key={session.sessionId}
+                className={`sidebar-history-item ${
+                  activeSessionId === session.sessionId ? "active" : ""
+                }`}
+                onClick={() => onLoadSession(session.sessionId)}
+                title={session.title}
+              >
+                {!collapsed ? (
+                  <span className="sidebar-history-text">{session.title}</span>
+                ) : (
+                  <MessageSquare size={14} />
+                )}
+              </button>
+            ))}
+          </div>
+        ) : (
+          <div className="sidebar-empty">
+            {!collapsed && <p>Your conversations will appear here</p>}
+          </div>
+        )}
       </div>
 
       {/* Spacer */}
