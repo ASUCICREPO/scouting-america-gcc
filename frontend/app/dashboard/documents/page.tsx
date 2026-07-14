@@ -1,8 +1,8 @@
 'use client';
 
 import { useEffect, useState, useRef } from 'react';
-import { getDocuments, getDocumentDownloadUrl, deleteDocument, getUploadUrl, DocumentItem } from '@/lib/dashboard/api';
-import { Search, Paperclip, Upload, FolderUp, Pencil, Trash2, Download, FileText, ChevronLeft, ChevronRight } from 'lucide-react';
+import { getDocuments, getDocumentDownloadUrl, deleteDocument, getUploadUrl, DocumentItem, DocumentStatus } from '@/lib/dashboard/api';
+import { Search, Paperclip, Upload, FolderUp, Pencil, Trash2, Download, FileText, ChevronLeft, ChevronRight, Loader2, CheckCircle2, Clock, AlertCircle } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   ACCEPT_ATTR,
@@ -22,17 +22,26 @@ export default function DocumentsPage() {
   const [error, setError] = useState('');
   const [page, setPage] = useState(1);
   const [dragActive, setDragActive] = useState(false);
-  const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
+  const [progress, setProgress] = useState<{ done: number; total: number; pct: number } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const folderInputRef = useRef<HTMLInputElement>(null);
   const ITEMS_PER_PAGE = 10;
+
+  // While any document is still indexing (or waiting), poll so badges flip to
+  // "Ready" on their own without a manual refresh.
+  const anyIndexing = documents.some(d => d.status === 'indexing' || d.status === 'pending');
+  useEffect(() => {
+    if (!anyIndexing) return;
+    const timer = setInterval(() => { loadDocuments(true); }, 6000);
+    return () => clearInterval(timer);
+  }, [anyIndexing]);
 
   useEffect(() => {
     loadDocuments();
   }, []);
 
-  async function loadDocuments() {
-    setLoading(true);
+  async function loadDocuments(silent = false) {
+    if (!silent) setLoading(true);
     try {
       const data = await getDocuments();
       setDocuments(data.documents);
@@ -40,7 +49,7 @@ export default function DocumentsPage() {
       setError('Failed to load documents.');
       console.error(err);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }
 
@@ -82,18 +91,24 @@ export default function DocumentsPage() {
   }
 
   // Upload a single collected file to S3 via a presigned URL, preserving its
-  // relative folder path so the S3 layout mirrors what was dropped.
-  async function uploadOne(item: CollectedFile) {
+  // relative folder path. Uses XHR so we get real byte-level progress events
+  // (fetch can't report upload progress), reported via onProgress.
+  function uploadOne(item: CollectedFile, onProgress: (loaded: number) => void): Promise<void> {
     const ct = contentTypeFor(item.file);
-    const { url } = await getUploadUrl(item.relativePath, ct);
-    const res = await fetch(url, {
-      method: 'PUT',
-      headers: { 'Content-Type': ct },
-      body: item.file,
-    });
-    if (!res.ok) {
-      throw new Error(`PUT failed (${res.status}) for ${item.relativePath}`);
-    }
+    return getUploadUrl(item.relativePath, ct).then(({ url }) =>
+      new Promise<void>((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open('PUT', url);
+        xhr.setRequestHeader('Content-Type', ct);
+        xhr.upload.onprogress = (e) => { if (e.lengthComputable) onProgress(e.loaded); };
+        xhr.onload = () => {
+          if (xhr.status >= 200 && xhr.status < 300) resolve();
+          else reject(new Error(`PUT failed (${xhr.status}) for ${item.relativePath}`));
+        };
+        xhr.onerror = () => reject(new Error(`Network error uploading ${item.relativePath}`));
+        xhr.send(item.file);
+      }),
+    );
   }
 
   // Validate a batch, surface unsupported files as a bottom-right error toast,
@@ -113,19 +128,27 @@ export default function DocumentsPage() {
 
     if (valid.length === 0) return;
 
+    const totalBytes = valid.reduce((sum, f) => sum + (f.file.size || 0), 0) || 1;
+    let completedBytes = 0;
+
     setUploading(true);
-    setProgress({ done: 0, total: valid.length });
+    setProgress({ done: 0, total: valid.length, pct: 0 });
     const failed: string[] = [];
     let succeeded = 0;
     for (const item of valid) {
       try {
-        await uploadOne(item);
+        await uploadOne(item, (loaded) => {
+          const pct = Math.min(100, Math.round(((completedBytes + loaded) / totalBytes) * 100));
+          setProgress({ done: succeeded + failed.length, total: valid.length, pct });
+        });
         succeeded += 1;
       } catch (err) {
         console.error(err);
         failed.push(item.relativePath);
       }
-      setProgress({ done: succeeded + failed.length, total: valid.length });
+      completedBytes += item.file.size || 0;
+      const pct = Math.min(100, Math.round((completedBytes / totalBytes) * 100));
+      setProgress({ done: succeeded + failed.length, total: valid.length, pct });
     }
     setUploading(false);
     setProgress(null);
@@ -169,6 +192,36 @@ export default function DocumentsPage() {
     if (bytes < 1024) return `${bytes} B`;
     if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  }
+
+  function StatusBadge({ status }: { status?: DocumentStatus }) {
+    const s = status ?? 'ready';
+    if (s === 'indexing') {
+      return (
+        <span className="doc-status-badge indexing">
+          <Loader2 size={12} className="spin" /> Indexing
+        </span>
+      );
+    }
+    if (s === 'pending') {
+      return (
+        <span className="doc-status-badge pending">
+          <Clock size={12} /> Queued
+        </span>
+      );
+    }
+    if (s === 'failed') {
+      return (
+        <span className="doc-status-badge failed">
+          <AlertCircle size={12} /> Failed
+        </span>
+      );
+    }
+    return (
+      <span className="doc-status-badge ready">
+        <CheckCircle2 size={12} /> Ready
+      </span>
+    );
   }
 
   const filteredDocs = documents.filter(d =>
@@ -235,10 +288,15 @@ export default function DocumentsPage() {
         <div className="upload-icon-wrapper"><Upload size={22} /></div>
         <p className="upload-text">Drop files or folders here, or click to browse</p>
         <p className="upload-hint">CSV, PDF, TXT, DOCX, SVG, PNG, JPEG — folders keep their structure</p>
-        {uploading && (
-          <p className="upload-progress">
-            {progress ? `Uploading ${progress.done} of ${progress.total}...` : 'Uploading...'}
-          </p>
+        {uploading && progress && (
+          <div className="upload-progress-wrap" onClick={e => e.stopPropagation()}>
+            <div className="progress-track">
+              <div className="progress-fill" style={{ width: `${progress.pct}%` }} />
+            </div>
+            <p className="upload-progress">
+              Uploading {progress.done} of {progress.total} — {progress.pct}%
+            </p>
+          </div>
         )}
       </div>
 
@@ -271,7 +329,8 @@ export default function DocumentsPage() {
               </span>
               <span className="doc-td doc-col-name">
                 <FileText size={20} className="file-icon" />
-                <span>{doc.fileName}</span>
+                <span className="doc-name-text">{doc.fileName}</span>
+                <StatusBadge status={doc.status} />
               </span>
               <span className="doc-td doc-col-date">
                 {new Date(doc.lastModified).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}

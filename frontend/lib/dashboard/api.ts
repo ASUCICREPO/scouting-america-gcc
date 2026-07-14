@@ -65,11 +65,15 @@ export interface FaqItem {
   lastAsked: string;
 }
 
+export type DocumentStatus = 'ready' | 'indexing' | 'pending' | 'failed';
+
 export interface DocumentItem {
   key: string;
   fileName: string;
   fileSize: number;
   lastModified: string;
+  /** Ingestion readiness derived from the Bedrock data-source job state. */
+  status?: DocumentStatus;
 }
 
 export async function getSummary(): Promise<SummaryData> {
@@ -96,7 +100,7 @@ export async function getEscalations() {
   return fetchApi('/dashboard/escalations');
 }
 
-export async function getDocuments(): Promise<{ documents: DocumentItem[]; total: number }> {
+export async function getDocuments(): Promise<{ documents: DocumentItem[]; total: number; indexing?: boolean }> {
   return fetchApi('/dashboard/documents');
 }
 

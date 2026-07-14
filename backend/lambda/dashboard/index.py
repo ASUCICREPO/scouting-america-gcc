@@ -431,8 +431,66 @@ def get_negative_feedback(event):
     return respond(200, body)
 
 
+def get_ingestion_state():
+    """Summarize the Bedrock data source's recent ingestion jobs.
+
+    Returns a dict with ``active`` (a job is STARTING/IN_PROGRESS), ``lastComplete``
+    (datetime of the most recent COMPLETE job), and ``lastFailed`` (datetime of the
+    most recent FAILED job). Returns ``None`` if the status can't be determined, so
+    the document list still renders even if this call is unavailable.
+    """
+    try:
+        resp = bedrock_agent.list_ingestion_jobs(
+            knowledgeBaseId=KNOWLEDGE_BASE_ID,
+            dataSourceId=DATA_SOURCE_ID,
+            sortBy={"attribute": "STARTED_AT", "order": "DESCENDING"},
+            maxResults=10,
+        )
+    except Exception as err:  # noqa: BLE001 - status is best-effort
+        print(f"list_ingestion_jobs failed: {err}")
+        return None
+
+    summaries = resp.get("ingestionJobSummaries", [])
+    active = any(s.get("status") in ("STARTING", "IN_PROGRESS") for s in summaries)
+    complete_times = [s.get("updatedAt") for s in summaries if s.get("status") == "COMPLETE" and s.get("updatedAt")]
+    failed_times = [s.get("updatedAt") for s in summaries if s.get("status") == "FAILED" and s.get("updatedAt")]
+    return {
+        "active": active,
+        "lastComplete": max(complete_times) if complete_times else None,
+        "lastFailed": max(failed_times) if failed_times else None,
+    }
+
+
+def doc_ingestion_status(last_modified, state):
+    """Classify a single document's readiness from the data-source ingestion state.
+
+    Heuristic (Bedrock ingests the whole data source per job, not per file):
+    - ready:    uploaded on/before the last COMPLETE job finished.
+    - indexing: a job is running and this doc post-dates the last COMPLETE job.
+    - failed:   the most recent job FAILED after this doc was uploaded.
+    - pending:  uploaded, no job running yet, not covered by a COMPLETE job.
+    """
+    if state is None or last_modified is None:
+        return "ready"  # can't determine — don't raise a false alarm
+
+    last_complete = state.get("lastComplete")
+    covered = bool(last_complete and last_modified <= last_complete)
+    if covered:
+        return "ready"
+
+    if state.get("active"):
+        return "indexing"
+
+    last_failed = state.get("lastFailed")
+    if last_failed and last_modified <= last_failed:
+        return "failed"
+
+    return "pending"
+
+
 def get_documents(event):
     listed = s3.list_objects_v2(Bucket=DOCUMENT_BUCKET, Prefix="uploads/")
+    state = get_ingestion_state()
     documents = []
     for obj in listed.get("Contents", []):
         key = obj.get("Key")
@@ -444,9 +502,14 @@ def get_documents(event):
             "fileName": key[len("uploads/"):],
             "fileSize": obj.get("Size", 0),
             "lastModified": last_modified.astimezone(timezone.utc).isoformat().replace("+00:00", "Z") if last_modified else "",
+            "status": doc_ingestion_status(last_modified, state),
         })
     documents.sort(key=lambda d: d["lastModified"], reverse=True)
-    return respond(200, {"documents": documents, "total": len(documents)})
+    return respond(200, {
+        "documents": documents,
+        "total": len(documents),
+        "indexing": bool(state and state.get("active")),
+    })
 
 
 def get_document_download_url(event):
