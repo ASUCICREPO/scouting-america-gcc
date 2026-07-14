@@ -806,9 +806,6 @@ html, body {
 .doc-status-badge.pending { background: #eef0f3; color: #5a5a72; }
 .doc-status-badge.failed { background: #fdecea; color: #c5221f; }
 
-.doc-status-badge .spin { animation: doc-spin 1s linear infinite; }
-@keyframes doc-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
-
 [data-theme="dark"] .progress-track { background: #333; }
 [data-theme="dark"] .doc-status-badge.ready { background: rgba(30, 126, 66, 0.2); color: #6ee7a0; }
 [data-theme="dark"] .doc-status-badge.indexing { background: rgba(183, 121, 31, 0.2); color: #f0c674; }

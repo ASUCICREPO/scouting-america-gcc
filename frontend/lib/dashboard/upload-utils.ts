@@ -26,6 +26,7 @@ export const ALLOWED_EXTENSIONS = [
   'pdf',
   'txt',
   'docx',
+  'pptx',
   'svg',
   'png',
   'jpeg',
@@ -38,6 +39,7 @@ export const EXTENSION_CONTENT_TYPES: Record<string, string> = {
   pdf: 'application/pdf',
   txt: 'text/plain',
   docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
   svg: 'image/svg+xml',
   png: 'image/png',
   jpeg: 'image/jpeg',
@@ -45,7 +47,7 @@ export const EXTENSION_CONTENT_TYPES: Record<string, string> = {
 };
 
 /** Value for the file input `accept` attribute. */
-export const ACCEPT_ATTR = '.csv,.pdf,.txt,.docx,.svg,.png,.jpeg,.jpg';
+export const ACCEPT_ATTR = '.csv,.pdf,.txt,.docx,.pptx,.svg,.png,.jpeg,.jpg';
 
 export function getExtension(name: string): string {
   const idx = name.lastIndexOf('.');

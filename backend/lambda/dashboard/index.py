@@ -32,6 +32,7 @@ ALLOWED_CONTENT_TYPES = [
     "application/pdf",
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document",  # .docx
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",  # .xlsx
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation",  # .pptx
     "application/msword",
     "application/vnd.ms-excel",
     # Text / data

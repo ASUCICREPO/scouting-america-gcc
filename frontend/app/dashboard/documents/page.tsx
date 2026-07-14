@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useRef } from 'react';
 import { getDocuments, getDocumentDownloadUrl, deleteDocument, getUploadUrl, DocumentItem, DocumentStatus } from '@/lib/dashboard/api';
-import { Search, Paperclip, Upload, FolderUp, Pencil, Trash2, Download, FileText, ChevronLeft, ChevronRight, Loader2, CheckCircle2, Clock, AlertCircle } from 'lucide-react';
+import { Search, Paperclip, Upload, FolderUp, Pencil, Trash2, Download, FileText, ChevronLeft, ChevronRight } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   ACCEPT_ATTR,
@@ -196,32 +196,11 @@ export default function DocumentsPage() {
 
   function StatusBadge({ status }: { status?: DocumentStatus }) {
     const s = status ?? 'ready';
-    if (s === 'indexing') {
-      return (
-        <span className="doc-status-badge indexing">
-          <Loader2 size={12} className="spin" /> Indexing
-        </span>
-      );
-    }
-    if (s === 'pending') {
-      return (
-        <span className="doc-status-badge pending">
-          <Clock size={12} /> Queued
-        </span>
-      );
-    }
-    if (s === 'failed') {
-      return (
-        <span className="doc-status-badge failed">
-          <AlertCircle size={12} /> Failed
-        </span>
-      );
-    }
-    return (
-      <span className="doc-status-badge ready">
-        <CheckCircle2 size={12} /> Ready
-      </span>
-    );
+    const label = s === 'indexing' ? 'Indexing'
+      : s === 'pending' ? 'Queued'
+      : s === 'failed' ? 'Failed'
+      : 'Ready';
+    return <span className={`doc-status-badge ${s}`}>{label}</span>;
   }
 
   const filteredDocs = documents.filter(d =>
@@ -287,7 +266,7 @@ export default function DocumentsPage() {
       >
         <div className="upload-icon-wrapper"><Upload size={22} /></div>
         <p className="upload-text">Drop files or folders here, or click to browse</p>
-        <p className="upload-hint">CSV, PDF, TXT, DOCX, SVG, PNG, JPEG — folders keep their structure</p>
+        <p className="upload-hint">CSV, PDF, TXT, DOCX, PPTX, SVG, PNG, JPEG — folders keep their structure</p>
         {uploading && progress && (
           <div className="upload-progress-wrap" onClick={e => e.stopPropagation()}>
             <div className="progress-track">
