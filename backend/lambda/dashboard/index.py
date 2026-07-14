@@ -130,12 +130,30 @@ def validate_s3_key(key: str, allowed_prefix: str) -> bool:
     return True
 
 
-def sanitize_file_name(file_name: str) -> str:
-    safe = re.sub(r"[/\\]", "_", file_name).replace("..", "")
-    if len(safe) > 200:
-        safe = safe[:200]
-    if not safe or safe == "_":
+def sanitize_relative_path(relative_path: str) -> str:
+    """Sanitize a client-supplied relative path while preserving folder structure.
+
+    Each path segment is cleaned independently and slashes are retained, so a
+    dropped folder layout (e.g. ``folderA/sub/file.pdf``) is mirrored exactly
+    under the ``uploads/`` prefix in S3. Path-traversal (``..``), leading
+    slashes, control characters, and empty/``.`` segments are stripped.
+    """
+    if not relative_path:
         return ""
+    # Normalize Windows separators, drop any leading slashes.
+    normalized = relative_path.replace("\\", "/").lstrip("/")
+    segments = []
+    for raw in normalized.split("/"):
+        seg = raw.replace("..", "").strip()
+        if not seg or seg == ".":
+            continue
+        seg = re.sub(r"[\x00-\x1f]", "", seg)
+        if not seg:
+            continue
+        segments.append(seg)
+    safe = "/".join(segments)
+    if len(safe) > 500:
+        safe = safe[:500]
     return safe
 
 
@@ -470,20 +488,22 @@ def get_upload_url(event):
     except json.JSONDecodeError:
         return respond(400, {"message": "Request body must be valid JSON"})
 
-    file_name = body.get("fileName")
+    # Prefer a folder-qualified relativePath (mirrors dropped folder structure);
+    # fall back to a flat fileName for single-file uploads / older clients.
+    relative_path = body.get("relativePath") or body.get("fileName")
     content_type = body.get("contentType")
-    if not file_name:
-        return respond(400, {"message": "fileName is required"})
+    if not relative_path:
+        return respond(400, {"message": "relativePath or fileName is required"})
 
-    safe_name = sanitize_file_name(file_name)
-    if not safe_name:
-        return respond(400, {"message": "Invalid fileName"})
+    safe_path = sanitize_relative_path(relative_path)
+    if not safe_path:
+        return respond(400, {"message": "Invalid file path"})
 
     ct = content_type or "application/pdf"
     if ct not in ALLOWED_CONTENT_TYPES:
         return respond(400, {"message": f"Content type not allowed. Allowed: {', '.join(ALLOWED_CONTENT_TYPES)}"})
 
-    key = f"uploads/{safe_name}"
+    key = f"uploads/{safe_path}"
     url = s3.generate_presigned_url(
         "put_object",
         Params={"Bucket": DOCUMENT_BUCKET, "Key": key, "ContentType": ct},
