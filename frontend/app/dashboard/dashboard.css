@@ -761,6 +761,56 @@ html, body {
 }
 
 .upload-zone:hover { border-color: #005696; }
+.upload-zone.drag-active {
+  border-color: #005696;
+  background: rgba(0, 86, 150, 0.05);
+}
+
+/* Upload progress bar */
+.upload-progress-wrap {
+  width: 100%;
+  max-width: 360px;
+  margin-top: 14px;
+  cursor: default;
+}
+.progress-track {
+  width: 100%;
+  height: 6px;
+  background: #e6ecf3;
+  border-radius: 999px;
+  overflow: hidden;
+}
+.progress-fill {
+  height: 100%;
+  background: #005696;
+  border-radius: 999px;
+  transition: width 0.2s ease;
+}
+.upload-progress { font-size: 12px; color: #5a5a72; margin-top: 6px; text-align: center; }
+
+/* Ingestion status badges */
+.doc-name-text { overflow: hidden; text-overflow: ellipsis; }
+.doc-status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 500;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.doc-status-badge.ready { background: #e6f4ea; color: #1e7e42; }
+.doc-status-badge.indexing { background: #fff4e0; color: #b7791f; }
+.doc-status-badge.pending { background: #eef0f3; color: #5a5a72; }
+.doc-status-badge.failed { background: #fdecea; color: #c5221f; }
+
+[data-theme="dark"] .progress-track { background: #333; }
+[data-theme="dark"] .doc-status-badge.ready { background: rgba(30, 126, 66, 0.2); color: #6ee7a0; }
+[data-theme="dark"] .doc-status-badge.indexing { background: rgba(183, 121, 31, 0.2); color: #f0c674; }
+[data-theme="dark"] .doc-status-badge.pending { background: rgba(90, 90, 114, 0.25); color: #b8b8c8; }
+[data-theme="dark"] .doc-status-badge.failed { background: rgba(197, 34, 31, 0.2); color: #f2a5a2; }
 
 .upload-icon-wrapper {
   width: 48px;
@@ -802,6 +852,7 @@ html, body {
 .doc-col-check { width: 40px; }
 .doc-col-name { flex: 1; }
 .doc-col-date { width: 150px; }
+.doc-col-status { width: 130px; }
 .doc-col-ops { width: 160px; text-align: center; }
 
 .doc-row {

@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { SettingsProvider } from "@/lib/dashboard/settings-context";
+import { Toaster } from "@/components/ui/sonner";
 import DashboardShell from "./DashboardShell";
 import "./dashboard.css";
 
@@ -15,6 +16,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   return (
     <SettingsProvider>
       <DashboardShell>{children}</DashboardShell>
+      <Toaster />
     </SettingsProvider>
   );
 }

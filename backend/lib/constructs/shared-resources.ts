@@ -41,6 +41,18 @@ export class SharedResources extends Construct {
       blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
       removalPolicy: cdk.RemovalPolicy.RETAIN,
       enforceSSL: true,
+      // Allow the admin dashboard (browser) to PUT files directly via presigned
+      // URLs, and GET them back for download. Origins are configurable — tighten
+      // via UPLOAD_ALLOWED_ORIGINS in production.
+      cors: [
+        {
+          allowedMethods: [s3.HttpMethods.PUT, s3.HttpMethods.GET, s3.HttpMethods.HEAD],
+          allowedOrigins: CONFIG.UPLOAD_ALLOWED_ORIGINS,
+          allowedHeaders: ['*'],
+          exposedHeaders: ['ETag'],
+          maxAge: 3000,
+        },
+      ],
     });
 
     // Knowledge base data: processed chunks for Bedrock KB

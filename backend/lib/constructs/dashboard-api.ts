@@ -78,7 +78,7 @@ export class DashboardApi extends Construct {
       resources: [`${props.knowledgeBaseBucket.bucketArn}/documents/*`],
     }));
     this.function.addToRolePolicy(new iam.PolicyStatement({
-      actions: ['bedrock:StartIngestionJob'],
+      actions: ['bedrock:StartIngestionJob', 'bedrock:ListIngestionJobs', 'bedrock:GetIngestionJob'],
       resources: [`arn:aws:bedrock:*:*:knowledge-base/${props.knowledgeBaseId}`],
     }));
 

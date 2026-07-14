@@ -28,11 +28,20 @@ chat_table = ddb.Table(CHAT_LOGS_TABLE)
 analytics_table = ddb.Table(ANALYTICS_LOGS_TABLE)
 
 ALLOWED_CONTENT_TYPES = [
+    # Documents
     "application/pdf",
-    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",  # .docx
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",  # .xlsx
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation",  # .pptx
     "application/msword",
     "application/vnd.ms-excel",
+    # Text / data
+    "text/csv",
+    "text/plain",  # .txt
+    # Images
+    "image/svg+xml",
+    "image/png",
+    "image/jpeg",
 ]
 MAX_FILE_SIZE_BYTES = 25 * 1024 * 1024  # advisory hint returned to the client
 
@@ -122,12 +131,30 @@ def validate_s3_key(key: str, allowed_prefix: str) -> bool:
     return True
 
 
-def sanitize_file_name(file_name: str) -> str:
-    safe = re.sub(r"[/\\]", "_", file_name).replace("..", "")
-    if len(safe) > 200:
-        safe = safe[:200]
-    if not safe or safe == "_":
+def sanitize_relative_path(relative_path: str) -> str:
+    """Sanitize a client-supplied relative path while preserving folder structure.
+
+    Each path segment is cleaned independently and slashes are retained, so a
+    dropped folder layout (e.g. ``folderA/sub/file.pdf``) is mirrored exactly
+    under the ``uploads/`` prefix in S3. Path-traversal (``..``), leading
+    slashes, control characters, and empty/``.`` segments are stripped.
+    """
+    if not relative_path:
         return ""
+    # Normalize Windows separators, drop any leading slashes.
+    normalized = relative_path.replace("\\", "/").lstrip("/")
+    segments = []
+    for raw in normalized.split("/"):
+        seg = raw.replace("..", "").strip()
+        if not seg or seg == ".":
+            continue
+        seg = re.sub(r"[\x00-\x1f]", "", seg)
+        if not seg:
+            continue
+        segments.append(seg)
+    safe = "/".join(segments)
+    if len(safe) > 500:
+        safe = safe[:500]
     return safe
 
 
@@ -405,8 +432,66 @@ def get_negative_feedback(event):
     return respond(200, body)
 
 
+def get_ingestion_state():
+    """Summarize the Bedrock data source's recent ingestion jobs.
+
+    Returns a dict with ``active`` (a job is STARTING/IN_PROGRESS), ``lastComplete``
+    (datetime of the most recent COMPLETE job), and ``lastFailed`` (datetime of the
+    most recent FAILED job). Returns ``None`` if the status can't be determined, so
+    the document list still renders even if this call is unavailable.
+    """
+    try:
+        resp = bedrock_agent.list_ingestion_jobs(
+            knowledgeBaseId=KNOWLEDGE_BASE_ID,
+            dataSourceId=DATA_SOURCE_ID,
+            sortBy={"attribute": "STARTED_AT", "order": "DESCENDING"},
+            maxResults=10,
+        )
+    except Exception as err:  # noqa: BLE001 - status is best-effort
+        print(f"list_ingestion_jobs failed: {err}")
+        return None
+
+    summaries = resp.get("ingestionJobSummaries", [])
+    active = any(s.get("status") in ("STARTING", "IN_PROGRESS") for s in summaries)
+    complete_times = [s.get("updatedAt") for s in summaries if s.get("status") == "COMPLETE" and s.get("updatedAt")]
+    failed_times = [s.get("updatedAt") for s in summaries if s.get("status") == "FAILED" and s.get("updatedAt")]
+    return {
+        "active": active,
+        "lastComplete": max(complete_times) if complete_times else None,
+        "lastFailed": max(failed_times) if failed_times else None,
+    }
+
+
+def doc_ingestion_status(last_modified, state):
+    """Classify a single document's readiness from the data-source ingestion state.
+
+    Heuristic (Bedrock ingests the whole data source per job, not per file):
+    - ready:    uploaded on/before the last COMPLETE job finished.
+    - indexing: a job is running and this doc post-dates the last COMPLETE job.
+    - failed:   the most recent job FAILED after this doc was uploaded.
+    - pending:  uploaded, no job running yet, not covered by a COMPLETE job.
+    """
+    if state is None or last_modified is None:
+        return "ready"  # can't determine — don't raise a false alarm
+
+    last_complete = state.get("lastComplete")
+    covered = bool(last_complete and last_modified <= last_complete)
+    if covered:
+        return "ready"
+
+    if state.get("active"):
+        return "indexing"
+
+    last_failed = state.get("lastFailed")
+    if last_failed and last_modified <= last_failed:
+        return "failed"
+
+    return "pending"
+
+
 def get_documents(event):
     listed = s3.list_objects_v2(Bucket=DOCUMENT_BUCKET, Prefix="uploads/")
+    state = get_ingestion_state()
     documents = []
     for obj in listed.get("Contents", []):
         key = obj.get("Key")
@@ -418,9 +503,14 @@ def get_documents(event):
             "fileName": key[len("uploads/"):],
             "fileSize": obj.get("Size", 0),
             "lastModified": last_modified.astimezone(timezone.utc).isoformat().replace("+00:00", "Z") if last_modified else "",
+            "status": doc_ingestion_status(last_modified, state),
         })
     documents.sort(key=lambda d: d["lastModified"], reverse=True)
-    return respond(200, {"documents": documents, "total": len(documents)})
+    return respond(200, {
+        "documents": documents,
+        "total": len(documents),
+        "indexing": bool(state and state.get("active")),
+    })
 
 
 def get_document_download_url(event):
@@ -462,20 +552,22 @@ def get_upload_url(event):
     except json.JSONDecodeError:
         return respond(400, {"message": "Request body must be valid JSON"})
 
-    file_name = body.get("fileName")
+    # Prefer a folder-qualified relativePath (mirrors dropped folder structure);
+    # fall back to a flat fileName for single-file uploads / older clients.
+    relative_path = body.get("relativePath") or body.get("fileName")
     content_type = body.get("contentType")
-    if not file_name:
-        return respond(400, {"message": "fileName is required"})
+    if not relative_path:
+        return respond(400, {"message": "relativePath or fileName is required"})
 
-    safe_name = sanitize_file_name(file_name)
-    if not safe_name:
-        return respond(400, {"message": "Invalid fileName"})
+    safe_path = sanitize_relative_path(relative_path)
+    if not safe_path:
+        return respond(400, {"message": "Invalid file path"})
 
     ct = content_type or "application/pdf"
     if ct not in ALLOWED_CONTENT_TYPES:
         return respond(400, {"message": f"Content type not allowed. Allowed: {', '.join(ALLOWED_CONTENT_TYPES)}"})
 
-    key = f"uploads/{safe_name}"
+    key = f"uploads/{safe_path}"
     url = s3.generate_presigned_url(
         "put_object",
         Params={"Bucket": DOCUMENT_BUCKET, "Key": key, "ContentType": ct},
