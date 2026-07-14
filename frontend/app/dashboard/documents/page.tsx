@@ -22,6 +22,7 @@ export default function DocumentsPage() {
   const [error, setError] = useState('');
   const [page, setPage] = useState(1);
   const [dragActive, setDragActive] = useState(false);
+  const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const folderInputRef = useRef<HTMLInputElement>(null);
   const ITEMS_PER_PAGE = 10;
@@ -113,6 +114,7 @@ export default function DocumentsPage() {
     if (valid.length === 0) return;
 
     setUploading(true);
+    setProgress({ done: 0, total: valid.length });
     const failed: string[] = [];
     let succeeded = 0;
     for (const item of valid) {
@@ -123,8 +125,10 @@ export default function DocumentsPage() {
         console.error(err);
         failed.push(item.relativePath);
       }
+      setProgress({ done: succeeded + failed.length, total: valid.length });
     }
     setUploading(false);
+    setProgress(null);
 
     if (succeeded > 0) {
       toast.success(`Uploaded ${succeeded} file${succeeded > 1 ? 's' : ''}`);
@@ -231,7 +235,11 @@ export default function DocumentsPage() {
         <div className="upload-icon-wrapper"><Upload size={22} /></div>
         <p className="upload-text">Drop files or folders here, or click to browse</p>
         <p className="upload-hint">CSV, PDF, TXT, DOCX, SVG, PNG, JPEG — folders keep their structure</p>
-        {uploading && <p className="upload-progress">Uploading...</p>}
+        {uploading && (
+          <p className="upload-progress">
+            {progress ? `Uploading ${progress.done} of ${progress.total}...` : 'Uploading...'}
+          </p>
+        )}
       </div>
 
       {/* Bulk Actions */}
