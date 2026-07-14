@@ -28,11 +28,19 @@ chat_table = ddb.Table(CHAT_LOGS_TABLE)
 analytics_table = ddb.Table(ANALYTICS_LOGS_TABLE)
 
 ALLOWED_CONTENT_TYPES = [
+    # Documents
     "application/pdf",
-    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",  # .docx
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",  # .xlsx
     "application/msword",
     "application/vnd.ms-excel",
+    # Text / data
+    "text/csv",
+    "text/plain",  # .txt
+    # Images
+    "image/svg+xml",
+    "image/png",
+    "image/jpeg",
 ]
 MAX_FILE_SIZE_BYTES = 25 * 1024 * 1024  # advisory hint returned to the client
 
