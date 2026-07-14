@@ -25,6 +25,14 @@ export const CONFIG = {
   STAFF_ALERT_TOPIC: `${PREFIX}gcc-staff-alerts`,
   STAFF_EMAIL: 'staff@grandcanyonbsa.org',
 
+  // Browser upload CORS — origins allowed to PUT documents directly to S3 via
+  // presigned URLs. Set UPLOAD_ALLOWED_ORIGINS (comma-separated) at synth/deploy
+  // time to lock this down in production. Defaults to '*' to match the existing
+  // API Gateway CORS posture for local/dev.
+  UPLOAD_ALLOWED_ORIGINS: process.env.UPLOAD_ALLOWED_ORIGINS
+    ? process.env.UPLOAD_ALLOWED_ORIGINS.split(',').map((o) => o.trim()).filter(Boolean)
+    : ['*'],
+
   // Bedrock
   MODEL_ID: 'us.anthropic.claude-haiku-4-5-20251001-v1:0',
   EMBEDDING_MODEL_ID: 'amazon.titan-embed-text-v2:0',
