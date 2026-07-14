@@ -27,6 +27,22 @@ export default function Home() {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
   };
 
+  // Load and apply persisted settings on mount
+  useEffect(() => {
+    const stored = localStorage.getItem("chat_settings");
+    if (stored) {
+      try {
+        const parsed = JSON.parse(stored);
+        if (parsed.darkMode) {
+          document.documentElement.setAttribute("data-theme", "dark");
+        }
+        if (parsed.fontSize) {
+          document.documentElement.style.setProperty("--chat-font-size", `${parsed.fontSize}px`);
+        }
+      } catch {}
+    }
+  }, []);
+
   useEffect(() => {
     scrollToBottom();
   }, [messages]);

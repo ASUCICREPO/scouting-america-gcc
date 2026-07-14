@@ -26,9 +26,9 @@ export default function Header({ onMenuClick }: HeaderProps) {
           style={{
             fontSize: 17,
             fontWeight: 500,
-            color: "#1b1b1b",
             letterSpacing: "-0.3px",
           }}
+          className="header-brand-text"
         >
           Scouting America
         </span>

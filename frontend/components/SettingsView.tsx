@@ -22,9 +22,18 @@ export default function SettingsView({ onBack }: SettingsViewProps) {
     }
   }, []);
 
+  // Apply settings to DOM
+  useEffect(() => {
+    document.documentElement.setAttribute("data-theme", darkMode ? "dark" : "light");
+  }, [darkMode]);
+
+  useEffect(() => {
+    document.documentElement.style.setProperty("--chat-font-size", `${fontSize}px`);
+  }, [fontSize]);
+
   const saveSettings = (updates: Partial<{ darkMode: boolean; fontSize: number; language: string }>) => {
-    const current = { darkMode, fontSize, language, ...updates };
-    localStorage.setItem("chat_settings", JSON.stringify(current));
+    const next = { darkMode, fontSize, language, ...updates };
+    localStorage.setItem("chat_settings", JSON.stringify(next));
     if ("darkMode" in updates) setDarkMode(updates.darkMode!);
     if ("fontSize" in updates) setFontSize(updates.fontSize!);
     if ("language" in updates) setLanguage(updates.language as "en" | "es");
