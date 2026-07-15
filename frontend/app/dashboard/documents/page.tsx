@@ -2,8 +2,9 @@
 
 import { useEffect, useState, useRef } from 'react';
 import { getDocuments, getDocumentDownloadUrl, deleteDocument, getUploadUrl, DocumentItem, DocumentStatus } from '@/lib/dashboard/api';
-import { Search, Paperclip, Upload, FolderUp, Pencil, Trash2, Download, FileText, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Search, Paperclip, Upload, FolderUp, Pencil, Trash2, Download, FileText, ChevronLeft, ChevronRight, AlertTriangle } from 'lucide-react';
 import { toast } from 'sonner';
+import ConfirmDialog from '@/components/ConfirmDialog';
 import { useLanguage } from '@/context/LanguageContext';
 import { formatText, languageLocale } from '@/lib/i18n';
 import {
@@ -26,6 +27,8 @@ export default function DocumentsPage() {
   const [page, setPage] = useState(1);
   const [dragActive, setDragActive] = useState(false);
   const [progress, setProgress] = useState<{ done: number; total: number; pct: number } | null>(null);
+  const [deleteKeys, setDeleteKeys] = useState<string[]>([]);
+  const [deleting, setDeleting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const folderInputRef = useRef<HTMLInputElement>(null);
   const ITEMS_PER_PAGE = 10;
@@ -68,16 +71,8 @@ export default function DocumentsPage() {
     }
   }
 
-  async function handleDelete(key: string) {
-    if (!confirm(formatText(t.documents.confirmDelete, { name: key.replace('uploads/', '') }))) return;
-    try {
-      await deleteDocument(key);
-      await loadDocuments();
-      setSelectedKeys(prev => { const n = new Set(prev); n.delete(key); return n; });
-    } catch (err) {
-      toast.error(t.documents.deleteFailed);
-      console.error(err);
-    }
+  function handleDelete(key: string) {
+    setDeleteKeys([key]);
   }
 
   async function handleBulkDownload() {
@@ -86,13 +81,37 @@ export default function DocumentsPage() {
     }
   }
 
-  async function handleBulkDelete() {
-    if (!confirm(formatText(t.documents.confirmBulkDelete, { count: selectedKeys.size }))) return;
-    for (const key of selectedKeys) {
-      try { await deleteDocument(key); } catch {}
+  function handleBulkDelete() {
+    setDeleteKeys(Array.from(selectedKeys));
+  }
+
+  async function confirmDelete() {
+    if (deleteKeys.length === 0 || deleting) return;
+
+    setDeleting(true);
+    const failed: string[] = [];
+    for (const key of deleteKeys) {
+      try {
+        await deleteDocument(key);
+      } catch (err) {
+        failed.push(key);
+        console.error(err);
+      }
     }
-    setSelectedKeys(new Set());
+
+    const deletedKeys = deleteKeys.filter(key => !failed.includes(key));
+    setSelectedKeys(prev => {
+      const next = new Set(prev);
+      deletedKeys.forEach(key => next.delete(key));
+      return next;
+    });
     await loadDocuments();
+    setDeleting(false);
+    setDeleteKeys([]);
+
+    if (failed.length > 0) {
+      toast.error(t.documents.deleteFailed, { description: failed.map(key => key.replace('uploads/', '')).join(', ') });
+    }
   }
 
   // Upload a single collected file to S3 via a presigned URL, preserving its
@@ -207,6 +226,15 @@ export default function DocumentsPage() {
   );
   const totalPages = Math.ceil(filteredDocs.length / ITEMS_PER_PAGE);
   const paginatedDocs = filteredDocs.slice((page - 1) * ITEMS_PER_PAGE, page * ITEMS_PER_PAGE);
+  const isBulkDelete = deleteKeys.length > 1;
+  const deleteTitle = isBulkDelete
+    ? formatText(t.documents.confirmBulkDelete, { count: deleteKeys.length })
+    : t.documents.confirmDelete;
+  const deleteDescription = isBulkDelete
+    ? formatText(t.documents.confirmBulkDeleteDescription, { count: deleteKeys.length })
+    : formatText(t.documents.confirmDeleteDescription, {
+        name: deleteKeys[0]?.replace('uploads/', '') || '',
+      });
 
   return (
     <div className="documents-page">
@@ -338,6 +366,21 @@ export default function DocumentsPage() {
           </div>
         )}
       </div>
+
+      <ConfirmDialog
+        isOpen={deleteKeys.length > 0}
+        title={deleteTitle}
+        description={deleteDescription}
+        confirmLabel={deleting ? t.documents.deleting : t.documents.delete}
+        cancelLabel={t.common.cancel}
+        closeLabel={t.common.close}
+        onConfirm={confirmDelete}
+        onCancel={() => { if (!deleting) setDeleteKeys([]); }}
+        tone="danger"
+        icon={<AlertTriangle size={21} />}
+        confirmIcon={<Trash2 size={16} />}
+        busy={deleting}
+      />
     </div>
   );
 }
