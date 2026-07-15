@@ -176,10 +176,10 @@ export default function Home() {
         isOpen={isDrawerOpen}
         onClose={() => setIsDrawerOpen(false)}
         onNewChat={handleNewChat}
-        onSettingsClick={() => {
-          setIsDrawerOpen(false);
-          setCurrentView("faq");
-        }}
+        onFaqClick={() => setCurrentView("faq")}
+        onSettingsClick={() => setCurrentView("settings")}
+        onLoadSession={handleLoadSession}
+        activeSessionId={sessionId}
       />
       <PwaInstallBanner />
     </div>

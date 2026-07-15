@@ -1,20 +1,36 @@
 "use client";
 
-import { X, Plus } from "lucide-react";
+import { useState, useEffect } from "react";
+import { X, Plus, Info, Settings } from "lucide-react";
+import { getSavedSessions, SavedSession } from "@/lib/api";
 
 interface ChatDrawerProps {
   isOpen: boolean;
   onClose: () => void;
   onNewChat: () => void;
+  onFaqClick: () => void;
   onSettingsClick: () => void;
+  onLoadSession: (sessionId: string) => void;
+  activeSessionId?: string;
 }
 
 export default function ChatDrawer({
   isOpen,
   onClose,
   onNewChat,
+  onFaqClick,
   onSettingsClick,
+  onLoadSession,
+  activeSessionId,
 }: ChatDrawerProps) {
+  const [sessions, setSessions] = useState<SavedSession[]>([]);
+
+  useEffect(() => {
+    if (isOpen) {
+      setSessions(getSavedSessions());
+    }
+  }, [isOpen]);
+
   if (!isOpen) return null;
 
   return (
@@ -31,13 +47,33 @@ export default function ChatDrawer({
           <span>New chat</span>
         </button>
 
-        {/* Chat History — conversations are session-only and not persisted yet */}
+        {/* Chat History */}
         <p className="history-section-title">Chat History</p>
-        <div className="history-empty">No past conversations</div>
+        {sessions.length > 0 ? (
+          sessions.map((session) => (
+            <div
+              key={session.sessionId}
+              className={`history-item ${activeSessionId === session.sessionId ? "active" : ""}`}
+              onClick={() => {
+                onLoadSession(session.sessionId);
+                onClose();
+              }}
+            >
+              {session.title}
+            </div>
+          ))
+        ) : (
+          <div className="history-empty">No past conversations</div>
+        )}
 
-        {/* Settings */}
-        <p className="history-section-title">More information</p>
-        <div className="history-item" onClick={onSettingsClick}>
+        {/* More information & Settings */}
+        <p className="history-section-title">Support</p>
+        <div className="history-item" onClick={() => { onFaqClick(); onClose(); }}>
+          <Info size={14} style={{ marginRight: 8, opacity: 0.6 }} />
+          More information
+        </div>
+        <div className="history-item" onClick={() => { onSettingsClick(); onClose(); }}>
+          <Settings size={14} style={{ marginRight: 8, opacity: 0.6 }} />
           Settings
         </div>
       </div>
