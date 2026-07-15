@@ -1907,19 +1907,55 @@ html, body {
 .fb-badge.negative { background: #fdecea; color: #c5221f; }
 
 /* ── Session transcript modal ────────────────────────────────────────────── */
-.session-thread { display: flex; flex-direction: column; gap: 18px; }
+.session-modal {
+  max-width: 920px;
+  max-height: 88vh;
+  overflow: hidden;
+}
+
+.session-modal .modal-header {
+  align-items: flex-start;
+  gap: 20px;
+}
+
+.session-modal .modal-close {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.session-modal .modal-body {
+  padding: 24px;
+  background: linear-gradient(
+    179.5deg,
+    rgb(255, 255, 255) 0%,
+    rgb(255, 255, 255) 44%,
+    rgb(255, 123, 0) 171%
+  );
+}
+
+.session-modal .modal-footer {
+  justify-content: flex-start;
+}
+
+.session-thread {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  width: 100%;
+  max-width: 720px;
+  margin: 0 auto;
+}
 
 .session-turn {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  border-radius: 12px;
-  padding: 8px;
-  transition: background 0.2s, box-shadow 0.2s;
+  gap: 14px;
 }
 .session-turn.highlight {
-  background: rgba(255, 193, 7, 0.12);
-  box-shadow: inset 0 0 0 2px #f5b301;
+  background: transparent;
+  box-shadow: none;
 }
 
 .session-msg { display: flex; }
@@ -1927,21 +1963,63 @@ html, body {
 .session-msg.assistant { justify-content: flex-start; }
 
 .session-bubble {
-  max-width: 85%;
-  border-radius: 14px;
-  padding: 10px 14px;
-  font-size: 13px;
-  line-height: 1.5;
+  border-radius: 10px;
+  padding: 12px 15px;
+  font-size: 14px;
+  line-height: 20px;
 }
-.session-bubble.user { background: #005696; color: #fff; }
-.session-bubble.assistant { background: #f2f5f9; color: #0d1526; }
-.session-answer { white-space: pre-wrap; overflow-wrap: anywhere; }
+.session-bubble.user {
+  max-width: 500px;
+  background: #f8f8f8;
+  border: 1px solid #fff;
+  color: #000;
+}
+.session-bubble.assistant {
+  width: 100%;
+  background: #f8f8f8;
+  border: 1px solid #e8e8e8;
+  color: #000;
+}
+.session-turn.highlight .session-bubble.assistant {
+  border-color: #c6772d;
+  box-shadow: 0 0 0 1px #c6772d;
+}
+.session-answer {
+  width: 100%;
+  overflow-wrap: anywhere;
+}
 .session-bubble.assistant .fb-badge { margin-top: 8px; }
 
 [data-theme="dark"] .fb-row { border-color: #2a2a2a; }
 [data-theme="dark"] .fb-td { color: #e0e0e0; }
 [data-theme="dark"] .fb-header-row { border-color: #2e2e2e; }
-[data-theme="dark"] .session-bubble.assistant { background: #2a2a2a; color: #e0e0e0; }
+[data-theme="dark"] .session-modal .modal-body { background: #121212; }
+[data-theme="dark"] .session-bubble.user,
+[data-theme="dark"] .session-bubble.assistant {
+  background: #2a2a2a;
+  border-color: #3a3a3a;
+  color: #e0e0e0;
+}
 [data-theme="dark"] .fb-badge.positive { background: rgba(30,126,66,0.2); color: #6ee7a0; }
 [data-theme="dark"] .fb-badge.negative { background: rgba(197,34,31,0.2); color: #f2a5a2; }
-[data-theme="dark"] .session-turn.highlight { background: rgba(245,179,1,0.15); }
+[data-theme="dark"] .session-turn.highlight .session-bubble.assistant { border-color: #c6772d; }
+
+@media (max-width: 767px) {
+  .session-modal {
+    width: calc(100% - 24px);
+    max-height: calc(100dvh - 24px);
+  }
+
+  .session-modal .modal-header,
+  .session-modal .modal-footer {
+    padding: 16px;
+  }
+
+  .session-modal .modal-body {
+    padding: 16px;
+  }
+
+  .session-bubble.user {
+    max-width: 85%;
+  }
+}

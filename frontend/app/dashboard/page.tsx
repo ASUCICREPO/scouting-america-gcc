@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { getSummary, getConversations, getFaq, getFeedbackConversations, getSessionTranscript, SummaryData, ConversationPoint, FaqItem, FeedbackConversation, SessionTurn, FeedbackValue } from '@/lib/dashboard/api';
+import MarkdownContent from '@/components/MarkdownContent';
 import { TrendingUp, TrendingDown, Copy, Clock, AlertTriangle, ChevronLeft, ChevronRight, X, Download, Eye, ThumbsUp, ThumbsDown } from 'lucide-react';
 
 function truncate(text: string, n: number): string {
@@ -376,13 +377,21 @@ export default function OverviewPage() {
       {/* Session Transcript Modal */}
       {openSessionId && (
         <div className="modal-overlay" onClick={closeSession}>
-          <div className="modal-content" onClick={e => e.stopPropagation()}>
+          <div className="modal-content session-modal" onClick={e => e.stopPropagation()}>
             <div className="modal-header">
               <div>
                 <h2>Conversation</h2>
                 <p className="card-subtitle">Session {openSessionId.slice(0, 12)}… · the highlighted response received the feedback</p>
               </div>
-              <button className="modal-close" onClick={closeSession}><X size={20} /></button>
+              <button
+                type="button"
+                className="modal-close"
+                onClick={closeSession}
+                aria-label="Close conversation"
+                title="Close conversation"
+              >
+                <X size={20} />
+              </button>
             </div>
             <div className="modal-body">
               {sessionLoading ? (
@@ -398,7 +407,7 @@ export default function OverviewPage() {
                         </div>
                         <div className="session-msg assistant">
                           <div className="session-bubble assistant">
-                            <div className="session-answer">{turn.answer}</div>
+                            <MarkdownContent content={turn.answer} className="session-answer ai-response-body" />
                             {isHighlight && turn.feedback && (
                               <span className={`fb-badge ${turn.feedback}`}>
                                 {turn.feedback === 'positive'
@@ -418,7 +427,6 @@ export default function OverviewPage() {
             </div>
             <div className="modal-footer">
               <span className="pagination-info">{sessionTurns.length} message{sessionTurns.length === 1 ? '' : 's'}</span>
-              <button className="page-btn" onClick={closeSession}>Close</button>
             </div>
           </div>
         </div>
