@@ -18,21 +18,18 @@ export default function PwaInstallBanner() {
     useState<BeforeInstallPromptEvent | null>(null);
 
   useEffect(() => {
-    // Check if already installed (standalone mode)
-    const isInstalled =
-      window.matchMedia("(display-mode: standalone)").matches ||
+    const desktopQuery = window.matchMedia("(min-width: 768px)");
+    const standaloneQuery = window.matchMedia("(display-mode: standalone)");
+    const isInstalled = () =>
+      standaloneQuery.matches ||
       (window.navigator as Navigator & { standalone?: boolean }).standalone ===
         true;
 
-    if (isInstalled) return;
-
-    // Defer the client-only state update until after the initial render.
-    const showFrame = window.requestAnimationFrame(() => setIsAvailable(true));
-
-    // Capture the beforeinstallprompt event
     const handler = (e: Event) => {
+      if (!desktopQuery.matches || isInstalled()) return;
       e.preventDefault();
       setDeferredPrompt(e as BeforeInstallPromptEvent);
+      setIsAvailable(true);
     };
 
     const installedHandler = () => {
@@ -40,23 +37,33 @@ export default function PwaInstallBanner() {
       setDeferredPrompt(null);
     };
 
+    const displayModeHandler = () => {
+      if (!desktopQuery.matches || isInstalled()) {
+        installedHandler();
+      }
+    };
+
     window.addEventListener("beforeinstallprompt", handler);
     window.addEventListener("appinstalled", installedHandler);
+    desktopQuery.addEventListener("change", displayModeHandler);
+    standaloneQuery.addEventListener("change", displayModeHandler);
 
     return () => {
-      window.cancelAnimationFrame(showFrame);
       window.removeEventListener("beforeinstallprompt", handler);
       window.removeEventListener("appinstalled", installedHandler);
+      desktopQuery.removeEventListener("change", displayModeHandler);
+      standaloneQuery.removeEventListener("change", displayModeHandler);
     };
   }, []);
 
   const handleInstall = async () => {
-    if (deferredPrompt) {
-      deferredPrompt.prompt();
-      const { outcome } = await deferredPrompt.userChoice;
-      if (outcome === "accepted") {
-        setIsAvailable(false);
-      }
+    if (!deferredPrompt) return;
+
+    try {
+      await deferredPrompt.prompt();
+      await deferredPrompt.userChoice;
+    } finally {
+      setIsAvailable(false);
       setDeferredPrompt(null);
     }
   };
