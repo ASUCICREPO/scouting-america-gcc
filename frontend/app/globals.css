@@ -1570,6 +1570,22 @@ body {
   color: var(--text-primary);
 }
 
+.pwa-banner-instructions {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin-top: 4px;
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.pwa-banner-instructions svg {
+  margin-top: 1px;
+  flex-shrink: 0;
+  color: var(--primary-blue);
+}
+
 .pwa-banner-install {
   display: flex;
   align-items: center;
@@ -1637,6 +1653,19 @@ body {
 .pwa-banner-close:focus-visible {
   outline: 2px solid var(--primary-blue);
   outline-offset: 2px;
+}
+
+.pwa-banner-mobile {
+  display: block;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  padding-bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+}
+
+.pwa-banner-toggle-mobile {
+  display: flex;
 }
 
 @media (min-width: 768px) {

@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import Image from "next/image";
-import { X, Download } from "lucide-react";
+import { X, Download, SquareArrowUp } from "lucide-react";
 import { useLanguage } from "@/context/LanguageContext";
 
 interface BeforeInstallPromptEvent extends Event {
@@ -12,8 +12,8 @@ interface BeforeInstallPromptEvent extends Event {
 
 export default function PwaInstallBanner() {
   const { t } = useLanguage();
-  const [isAvailable, setIsAvailable] = useState(false);
   const [isExpanded, setIsExpanded] = useState(true);
+  const [showIosGuidance, setShowIosGuidance] = useState(false);
   const [deferredPrompt, setDeferredPrompt] =
     useState<BeforeInstallPromptEvent | null>(null);
 
@@ -24,31 +24,48 @@ export default function PwaInstallBanner() {
       standaloneQuery.matches ||
       (window.navigator as Navigator & { standalone?: boolean }).standalone ===
         true;
+    const isIosDevice =
+      /iPad|iPhone|iPod/i.test(window.navigator.userAgent) ||
+      (window.navigator.platform === "MacIntel" &&
+        window.navigator.maxTouchPoints > 1);
 
     const handler = (e: Event) => {
       if (!desktopQuery.matches || isInstalled()) return;
       e.preventDefault();
       setDeferredPrompt(e as BeforeInstallPromptEvent);
-      setIsAvailable(true);
     };
 
     const installedHandler = () => {
-      setIsAvailable(false);
+      setShowIosGuidance(false);
       setDeferredPrompt(null);
     };
 
     const displayModeHandler = () => {
-      if (!desktopQuery.matches || isInstalled()) {
+      if (isInstalled()) {
         installedHandler();
+        return;
+      }
+
+      if (!desktopQuery.matches && isIosDevice) {
+        setDeferredPrompt(null);
+        setShowIosGuidance(true);
+        return;
+      }
+
+      setShowIosGuidance(false);
+      if (!desktopQuery.matches) {
+        setDeferredPrompt(null);
       }
     };
 
+    const initialDisplayCheck = window.requestAnimationFrame(displayModeHandler);
     window.addEventListener("beforeinstallprompt", handler);
     window.addEventListener("appinstalled", installedHandler);
     desktopQuery.addEventListener("change", displayModeHandler);
     standaloneQuery.addEventListener("change", displayModeHandler);
 
     return () => {
+      window.cancelAnimationFrame(initialDisplayCheck);
       window.removeEventListener("beforeinstallprompt", handler);
       window.removeEventListener("appinstalled", installedHandler);
       desktopQuery.removeEventListener("change", displayModeHandler);
@@ -63,10 +80,11 @@ export default function PwaInstallBanner() {
       await deferredPrompt.prompt();
       await deferredPrompt.userChoice;
     } finally {
-      setIsAvailable(false);
       setDeferredPrompt(null);
     }
   };
+
+  const isAvailable = showIosGuidance || deferredPrompt !== null;
 
   if (!isAvailable) return null;
 
@@ -74,19 +92,27 @@ export default function PwaInstallBanner() {
     return (
       <button
         type="button"
-        className="pwa-banner-toggle"
+        className={`pwa-banner-toggle${showIosGuidance ? " pwa-banner-toggle-mobile" : ""}`}
         onClick={() => setIsExpanded(true)}
         aria-label={t.chat.showInstall}
         aria-expanded="false"
         title={t.chat.showInstall}
       >
-        <Download size={20} />
+        {showIosGuidance ? (
+          <SquareArrowUp size={20} />
+        ) : (
+          <Download size={20} />
+        )}
       </button>
     );
   }
 
   return (
-    <div className="pwa-banner" role="region" aria-label={t.chat.installRegion}>
+    <div
+      className={`pwa-banner${showIosGuidance ? " pwa-banner-mobile" : ""}`}
+      role="region"
+      aria-label={t.chat.installRegion}
+    >
       <div className="pwa-banner-content">
         <div className="pwa-banner-icon">
           <Image
@@ -98,15 +124,23 @@ export default function PwaInstallBanner() {
         </div>
         <div className="pwa-banner-text">
           <p className="pwa-banner-title">{t.chat.installTitle}</p>
+          {showIosGuidance && (
+            <p className="pwa-banner-instructions">
+              <SquareArrowUp size={16} aria-hidden="true" />
+              <span>{t.chat.iosInstallInstructions}</span>
+            </p>
+          )}
         </div>
-        <button
-          type="button"
-          className="pwa-banner-install"
-          onClick={handleInstall}
-        >
-          <Download size={14} />
-          <span>{t.chat.install}</span>
-        </button>
+        {!showIosGuidance && (
+          <button
+            type="button"
+            className="pwa-banner-install"
+            onClick={handleInstall}
+          >
+            <Download size={14} />
+            <span>{t.chat.install}</span>
+          </button>
+        )}
         <button
           type="button"
           className="pwa-banner-close"

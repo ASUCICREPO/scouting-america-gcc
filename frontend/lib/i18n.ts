@@ -48,6 +48,7 @@ const english = {
     installRegion: "Add Scout AI to your home screen",
     installTitle: "Add Scout AI to your home screen",
     install: "Add to Home Screen",
+    iosInstallInstructions: "Tap the Share icon, then choose \"Add to Home Screen\".",
     showInstall: "Show Add to Home Screen prompt",
     hideInstall: "Hide Add to Home Screen prompt",
     quickActions: [
@@ -334,6 +335,7 @@ const spanish: TranslationShape<typeof english> = {
     installRegion: "Añadir Scout AI a tu pantalla de inicio",
     installTitle: "Añade Scout AI a tu pantalla de inicio",
     install: "Añadir a pantalla de inicio",
+    iosInstallInstructions: "Toca el icono Compartir y luego elige \"Añadir a pantalla de inicio\".",
     showInstall: "Mostrar opción Añadir a pantalla de inicio",
     hideInstall: "Ocultar opción Añadir a pantalla de inicio",
     quickActions: [
