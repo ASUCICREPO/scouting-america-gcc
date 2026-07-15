@@ -6,7 +6,7 @@ import * as sqs from 'aws-cdk-lib/aws-sqs';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as logs from 'aws-cdk-lib/aws-logs';
 import { Construct } from 'constructs';
-import { CONFIG } from '../config/environment';
+import { CONFIG, PREFIX } from '../config/environment';
 import * as path from 'path';
 
 export interface EscalationRouterProps {
@@ -26,7 +26,7 @@ export class EscalationRouter extends Construct {
     // Dead-letter queue: this function is invoked asynchronously by the chat
     // handler, so failed events (after retries) land here instead of being lost.
     const deadLetterQueue = new sqs.Queue(this, 'EscalationRouterDLQ', {
-      queueName: 'GCC-EscalationRouter-DLQ',
+      queueName: `${PREFIX}GCC-EscalationRouter-DLQ`,
       encryption: sqs.QueueEncryption.SQS_MANAGED,
       enforceSSL: true,
       retentionPeriod: cdk.Duration.days(14),
@@ -34,7 +34,7 @@ export class EscalationRouter extends Construct {
 
     // Lambda that processes escalations and alerts staff (Python 3.13, boto3)
     this.function = new lambda.Function(this, 'EscalationRouterFn', {
-      functionName: 'GCC-EscalationRouter',
+      functionName: `${PREFIX}GCC-EscalationRouter`,
       runtime: lambda.Runtime.PYTHON_3_13,
       handler: 'index.handler',
       code: lambda.Code.fromAsset(path.join(__dirname, '../../lambda/escalation-router')),

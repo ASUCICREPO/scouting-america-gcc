@@ -5,7 +5,7 @@ import * as cognito from 'aws-cdk-lib/aws-cognito';
 import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
 import * as sns from 'aws-cdk-lib/aws-sns';
 import { Construct } from 'constructs';
-import { CONFIG } from '../config/environment';
+import { CONFIG, PREFIX } from '../config/environment';
 
 export class SharedResources extends Construct {
   // S3 Buckets
@@ -151,7 +151,7 @@ export class SharedResources extends Construct {
     // ---------------------------------------------------------------
 
     this.guardrailsSecret = new secretsmanager.Secret(this, 'GuardrailsSecret', {
-      secretName: 'gcc-system-guardrails',
+      secretName: `${PREFIX}gcc-system-guardrails`,
       description: 'System instructions and guardrails for the AI assistant',
       secretStringValue: cdk.SecretValue.unsafePlainText(JSON.stringify({
         systemPrompt: 'You are the GCC AI Volunteer Support Assistant. Answer questions using only approved GCC and Scouting America resources. If you are unsure or the question is about safety, youth protection, or emergencies, clearly state your limitations and direct the user to appropriate human contacts.',

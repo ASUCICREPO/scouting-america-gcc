@@ -12,6 +12,7 @@ interface ChatAreaProps {
   showWelcome: boolean;
   onChipClick: (text: string) => void;
   onEndChat: () => void;
+  onFeedback: (index: number, feedback: "positive" | "negative") => void;
   chatEndRef: RefObject<HTMLDivElement | null>;
 }
 
@@ -21,6 +22,7 @@ export default function ChatArea({
   showWelcome,
   onChipClick,
   onEndChat,
+  onFeedback,
   chatEndRef,
 }: ChatAreaProps) {
   return (
@@ -34,6 +36,7 @@ export default function ChatArea({
               key={index}
               message={msg}
               onChipClick={onChipClick}
+              onFeedback={(feedback) => onFeedback(index, feedback)}
             />
           ))}
           {isLoading && <TypingIndicator />}

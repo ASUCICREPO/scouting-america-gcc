@@ -4,7 +4,7 @@ import * as iam from 'aws-cdk-lib/aws-iam';
 import * as bedrock from 'aws-cdk-lib/aws-bedrock';
 import * as s3vectors from 'aws-cdk-lib/aws-s3vectors';
 import { Construct } from 'constructs';
-import { CONFIG } from '../config/environment';
+import { CONFIG, PREFIX } from '../config/environment';
 
 export interface KnowledgeBaseProps {
   // S3 bucket where processed document chunks live (from shared-resources)
@@ -111,7 +111,7 @@ export class KnowledgeBase extends Construct {
 
     // Create the Bedrock Knowledge Base with S3 Vectors storage
     const kb = new bedrock.CfnKnowledgeBase(this, 'GccKnowledgeBase', {
-      name: 'GCC-VolunteerSupport-KB',
+      name: `${PREFIX}GCC-VolunteerSupport-KB`,
       description: 'Knowledge base for GCC volunteer support — contains approved Scouting America and GCC documents',
       roleArn: kbRole.roleArn,
       knowledgeBaseConfiguration: {
@@ -134,7 +134,7 @@ export class KnowledgeBase extends Construct {
 
     // Data source — tells the KB where to find documents (S3 bucket with chunks)
     const dataSource = new bedrock.CfnDataSource(this, 'S3DataSource', {
-      name: 'GCC-Documents-S3',
+      name: `${PREFIX}GCC-Documents-S3`,
       description: 'Processed document chunks from the GCC document store',
       knowledgeBaseId: kb.attrKnowledgeBaseId,
       dataSourceConfiguration: {

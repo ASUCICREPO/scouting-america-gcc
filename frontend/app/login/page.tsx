@@ -56,7 +56,7 @@ export default function LoginPage() {
           'X-Amz-Target': 'AWSCognitoIdentityProviderService.ForgotPassword',
         },
         body: JSON.stringify({
-          ClientId: process.env.NEXT_PUBLIC_CLIENT_ID || '9et474goq05mabug4jtvssufp',
+          ClientId: process.env.NEXT_PUBLIC_CLIENT_ID || 'REPLACE_AFTER_CDK_DEPLOY',
           Username: forgotEmail,
         }),
       });
@@ -85,7 +85,7 @@ export default function LoginPage() {
           'X-Amz-Target': 'AWSCognitoIdentityProviderService.ConfirmForgotPassword',
         },
         body: JSON.stringify({
-          ClientId: process.env.NEXT_PUBLIC_CLIENT_ID || '9et474goq05mabug4jtvssufp',
+          ClientId: process.env.NEXT_PUBLIC_CLIENT_ID || 'REPLACE_AFTER_CDK_DEPLOY',
           Username: forgotEmail,
           ConfirmationCode: forgotCode,
           Password: newPassword,

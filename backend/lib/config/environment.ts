@@ -3,7 +3,10 @@
 // roles are account/globally unique. Set RESOURCE_PREFIX at synth/deploy time
 // (e.g. RESOURCE_PREFIX=dev). Defaults to no prefix, preserving the existing
 // resource names so the current deployment is unaffected.
-const PREFIX = process.env.RESOURCE_PREFIX ? `${process.env.RESOURCE_PREFIX}-` : '';
+// Exported so constructs can prefix account/region-unique names that aren't in
+// CONFIG (Lambda function names, SQS queues, the guardrails secret, the KB) —
+// otherwise a prefixed deploy collides with an existing unprefixed stack.
+export const PREFIX = process.env.RESOURCE_PREFIX ? `${process.env.RESOURCE_PREFIX}-` : '';
 
 export const CONFIG = {
   // DynamoDB Tables

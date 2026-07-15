@@ -432,6 +432,83 @@ def get_negative_feedback(event):
     return respond(200, body)
 
 
+def get_feedback(event):
+    """List every chat turn that received a thumbs up/down.
+
+    Query params:
+      - filter: 'positive' | 'negative' | 'all' (default 'all')
+      - limit, offset: pagination
+    Each row is a single rated turn; the dashboard opens the full session and
+    highlights this turn using (sessionId, messageId=timestamp).
+    """
+    filter_val = (_qs(event, "filter", "all") or "all").lower()
+    wanted = {"positive", "negative"}
+    if filter_val == "positive":
+        wanted = {"positive"}
+    elif filter_val == "negative":
+        wanted = {"negative"}
+
+    limit = min(int(_qs(event, "limit", "50")), 200)
+    offset = int(_qs(event, "offset", "0"))
+
+    chat_items = scan_with_time_filter(chat_table, 90)
+    rated = sorted(
+        (i for i in chat_items if i.get("feedback") in wanted),
+        key=lambda i: i.get("timestamp") or "",
+        reverse=True,
+    )
+    total = len(rated)
+    paginated = rated[offset:offset + limit]
+    conversations = [
+        {
+            "sessionId": i.get("sessionId"),
+            # messageId == the turn's sort key; used to highlight in the transcript.
+            "messageId": i.get("timestamp"),
+            "timestamp": i.get("timestamp"),
+            "userId": i.get("userId"),
+            "question": i.get("question"),
+            "answer": i.get("answer"),
+            "feedback": i.get("feedback"),
+            "confidence": _r4(_num(i.get("confidence"))) if _num(i.get("confidence")) is not None else 0,
+            "sources": i.get("sources") or [],
+            "escalated": i.get("escalated") or False,
+        }
+        for i in paginated
+    ]
+    body = {"total": total, "offset": offset, "limit": limit, "filter": filter_val, "conversations": conversations}
+    if total == 0:
+        body["note"] = "No feedback has been submitted yet"
+    return respond(200, body)
+
+
+def get_session(event):
+    """Return the full transcript for a session so the dashboard can render the
+    whole conversation and highlight the turn that was rated.
+    """
+    session_id = _qs(event, "sessionId")
+    if not session_id:
+        return respond(400, {"message": "sessionId parameter is required"})
+
+    result = chat_table.query(
+        KeyConditionExpression=Key("sessionId").eq(session_id),
+        ScanIndexForward=True,  # oldest first
+    )
+    turns = [
+        {
+            "messageId": item.get("timestamp"),
+            "timestamp": item.get("timestamp"),
+            "question": item.get("question"),
+            "answer": item.get("answer"),
+            "feedback": item.get("feedback"),
+            "confidence": _r4(_num(item.get("confidence"))) if _num(item.get("confidence")) is not None else 0,
+            "sources": item.get("sources") or [],
+            "escalated": item.get("escalated") or False,
+        }
+        for item in result.get("Items", [])
+    ]
+    return respond(200, {"sessionId": session_id, "turns": turns, "total": len(turns)})
+
+
 def get_ingestion_state():
     """Summarize the Bedrock data source's recent ingestion jobs.
 
@@ -587,6 +664,8 @@ ROUTES = {
         "/dashboard/confidence": get_confidence,
         "/dashboard/escalations": get_escalations,
         "/dashboard/negative-feedback": get_negative_feedback,
+        "/dashboard/feedback": get_feedback,
+        "/dashboard/session": get_session,
         "/dashboard/documents": get_documents,
         "/dashboard/documents/download": get_document_download_url,
     },

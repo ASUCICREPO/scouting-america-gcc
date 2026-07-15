@@ -1,61 +1,12 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { getSummary, getConversations, getFaq, getFaqAll, SummaryData, ConversationPoint, FaqItem } from '@/lib/dashboard/api';
-import { TrendingUp, TrendingDown, Copy, Clock, Users, AlertTriangle, ChevronLeft, ChevronRight, X, Download } from 'lucide-react';
+import { getSummary, getConversations, getFaq, getFeedbackConversations, getSessionTranscript, SummaryData, ConversationPoint, FaqItem, FeedbackConversation, SessionTurn, FeedbackValue } from '@/lib/dashboard/api';
+import { TrendingUp, TrendingDown, Copy, Clock, AlertTriangle, ChevronLeft, ChevronRight, X, Download, Eye, ThumbsUp, ThumbsDown } from 'lucide-react';
 
-// Categorize raw questions into topics using keyword matching
-const CATEGORY_RULES: { category: string; keywords: string[] }[] = [
-  { category: 'Camp Geronimo', keywords: ['camp geronimo', 'geronimo', 'camp cost', 'summer camp'] },
-  { category: 'Camp Raymond', keywords: ['camp raymond', 'raymond'] },
-  { category: 'Volunteering', keywords: ['volunteer', 'volunteering', 'leader', 'scoutmaster', 'den leader'] },
-  { category: 'Registration & Fees', keywords: ['register', 'registration', 'fee', 'cost', 'price', 'pay', 'financial'] },
-  { category: 'Merit Badges', keywords: ['merit badge', 'badge', 'eagle scout', 'rank'] },
-  { category: 'Events & Activities', keywords: ['event', 'activity', 'activities', 'camporee', 'jamboree', 'hike'] },
-  { category: 'Donations & Supplies', keywords: ['donat', 'supply', 'supplies', 'fundrais', 'popcorn'] },
-  { category: 'Scouting Values & Programs', keywords: ['values', 'oath', 'law', 'promise', 'program', 'cub scout', 'scouts bsa', 'venturing'] },
-  { category: 'Safety & Youth Protection', keywords: ['safety', 'abuse', 'protection', 'emergency', 'ypt', 'youth protection'] },
-  { category: 'Council Information', keywords: ['council', 'gcc', 'grand canyon', 'office', 'contact', 'phone'] },
-  { category: 'Membership & Joining', keywords: ['join', 'membership', 'sign up', 'enroll', 'how to join'] },
-  { category: 'General / Greetings', keywords: ['hi', 'hello', 'hey', 'thanks', 'thank you', 'good morning', 'what can you'] },
-];
-
-function categorizeQuestion(question: string): string {
-  const q = question.toLowerCase();
-  for (const rule of CATEGORY_RULES) {
-    if (rule.keywords.some(kw => q.includes(kw))) {
-      return rule.category;
-    }
-  }
-  return 'Other';
-}
-
-interface CategorizedFaq {
-  category: string;
-  count: number;
-  avgConfidence: number;
-  questions: string[];
-}
-
-function categorizeFaqList(items: FaqItem[]): CategorizedFaq[] {
-  const map = new Map<string, { count: number; totalConf: number; confCount: number; questions: string[] }>();
-  for (const item of items) {
-    const cat = categorizeQuestion(item.question);
-    const existing = map.get(cat) || { count: 0, totalConf: 0, confCount: 0, questions: [] };
-    existing.count += item.count;
-    existing.totalConf += item.avgConfidence * item.count;
-    existing.confCount += item.count;
-    existing.questions.push(item.question);
-    map.set(cat, existing);
-  }
-  return Array.from(map.entries())
-    .map(([category, data]) => ({
-      category,
-      count: data.count,
-      avgConfidence: data.confCount > 0 ? data.totalConf / data.confCount : 0,
-      questions: data.questions,
-    }))
-    .sort((a, b) => b.count - a.count);
+function truncate(text: string, n: number): string {
+  if (!text) return '';
+  return text.length > n ? text.slice(0, n) + '…' : text;
 }
 
 export default function OverviewPage() {
@@ -65,11 +16,19 @@ export default function OverviewPage() {
   const [period, setPeriod] = useState<'day' | 'week' | 'month'>('day');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [showFaqModal, setShowFaqModal] = useState(false);
-  const [allFaq, setAllFaq] = useState<FaqItem[]>([]);
-  const [faqPage, setFaqPage] = useState(1);
-  const [faqTotal, setFaqTotal] = useState(0);
-  const FAQ_PER_PAGE = 30;
+
+  // Conversation feedback table
+  const [feedback, setFeedback] = useState<FeedbackConversation[]>([]);
+  const [feedbackFilter, setFeedbackFilter] = useState<'all' | FeedbackValue>('all');
+  const [feedbackPage, setFeedbackPage] = useState(0);
+  const [feedbackTotal, setFeedbackTotal] = useState(0);
+  const FEEDBACK_PER_PAGE = 10;
+
+  // Session transcript modal (opened via the eye icon)
+  const [openSessionId, setOpenSessionId] = useState<string | null>(null);
+  const [sessionTurns, setSessionTurns] = useState<SessionTurn[]>([]);
+  const [sessionLoading, setSessionLoading] = useState(false);
+  const [highlightId, setHighlightId] = useState<string | null>(null);
 
   useEffect(() => {
     loadData();
@@ -95,22 +54,42 @@ export default function OverviewPage() {
     }
   }
 
-  async function openFaqModal() {
-    setShowFaqModal(true);
-    setFaqPage(1);
-    await loadFaqPage(1);
+  // Reload the feedback table when the filter or page changes.
+  useEffect(() => {
+    loadFeedback();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [feedbackFilter, feedbackPage]);
+
+  async function loadFeedback() {
+    try {
+      const data = await getFeedbackConversations(feedbackFilter, FEEDBACK_PER_PAGE, feedbackPage * FEEDBACK_PER_PAGE);
+      setFeedback(data.conversations);
+      setFeedbackTotal(data.total);
+    } catch (err) {
+      console.error('Failed to load feedback:', err);
+    }
   }
 
-  async function loadFaqPage(pageNum: number) {
+  // Open the full session transcript and highlight the rated turn.
+  async function openSession(sessionId: string, messageId: string) {
+    setOpenSessionId(sessionId);
+    setHighlightId(messageId);
+    setSessionLoading(true);
+    setSessionTurns([]);
     try {
-      const offset = (pageNum - 1) * FAQ_PER_PAGE;
-      const data = await getFaqAll(FAQ_PER_PAGE, offset);
-      setAllFaq(data.faq);
-      setFaqTotal(data.total);
-      setFaqPage(pageNum);
+      const data = await getSessionTranscript(sessionId);
+      setSessionTurns(data.turns);
     } catch (err) {
-      console.error('Failed to load FAQ page:', err);
+      console.error('Failed to load session:', err);
+    } finally {
+      setSessionLoading(false);
     }
+  }
+
+  function closeSession() {
+    setOpenSessionId(null);
+    setHighlightId(null);
+    setSessionTurns([]);
   }
 
   const [showDateDropdown, setShowDateDropdown] = useState(false);
@@ -330,104 +309,116 @@ export default function OverviewPage() {
         </div>
       </div>
 
-      {/* FAQ Table */}
+      {/* Conversation Feedback Table */}
       <div className="card">
         <div className="card-header">
           <div>
-            <h2 className="card-title">Frequently Asked Topics</h2>
-            <p className="card-subtitle">Grouped by category · live data</p>
+            <h2 className="card-title">Conversation Feedback</h2>
+            <p className="card-subtitle">Responses volunteers rated · click the eye to open the full chat</p>
           </div>
-          <button className="link-btn" onClick={openFaqModal}>View all →</button>
+          <div className="fb-filter-group">
+            {(['all', 'positive', 'negative'] as const).map(f => (
+              <button
+                key={f}
+                className={`toggle-btn ${feedbackFilter === f ? 'active' : ''}`}
+                onClick={() => { setFeedbackFilter(f); setFeedbackPage(0); }}
+              >
+                {f === 'all' ? 'All' : f === 'positive' ? 'Upvoted' : 'Downvoted'}
+              </button>
+            ))}
+          </div>
         </div>
-        <div className="faq-table">
-          <div className="faq-header-row">
-            <span className="faq-th faq-col-num">#</span>
-            <span className="faq-th faq-col-question">Topic</span>
-            <span className="faq-th faq-col-occ">Questions</span>
-            <span className="faq-th faq-col-trend">Confidence</span>
-            <span className="faq-th faq-col-res">Resolution</span>
-            <span className="faq-th faq-col-action" />
+        <div className="fb-table">
+          <div className="fb-header-row">
+            <span className="fb-th fb-col-num">#</span>
+            <span className="fb-th fb-col-question">Question</span>
+            <span className="fb-th fb-col-feedback">Feedback</span>
+            <span className="fb-th fb-col-date">Date</span>
+            <span className="fb-th fb-col-action" />
           </div>
-          {faqList.length > 0 ? (
-            categorizeFaqList(faqList).map((item, i) => {
-              const confPercent = Math.round(item.avgConfidence * 100);
-              return (
-                <div key={i} className="faq-row">
-                  <span className="faq-td faq-col-num">{String(i + 1).padStart(2, '0')}</span>
-                  <span className="faq-td faq-col-question">{item.category}</span>
-                  <span className="faq-td faq-col-occ mono">{item.count.toLocaleString()}</span>
-                  <span className={`faq-td faq-col-trend ${confPercent >= 70 ? 'positive' : 'negative'}`}>
-                    {confPercent >= 70 ? <TrendingUp size={11} /> : <TrendingDown size={11} />}
-                    <span>{confPercent}%</span>
+          {feedback.length > 0 ? (
+            feedback.map((conv, i) => (
+              <div key={`${conv.sessionId}-${conv.messageId}`} className="fb-row">
+                <span className="fb-td fb-col-num">{String(feedbackPage * FEEDBACK_PER_PAGE + i + 1).padStart(2, '0')}</span>
+                <span className="fb-td fb-col-question" title={conv.question}>{truncate(conv.question, 80)}</span>
+                <span className="fb-td fb-col-feedback">
+                  <span className={`fb-badge ${conv.feedback}`}>
+                    {conv.feedback === 'positive'
+                      ? <><ThumbsUp size={11} /> Up</>
+                      : <><ThumbsDown size={11} /> Down</>}
                   </span>
-                  <span className="faq-td faq-col-res">
-                    <div className="progress-bar">
-                      <div className="progress-fill" style={{ width: `${confPercent}%` }} />
-                    </div>
-                    <span className="progress-label">{confPercent}%</span>
-                  </span>
-                  <span className="faq-td faq-col-action">
-                    <button className="icon-btn" style={{fontSize: 14, fontWeight: 600, fontStyle: 'italic'}}>i</button>
-                  </span>
-                </div>
-              );
-            })
+                </span>
+                <span className="fb-td fb-col-date">
+                  {new Date(conv.timestamp).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                </span>
+                <span className="fb-td fb-col-action">
+                  <button className="icon-btn" title="View conversation" onClick={() => openSession(conv.sessionId, conv.messageId)}>
+                    <Eye size={15} />
+                  </button>
+                </span>
+              </div>
+            ))
           ) : (
-            <div className="empty-state">No FAQ data yet</div>
+            <div className="empty-state">No feedback yet</div>
           )}
         </div>
+        {feedbackTotal > FEEDBACK_PER_PAGE && (
+          <div className="pagination" style={{ padding: '14px 0' }}>
+            <button className="page-btn" disabled={feedbackPage === 0} onClick={() => setFeedbackPage(p => Math.max(0, p - 1))}><ChevronLeft size={16} /></button>
+            <span className="pagination-info">
+              {feedbackPage * FEEDBACK_PER_PAGE + 1}–{Math.min((feedbackPage + 1) * FEEDBACK_PER_PAGE, feedbackTotal)} of {feedbackTotal}
+            </span>
+            <button className="page-btn" disabled={(feedbackPage + 1) * FEEDBACK_PER_PAGE >= feedbackTotal} onClick={() => setFeedbackPage(p => p + 1)}><ChevronRight size={16} /></button>
+          </div>
+        )}
       </div>
 
-      {/* FAQ Modal */}
-      {showFaqModal && (
-        <div className="modal-overlay" onClick={() => setShowFaqModal(false)}>
+      {/* Session Transcript Modal */}
+      {openSessionId && (
+        <div className="modal-overlay" onClick={closeSession}>
           <div className="modal-content" onClick={e => e.stopPropagation()}>
             <div className="modal-header">
-              <h2>All Frequently Asked Questions</h2>
-              <button className="modal-close" onClick={() => setShowFaqModal(false)}><X size={20} /></button>
+              <div>
+                <h2>Conversation</h2>
+                <p className="card-subtitle">Session {openSessionId.slice(0, 12)}… · the highlighted response received the feedback</p>
+              </div>
+              <button className="modal-close" onClick={closeSession}><X size={20} /></button>
             </div>
             <div className="modal-body">
-              <div className="faq-table">
-                <div className="faq-header-row">
-                  <span className="faq-th faq-col-num">#</span>
-                  <span className="faq-th faq-col-question">Question</span>
-                  <span className="faq-th faq-col-occ">Occurrences</span>
-                  <span className="faq-th faq-col-trend">Confidence</span>
-                  <span className="faq-th faq-col-res">Resolution</span>
-                </div>
-                {allFaq.map((item, i) => {
-                  const confPercent = Math.round(item.avgConfidence * 100);
-                  const globalIndex = (faqPage - 1) * FAQ_PER_PAGE + i + 1;
-                  return (
-                    <div key={i} className="faq-row">
-                      <span className="faq-td faq-col-num">{String(globalIndex).padStart(2, '0')}</span>
-                      <span className="faq-td faq-col-question">{item.question}</span>
-                      <span className="faq-td faq-col-occ mono">{item.count.toLocaleString()}</span>
-                      <span className={`faq-td faq-col-trend ${confPercent >= 70 ? 'positive' : 'negative'}`}>
-                        {confPercent >= 70 ? <TrendingUp size={11} /> : <TrendingDown size={11} />}
-                        <span>{confPercent}%</span>
-                      </span>
-                      <span className="faq-td faq-col-res">
-                        <div className="progress-bar">
-                          <div className="progress-fill" style={{ width: `${confPercent}%` }} />
+              {sessionLoading ? (
+                <div className="empty-state">Loading conversation…</div>
+              ) : sessionTurns.length > 0 ? (
+                <div className="session-thread">
+                  {sessionTurns.map((turn) => {
+                    const isHighlight = turn.messageId === highlightId;
+                    return (
+                      <div key={turn.messageId} className={`session-turn ${isHighlight ? 'highlight' : ''}`}>
+                        <div className="session-msg user">
+                          <div className="session-bubble user">{turn.question}</div>
                         </div>
-                        <span className="progress-label">{confPercent}%</span>
-                      </span>
-                    </div>
-                  );
-                })}
-              </div>
+                        <div className="session-msg assistant">
+                          <div className="session-bubble assistant">
+                            <div className="session-answer">{turn.answer}</div>
+                            {isHighlight && turn.feedback && (
+                              <span className={`fb-badge ${turn.feedback}`}>
+                                {turn.feedback === 'positive'
+                                  ? <><ThumbsUp size={11} /> Upvoted</>
+                                  : <><ThumbsDown size={11} /> Downvoted</>}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="empty-state">No messages found for this session</div>
+              )}
             </div>
             <div className="modal-footer">
-              <span className="pagination-info">Page {faqPage} of {Math.ceil(faqTotal / FAQ_PER_PAGE)} ({faqTotal} total)</span>
-              <div className="pagination">
-                <button className="page-btn" disabled={faqPage === 1} onClick={() => loadFaqPage(faqPage - 1)}><ChevronLeft size={16} /></button>
-                {Array.from({ length: Math.min(Math.ceil(faqTotal / FAQ_PER_PAGE), 5) }, (_, i) => {
-                  const p = i + 1;
-                  return <button key={p} className={`page-btn ${p === faqPage ? 'active' : ''}`} onClick={() => loadFaqPage(p)}>{p}</button>;
-                })}
-                <button className="page-btn" disabled={faqPage >= Math.ceil(faqTotal / FAQ_PER_PAGE)} onClick={() => loadFaqPage(faqPage + 1)}><ChevronRight size={16} /></button>
-              </div>
+              <span className="pagination-info">{sessionTurns.length} message{sessionTurns.length === 1 ? '' : 's'}</span>
+              <button className="page-btn" onClick={closeSession}>Close</button>
             </div>
           </div>
         </div>

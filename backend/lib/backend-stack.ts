@@ -9,6 +9,7 @@ import { EscalationRouter } from './constructs/escalation-router';
 import { ChatHandler } from './constructs/chat-handler';
 import { DocProcessor } from './constructs/doc-processor';
 import { DashboardApi } from './constructs/dashboard-api';
+import { FrontendHosting } from './constructs/frontend-hosting';
 
 export class ScoutingAmericaChatbot extends cdk.Stack {
   constructor(scope: Construct, id: string, props?: cdk.StackProps) {
@@ -54,6 +55,7 @@ export class ScoutingAmericaChatbot extends cdk.Stack {
       guardrailsSecret: sharedResources.guardrailsSecret,
       chatResource: apiGateway.chatResource,
       chatHistoryResource: apiGateway.chatHistoryResource,
+      chatFeedbackResource: apiGateway.chatFeedbackResource,
       knowledgeBaseId: knowledgeBase.knowledgeBaseId,
       escalationFunctionArn: escalationRouter.function.functionArn,
     });
@@ -92,6 +94,12 @@ export class ScoutingAmericaChatbot extends cdk.Stack {
     });
 
     // ---------------------------------------------------------------
+    // Frontend hosting (CloudFront + private S3) — deploy.sh syncs the
+    // static export here and invalidates the distribution.
+    // ---------------------------------------------------------------
+    const frontendHosting = new FrontendHosting(this, 'FrontendHosting');
+
+    // ---------------------------------------------------------------
     // Stack Outputs
     // ---------------------------------------------------------------
     new cdk.CfnOutput(this, 'ChatApiUrl', {
@@ -122,6 +130,21 @@ export class ScoutingAmericaChatbot extends cdk.Stack {
     new cdk.CfnOutput(this, 'KnowledgeBaseBucket', {
       value: sharedResources.knowledgeBaseBucket.bucketName,
       description: 'S3 Bucket for KB processed chunks',
+    });
+
+    new cdk.CfnOutput(this, 'FrontendBucket', {
+      value: frontendHosting.siteBucket.bucketName,
+      description: 'S3 bucket the exported frontend is synced to',
+    });
+
+    new cdk.CfnOutput(this, 'FrontendDistributionId', {
+      value: frontendHosting.distribution.distributionId,
+      description: 'CloudFront distribution ID for the frontend',
+    });
+
+    new cdk.CfnOutput(this, 'FrontendUrl', {
+      value: `https://${frontendHosting.distribution.distributionDomainName}`,
+      description: 'Public URL of the frontend (share with the client)',
     });
 
     // ---------------------------------------------------------------
@@ -195,6 +218,22 @@ export class ScoutingAmericaChatbot extends cdk.Stack {
       {
         id: 'AwsSolutions-L1',
         reason: 'ADR: Lambdas run on Python 3.13 (latest runtime) | Rationale: CDK-provided helper functions (e.g. S3 bucket notifications) may lag the newest runtime | Alternative: N/A for our own handlers, which are all on the latest runtime',
+      },
+      {
+        id: 'AwsSolutions-CFR1',
+        reason: 'ADR: No CloudFront geo-restriction | Rationale: Pilot frontend must be reachable for client testing | Alternative: Add geo allowlist (will evaluate for production)',
+      },
+      {
+        id: 'AwsSolutions-CFR2',
+        reason: 'ADR: No WAF on CloudFront | Rationale: POC/pilot cost optimization; static site fronting public APIs | Alternative: Attach CLOUDFRONT-scoped WAF (will add for production)',
+      },
+      {
+        id: 'AwsSolutions-CFR3',
+        reason: 'ADR: CloudFront access logging deferred | Rationale: POC phase cost optimization | Alternative: Enable access logs (will add for production)',
+      },
+      {
+        id: 'AwsSolutions-CFR4',
+        reason: 'ADR: Default CloudFront viewer certificate (TLSv1.2_2021 minimum) | Rationale: Using the default *.cloudfront.net domain; custom domain/ACM cert deferred | Alternative: Custom ACM cert (will add for production)',
       },
     ]);
   }
