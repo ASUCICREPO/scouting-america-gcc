@@ -1,12 +1,14 @@
 "use client";
 
 import { Menu } from "lucide-react";
+import { useLanguage } from "@/context/LanguageContext";
 
 interface HeaderProps {
   onMenuClick?: () => void;
 }
 
 export default function Header({ onMenuClick }: HeaderProps) {
+  const { t } = useLanguage();
   return (
     <header className="header">
       <div className="header-left">
@@ -21,7 +23,7 @@ export default function Header({ onMenuClick }: HeaderProps) {
       <button
         className="header-menu-btn"
         onClick={onMenuClick}
-        aria-label="Menu"
+        aria-label={t.chat.menu}
       >
         <Menu size={16} />
       </button>

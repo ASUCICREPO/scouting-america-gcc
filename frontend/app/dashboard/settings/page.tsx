@@ -1,39 +1,30 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
-import { Upload, ExternalLink } from 'lucide-react';
+import { Upload, ExternalLink, Globe } from 'lucide-react';
 import { getUser } from '@/lib/dashboard/auth';
 import { useSettings } from '@/lib/dashboard/settings-context';
+import { useLanguage } from '@/context/LanguageContext';
 
 type SettingsTab = 'profile' | 'appearance' | 'help' | 'about';
 
 export default function SettingsPage() {
   const { settings, updateSettings } = useSettings();
+  const { t } = useLanguage();
   const [activeTab, setActiveTab] = useState<SettingsTab>('profile');
 
   // LOCAL draft state — only saved to context on "Save Changes"
-  const [firstName, setFirstName] = useState('');
-  const [lastName, setLastName] = useState('');
+  const [firstName, setFirstName] = useState(settings.firstName);
+  const [lastName, setLastName] = useState(settings.lastName);
   const [email, setEmail] = useState('');
   const [mobile, setMobile] = useState('');
-  const [draftProfileImage, setDraftProfileImage] = useState<string | null>(null);
-  const [draftLogo, setDraftLogo] = useState<string | null>(null);
-  const [draftTheme, setDraftTheme] = useState<'light' | 'dark'>('light');
-  const [draftLanguage, setDraftLanguage] = useState<'english' | 'espanol'>('english');
-  const [draftTextSize, setDraftTextSize] = useState<'small' | 'medium' | 'large'>('medium');
+  const [draftProfileImage, setDraftProfileImage] = useState<string | null>(settings.profileImage);
+  const [draftLogo, setDraftLogo] = useState<string | null>(settings.companyLogo);
+  const [draftTheme, setDraftTheme] = useState<'light' | 'dark'>(settings.theme);
+  const [draftTextSize, setDraftTextSize] = useState<'small' | 'medium' | 'large'>(settings.textSize);
 
   const profileInputRef = useRef<HTMLInputElement>(null);
   const logoInputRef = useRef<HTMLInputElement>(null);
-
-  // Initialize draft from saved settings
-  useEffect(() => {
-    resetToSaved();
-  }, [settings]);
-
-  useEffect(() => {
-    const user = getUser();
-    if (user) setEmail(user.email);
-  }, []);
 
   function resetToSaved() {
     setFirstName(settings.firstName);
@@ -41,9 +32,24 @@ export default function SettingsPage() {
     setDraftProfileImage(settings.profileImage);
     setDraftLogo(settings.companyLogo);
     setDraftTheme(settings.theme);
-    setDraftLanguage(settings.language);
     setDraftTextSize(settings.textSize);
   }
+
+  // Keep local drafts aligned when persisted settings hydrate or change elsewhere.
+  useEffect(() => {
+    const frame = window.requestAnimationFrame(resetToSaved);
+    return () => window.cancelAnimationFrame(frame);
+    // The individual fields below are the complete persisted draft input.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [settings.firstName, settings.lastName, settings.profileImage, settings.companyLogo, settings.theme, settings.textSize]);
+
+  useEffect(() => {
+    const frame = window.requestAnimationFrame(() => {
+      const user = getUser();
+      if (user) setEmail(user.email);
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, []);
 
   function handleCancel() {
     resetToSaved();
@@ -55,17 +61,16 @@ export default function SettingsPage() {
       lastName,
       profileImage: draftProfileImage,
     });
-    alert('Profile saved!');
+    alert(t.adminSettings.profileSaved);
   }
 
   function saveAppearance() {
     updateSettings({
       companyLogo: draftLogo,
       theme: draftTheme,
-      language: draftLanguage,
       textSize: draftTextSize,
     });
-    alert('Appearance saved! Changes applied.');
+    alert(t.adminSettings.appearanceSaved);
   }
 
   function handleProfileUpload(e: React.ChangeEvent<HTMLInputElement>) {
@@ -91,15 +96,15 @@ export default function SettingsPage() {
   }
 
   const tabs: { id: SettingsTab; label: string; external?: boolean }[] = [
-    { id: 'profile', label: 'Edit Profile' },
-    { id: 'appearance', label: 'Appearance' },
-    { id: 'help', label: 'Help', external: true },
-    { id: 'about', label: 'About us', external: true },
+    { id: 'profile', label: t.adminSettings.editProfile },
+    { id: 'appearance', label: t.adminSettings.appearance },
+    { id: 'help', label: t.adminSettings.help, external: true },
+    { id: 'about', label: t.adminSettings.aboutUs, external: true },
   ];
 
   return (
     <div className="settings-page">
-      <h1 className="settings-title">› Settings</h1>
+      <h1 className="settings-title">› {t.adminSettings.title}</h1>
       <div className="settings-layout">
         <div className="settings-tabs">
           {tabs.map(tab => (
@@ -113,96 +118,96 @@ export default function SettingsPage() {
         <div className="settings-content">
           {activeTab === 'profile' && (
             <div className="settings-panel">
-              <h2 className="panel-title">Basic Information</h2>
+              <h2 className="panel-title">{t.adminSettings.basicInformation}</h2>
               <div className="panel-section">
-                <label className="panel-label">Profile</label>
+                <label className="panel-label">{t.adminSettings.profile}</label>
                 <div className="profile-upload-row">
                   <div className="profile-avatar-large">
                     {draftProfileImage ? <img src={draftProfileImage} alt="Profile" /> : <span>?</span>}
                   </div>
                   <button className="upload-link" onClick={() => profileInputRef.current?.click()}>
-                    <Upload size={14} /> Upload
+                    <Upload size={14} /> {t.adminSettings.upload}
                   </button>
                   <input ref={profileInputRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handleProfileUpload} />
                 </div>
               </div>
               <div className="form-grid">
                 <div className="form-field">
-                  <label>First Name <span className="required">*</span></label>
-                  <input type="text" value={firstName} onChange={e => setFirstName(e.target.value)} placeholder="First name" />
+                  <label>{t.adminSettings.firstName} <span className="required">*</span></label>
+                  <input type="text" value={firstName} onChange={e => setFirstName(e.target.value)} placeholder={t.adminSettings.firstNamePlaceholder} />
                 </div>
                 <div className="form-field">
-                  <label>Last Name <span className="required">*</span></label>
-                  <input type="text" value={lastName} onChange={e => setLastName(e.target.value)} placeholder="Last name" />
+                  <label>{t.adminSettings.lastName} <span className="required">*</span></label>
+                  <input type="text" value={lastName} onChange={e => setLastName(e.target.value)} placeholder={t.adminSettings.lastNamePlaceholder} />
                 </div>
                 <div className="form-field">
-                  <label>Email</label>
+                  <label>{t.adminSettings.email}</label>
                   <input type="email" value={email} disabled />
                 </div>
                 <div className="form-field">
-                  <label>Mobile Number</label>
-                  <input type="text" value={mobile} onChange={e => setMobile(e.target.value)} placeholder="Phone number" />
+                  <label>{t.adminSettings.mobileNumber}</label>
+                  <input type="text" value={mobile} onChange={e => setMobile(e.target.value)} placeholder={t.adminSettings.phonePlaceholder} />
                 </div>
               </div>
               <div className="panel-actions">
-                <button className="btn-cancel" onClick={handleCancel}>Cancel</button>
-                <button className="btn-save" onClick={saveProfile}>Save Changes</button>
+                <button className="btn-cancel" onClick={handleCancel}>{t.adminSettings.cancel}</button>
+                <button className="btn-save" onClick={saveProfile}>{t.adminSettings.saveChanges}</button>
               </div>
             </div>
           )}
 
           {activeTab === 'appearance' && (
             <div className="settings-panel">
-              <h2 className="panel-title">Appearance</h2>
+              <h2 className="panel-title">{t.adminSettings.appearance}</h2>
               <div className="appearance-section">
                 <div className="appearance-row">
-                  <div><h3 className="appearance-label">Company logo</h3><p className="appearance-desc">Update your company logo.</p></div>
+                  <div><h3 className="appearance-label">{t.adminSettings.companyLogo}</h3><p className="appearance-desc">{t.adminSettings.companyLogoDescription}</p></div>
                   <div className="logo-controls">
                     <div className="logo-preview">{draftLogo ? <img src={draftLogo} alt="Logo" /> : <img src="/gcc-logo.png" alt="GCC Logo" />}</div>
-                    <button className="btn-replace-logo" onClick={() => logoInputRef.current?.click()}>Replace logo</button>
-                    {draftLogo && <button className="btn-remove-logo" onClick={removeLogo}>Remove</button>}
+                    <button className="btn-replace-logo" onClick={() => logoInputRef.current?.click()}>{t.adminSettings.replaceLogo}</button>
+                    {draftLogo && <button className="btn-remove-logo" onClick={removeLogo}>{t.adminSettings.remove}</button>}
                     <input ref={logoInputRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handleLogoUpload} />
                   </div>
                 </div>
                 <div className="appearance-row">
-                  <div><h3 className="appearance-label">Interface theme</h3><p className="appearance-desc">Select or customize your UI theme.</p></div>
+                  <div><h3 className="appearance-label">{t.adminSettings.interfaceTheme}</h3><p className="appearance-desc">{t.adminSettings.interfaceThemeDescription}</p></div>
                   <div className="theme-options">
                     <label className={`theme-option ${draftTheme === 'light' ? 'active' : ''}`}>
-                      <div className="theme-preview light-preview" /><input type="radio" name="theme" checked={draftTheme === 'light'} onChange={() => setDraftTheme('light')} /><span>Light</span>
+                      <div className="theme-preview light-preview" /><input type="radio" name="theme" checked={draftTheme === 'light'} onChange={() => setDraftTheme('light')} /><span>{t.adminSettings.light}</span>
                     </label>
                     <label className={`theme-option ${draftTheme === 'dark' ? 'active' : ''}`}>
-                      <div className="theme-preview dark-preview" /><input type="radio" name="theme" checked={draftTheme === 'dark'} onChange={() => setDraftTheme('dark')} /><span>Dark</span>
+                      <div className="theme-preview dark-preview" /><input type="radio" name="theme" checked={draftTheme === 'dark'} onChange={() => setDraftTheme('dark')} /><span>{t.adminSettings.dark}</span>
                     </label>
                   </div>
                 </div>
                 <div className="appearance-row">
-                  <div><h3 className="appearance-label">Language</h3><p className="appearance-desc">Select your preferred display language.</p></div>
+                  <div><h3 className="appearance-label">{t.adminSettings.language}</h3><p className="appearance-desc">{t.adminSettings.languageDescription}</p></div>
                   <div className="lang-options">
-                    <button className={`lang-btn ${draftLanguage === 'english' ? 'active' : ''}`} onClick={() => setDraftLanguage('english')}>🌐 English</button>
-                    <button className={`lang-btn ${draftLanguage === 'espanol' ? 'active' : ''}`} onClick={() => setDraftLanguage('espanol')}>🌐 Español</button>
+                    <button className={`lang-btn ${settings.language === 'english' ? 'active' : ''}`} onClick={() => updateSettings({ language: 'english' })} aria-pressed={settings.language === 'english'}><Globe size={13} /> {t.common.english}</button>
+                    <button className={`lang-btn ${settings.language === 'espanol' ? 'active' : ''}`} onClick={() => updateSettings({ language: 'espanol' })} aria-pressed={settings.language === 'espanol'}><Globe size={13} /> {t.common.spanish}</button>
                   </div>
                 </div>
                 <div className="appearance-row">
-                  <div><h3 className="appearance-label">Text size</h3><p className="appearance-desc">Adjust the size of text across the interface.</p></div>
+                  <div><h3 className="appearance-label">{t.adminSettings.textSize}</h3><p className="appearance-desc">{t.adminSettings.textSizeDescription}</p></div>
                   <div className="text-size-options">
-                    <button className={`size-btn ${draftTextSize === 'small' ? 'active' : ''}`} onClick={() => setDraftTextSize('small')}><span className="size-label">Aa</span><span>Small</span></button>
-                    <button className={`size-btn ${draftTextSize === 'medium' ? 'active' : ''}`} onClick={() => setDraftTextSize('medium')}><span className="size-label">Aa</span><span>Medium</span></button>
-                    <button className={`size-btn ${draftTextSize === 'large' ? 'active' : ''}`} onClick={() => setDraftTextSize('large')}><span className="size-label">Aa</span><span>Large</span></button>
+                    <button className={`size-btn ${draftTextSize === 'small' ? 'active' : ''}`} onClick={() => setDraftTextSize('small')}><span className="size-label">Aa</span><span>{t.adminSettings.small}</span></button>
+                    <button className={`size-btn ${draftTextSize === 'medium' ? 'active' : ''}`} onClick={() => setDraftTextSize('medium')}><span className="size-label">Aa</span><span>{t.adminSettings.medium}</span></button>
+                    <button className={`size-btn ${draftTextSize === 'large' ? 'active' : ''}`} onClick={() => setDraftTextSize('large')}><span className="size-label">Aa</span><span>{t.adminSettings.large}</span></button>
                   </div>
                 </div>
               </div>
               <div className="panel-actions">
-                <button className="btn-cancel" onClick={handleCancel}>Cancel</button>
-                <button className="btn-save" onClick={saveAppearance}>Save Changes</button>
+                <button className="btn-cancel" onClick={handleCancel}>{t.adminSettings.cancel}</button>
+                <button className="btn-save" onClick={saveAppearance}>{t.adminSettings.saveChanges}</button>
               </div>
             </div>
           )}
 
           {activeTab === 'help' && (
-            <div className="settings-panel"><h2 className="panel-title">Help</h2><p className="panel-desc">Help documentation link will be added here.</p></div>
+            <div className="settings-panel"><h2 className="panel-title">{t.adminSettings.help}</h2><p className="panel-desc">{t.adminSettings.helpPlaceholder}</p></div>
           )}
           {activeTab === 'about' && (
-            <div className="settings-panel"><h2 className="panel-title">About Us</h2><p className="panel-desc">About us page link will be added here.</p></div>
+            <div className="settings-panel"><h2 className="panel-title">{t.adminSettings.aboutUs}</h2><p className="panel-desc">{t.adminSettings.aboutPlaceholder}</p></div>
           )}
         </div>
       </div>

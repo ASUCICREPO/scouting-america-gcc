@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import Image from "next/image";
 import { X, Download } from "lucide-react";
+import { useLanguage } from "@/context/LanguageContext";
 
 interface BeforeInstallPromptEvent extends Event {
   prompt: () => Promise<void>;
@@ -10,6 +11,7 @@ interface BeforeInstallPromptEvent extends Event {
 }
 
 export default function PwaInstallBanner() {
+  const { t } = useLanguage();
   const [isAvailable, setIsAvailable] = useState(false);
   const [isExpanded, setIsExpanded] = useState(true);
   const [deferredPrompt, setDeferredPrompt] =
@@ -67,9 +69,9 @@ export default function PwaInstallBanner() {
         type="button"
         className="pwa-banner-toggle"
         onClick={() => setIsExpanded(true)}
-        aria-label="Show install prompt"
+        aria-label={t.chat.showInstall}
         aria-expanded="false"
-        title="Show install prompt"
+        title={t.chat.showInstall}
       >
         <Download size={20} />
       </button>
@@ -77,7 +79,7 @@ export default function PwaInstallBanner() {
   }
 
   return (
-    <div className="pwa-banner" role="region" aria-label="Install Scout AI">
+    <div className="pwa-banner" role="region" aria-label={t.chat.installRegion}>
       <div className="pwa-banner-content">
         <div className="pwa-banner-icon">
           <Image
@@ -88,7 +90,7 @@ export default function PwaInstallBanner() {
           />
         </div>
         <div className="pwa-banner-text">
-          <p className="pwa-banner-title">Add Scout AI to your home screen</p>
+          <p className="pwa-banner-title">{t.chat.installTitle}</p>
         </div>
         <button
           type="button"
@@ -96,15 +98,15 @@ export default function PwaInstallBanner() {
           onClick={handleInstall}
         >
           <Download size={14} />
-          <span>Install</span>
+          <span>{t.chat.install}</span>
         </button>
         <button
           type="button"
           className="pwa-banner-close"
           onClick={() => setIsExpanded(false)}
-          aria-label="Hide install prompt"
+          aria-label={t.chat.hideInstall}
           aria-expanded="true"
-          title="Hide install prompt"
+          title={t.chat.hideInstall}
         >
           <X size={16} />
         </button>

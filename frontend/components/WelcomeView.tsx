@@ -1,10 +1,13 @@
 "use client";
 
+import { useLanguage } from "@/context/LanguageContext";
+
 interface WelcomeViewProps {
   onChipClick: (text: string) => void;
 }
 
 export default function WelcomeView({ onChipClick }: WelcomeViewProps) {
+  const { t } = useLanguage();
   return (
     <div className="welcome-container animate-in">
       {/* Avatar */}
@@ -30,15 +33,21 @@ export default function WelcomeView({ onChipClick }: WelcomeViewProps) {
 
       {/* Title */}
       <h1 className="welcome-title">
-        Hi, Scouter! How can I
-        <br />
-        help you today?
+        {t.chat.welcomeTitle}
       </h1>
 
       {/* Subtitle */}
       <p className="welcome-subtitle">
-        Ask anything. AI may make mistakes, but we&apos;ll do our best to help.
+        {t.chat.welcomeSubtitle}
       </p>
+
+      <div className="welcome-quick-actions">
+        {t.chat.quickActions.map((action) => (
+          <button key={action.label} type="button" onClick={() => onChipClick(action.prompt)}>
+            {action.label}
+          </button>
+        ))}
+      </div>
     </div>
   );
 }

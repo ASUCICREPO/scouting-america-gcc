@@ -423,6 +423,7 @@ def get_negative_feedback(event):
                 "confidence": _r4(_num(i.get("confidence"))) if _num(i.get("confidence")) is not None else 0,
                 "sources": i.get("sources") or [],
                 "escalated": i.get("escalated") or False,
+                "language": i.get("language", "en"),
             }
             for i in paginated
         ],
@@ -472,6 +473,7 @@ def get_feedback(event):
             "confidence": _r4(_num(i.get("confidence"))) if _num(i.get("confidence")) is not None else 0,
             "sources": i.get("sources") or [],
             "escalated": i.get("escalated") or False,
+            "language": i.get("language", "en"),
         }
         for i in paginated
     ]
@@ -503,6 +505,7 @@ def get_session(event):
             "confidence": _r4(_num(item.get("confidence"))) if _num(item.get("confidence")) is not None else 0,
             "sources": item.get("sources") or [],
             "escalated": item.get("escalated") or False,
+            "language": item.get("language", "en"),
         }
         for item in result.get("Items", [])
     ]

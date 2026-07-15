@@ -1,4 +1,5 @@
 import { API_BASE_URL } from "./config";
+import { Language } from "./i18n";
 
 export type Feedback = "positive" | "negative";
 
@@ -20,11 +21,13 @@ export interface ChatResponse {
   links?: { title: string; url: string }[];
   sessionId?: string;
   messageId?: string;
+  language?: Language;
 }
 
 export async function sendMessage(
   message: string,
-  sessionId?: string
+  sessionId?: string,
+  language: Language = "en",
 ): Promise<ChatResponse> {
   const response = await fetch(`${API_BASE_URL}/chat`, {
     method: "POST",
@@ -34,6 +37,7 @@ export async function sendMessage(
     body: JSON.stringify({
       question: message,
       sessionId,
+      language,
     }),
   });
 
@@ -48,6 +52,7 @@ export async function sendMessage(
     links: data.links,
     sessionId: data.sessionId,
     messageId: data.messageId,
+    language: data.language,
   };
 }
 
@@ -55,9 +60,10 @@ export interface HistoryItem {
   question: string;
   answer: string;
   timestamp: string;
+  language?: Language;
 }
 
-export async function getChatHistory(sessionId: string): Promise<ChatMessage[]> {
+export async function getChatHistory(sessionId: string): Promise<{ messages: ChatMessage[]; language: Language }> {
   const response = await fetch(`${API_BASE_URL}/chat/history/${sessionId}`);
   if (!response.ok) {
     throw new Error(`History API error: ${response.status}`);
@@ -68,7 +74,10 @@ export async function getChatHistory(sessionId: string): Promise<ChatMessage[]> 
     messages.push({ role: "user", content: item.question, timestamp: item.timestamp });
     messages.push({ role: "assistant", content: item.answer, timestamp: item.timestamp });
   }
-  return messages;
+  const historyLanguage = (data.history || []).find(
+    (item: HistoryItem) => item.language === "en" || item.language === "es",
+  )?.language;
+  return { messages, language: historyLanguage || "en" };
 }
 
 /**
@@ -96,6 +105,7 @@ export interface SavedSession {
   sessionId: string;
   title: string; // first user message
   timestamp: string;
+  language?: Language;
 }
 
 const SESSIONS_KEY = "chat_sessions";
@@ -111,7 +121,7 @@ export function getSavedSessions(): SavedSession[] {
   }
 }
 
-export function saveSession(sessionId: string, firstMessage: string): void {
+export function saveSession(sessionId: string, firstMessage: string, language: Language): void {
   const sessions = getSavedSessions();
   // Don't duplicate
   if (sessions.some(s => s.sessionId === sessionId)) return;
@@ -119,6 +129,7 @@ export function saveSession(sessionId: string, firstMessage: string): void {
     sessionId,
     title: firstMessage.length > 50 ? firstMessage.slice(0, 50) + "..." : firstMessage,
     timestamp: new Date().toISOString(),
+    language,
   });
   // Keep max 20 sessions
   localStorage.setItem(SESSIONS_KEY, JSON.stringify(sessions.slice(0, 20)));

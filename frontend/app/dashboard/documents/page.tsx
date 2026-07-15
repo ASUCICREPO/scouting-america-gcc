@@ -4,6 +4,8 @@ import { useEffect, useState, useRef } from 'react';
 import { getDocuments, getDocumentDownloadUrl, deleteDocument, getUploadUrl, DocumentItem, DocumentStatus } from '@/lib/dashboard/api';
 import { Search, Paperclip, Upload, FolderUp, Pencil, Trash2, Download, FileText, ChevronLeft, ChevronRight } from 'lucide-react';
 import { toast } from 'sonner';
+import { useLanguage } from '@/context/LanguageContext';
+import { formatText, languageLocale } from '@/lib/i18n';
 import {
   ACCEPT_ATTR,
   CollectedFile,
@@ -14,6 +16,7 @@ import {
 } from '@/lib/dashboard/upload-utils';
 
 export default function DocumentsPage() {
+  const { language, t } = useLanguage();
   const [documents, setDocuments] = useState<DocumentItem[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(true);
@@ -34,10 +37,12 @@ export default function DocumentsPage() {
     if (!anyIndexing) return;
     const timer = setInterval(() => { loadDocuments(true); }, 6000);
     return () => clearInterval(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [anyIndexing]);
 
   useEffect(() => {
     loadDocuments();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   async function loadDocuments(silent = false) {
@@ -46,7 +51,7 @@ export default function DocumentsPage() {
       const data = await getDocuments();
       setDocuments(data.documents);
     } catch (err) {
-      setError('Failed to load documents.');
+      setError(t.documents.loadFailed);
       console.error(err);
     } finally {
       if (!silent) setLoading(false);
@@ -58,19 +63,19 @@ export default function DocumentsPage() {
       const { url } = await getDocumentDownloadUrl(key);
       window.open(url, '_blank');
     } catch (err) {
-      toast.error('Download failed');
+      toast.error(t.documents.downloadFailed);
       console.error(err);
     }
   }
 
   async function handleDelete(key: string) {
-    if (!confirm(`Delete ${key.replace('uploads/', '')}?`)) return;
+    if (!confirm(formatText(t.documents.confirmDelete, { name: key.replace('uploads/', '') }))) return;
     try {
       await deleteDocument(key);
       await loadDocuments();
       setSelectedKeys(prev => { const n = new Set(prev); n.delete(key); return n; });
     } catch (err) {
-      toast.error('Delete failed');
+      toast.error(t.documents.deleteFailed);
       console.error(err);
     }
   }
@@ -82,7 +87,7 @@ export default function DocumentsPage() {
   }
 
   async function handleBulkDelete() {
-    if (!confirm(`Delete ${selectedKeys.size} selected documents?`)) return;
+    if (!confirm(formatText(t.documents.confirmBulkDelete, { count: selectedKeys.size }))) return;
     for (const key of selectedKeys) {
       try { await deleteDocument(key); } catch {}
     }
@@ -121,7 +126,7 @@ export default function DocumentsPage() {
     if (invalid.length > 0) {
       const names = invalid.map((f) => f.relativePath).join(', ');
       toast.error(
-        `${invalid.length} file${invalid.length > 1 ? 's' : ''} skipped (unsupported type)`,
+        formatText(t.documents.unsupported, { count: invalid.length }),
         { description: names },
       );
     }
@@ -154,11 +159,11 @@ export default function DocumentsPage() {
     setProgress(null);
 
     if (succeeded > 0) {
-      toast.success(`Uploaded ${succeeded} file${succeeded > 1 ? 's' : ''}`);
+      toast.success(formatText(t.documents.uploadSuccess, { count: succeeded }));
     }
     if (failed.length > 0) {
       toast.error(
-        `${failed.length} file${failed.length > 1 ? 's' : ''} failed to upload`,
+        formatText(t.documents.uploadFailed, { count: failed.length }),
         { description: failed.join(', ') },
       );
     }
@@ -188,18 +193,12 @@ export default function DocumentsPage() {
     }
   }
 
-  function formatFileSize(bytes: number): string {
-    if (bytes < 1024) return `${bytes} B`;
-    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-  }
-
   function StatusBadge({ status }: { status?: DocumentStatus }) {
     const s = status ?? 'ready';
-    const label = s === 'indexing' ? 'Indexing'
-      : s === 'pending' ? 'Queued'
-      : s === 'failed' ? 'Failed'
-      : 'Ready';
+    const label = s === 'indexing' ? t.documents.indexing
+      : s === 'pending' ? t.documents.queued
+      : s === 'failed' ? t.documents.failed
+      : t.documents.ready;
     return <span className={`doc-status-badge ${s}`}>{label}</span>;
   }
 
@@ -213,7 +212,7 @@ export default function DocumentsPage() {
     <div className="documents-page">
       <div className="breadcrumb">
         <span className="breadcrumb-arrow">‹</span>
-        <span className="breadcrumb-text">Manage documents</span>
+        <span className="breadcrumb-text">{t.documents.title}</span>
       </div>
 
       {/* Search + Attachment */}
@@ -222,7 +221,7 @@ export default function DocumentsPage() {
           <Search size={18} className="search-icon" />
           <input
             type="text"
-            placeholder="Search for documents.."
+            placeholder={t.documents.searchPlaceholder}
             value={searchQuery}
             onChange={e => { setSearchQuery(e.target.value); setPage(1); }}
             className="search-input"
@@ -230,11 +229,11 @@ export default function DocumentsPage() {
         </div>
         <button className="btn-attachment" onClick={() => fileInputRef.current?.click()}>
           <Paperclip size={14} />
-          <span>Files</span>
+          <span>{t.documents.files}</span>
         </button>
         <button className="btn-attachment" onClick={() => folderInputRef.current?.click()}>
           <FolderUp size={14} />
-          <span>Folder</span>
+          <span>{t.documents.folder}</span>
         </button>
         <input
           ref={fileInputRef}
@@ -265,15 +264,15 @@ export default function DocumentsPage() {
         onClick={() => fileInputRef.current?.click()}
       >
         <div className="upload-icon-wrapper"><Upload size={22} /></div>
-        <p className="upload-text">Drop files or folders here, or click to browse</p>
-        <p className="upload-hint">CSV, PDF, TXT, DOCX, PPTX, SVG, PNG, JPEG — folders keep their structure</p>
+        <p className="upload-text">{t.documents.dropPrompt}</p>
+        <p className="upload-hint">{t.documents.dropHint}</p>
         {uploading && progress && (
           <div className="upload-progress-wrap" onClick={e => e.stopPropagation()}>
             <div className="progress-track">
               <div className="progress-fill" style={{ width: `${progress.pct}%` }} />
             </div>
             <p className="upload-progress">
-              Uploading {progress.done} of {progress.total} — {progress.pct}%
+              {formatText(t.documents.uploading, { done: progress.done, total: progress.total, pct: progress.pct })}
             </p>
           </div>
         )}
@@ -282,9 +281,9 @@ export default function DocumentsPage() {
       {/* Bulk Actions */}
       {selectedKeys.size > 0 && (
         <div className="bulk-actions">
-          <span>{selectedKeys.size} selected</span>
-          <button className="bulk-btn" onClick={handleBulkDownload}><Download size={14} /> Download</button>
-          <button className="bulk-btn danger" onClick={handleBulkDelete}><Trash2 size={14} /> Delete</button>
+          <span>{formatText(t.documents.selected, { count: selectedKeys.size })}</span>
+          <button className="bulk-btn" onClick={handleBulkDownload}><Download size={14} /> {t.documents.download}</button>
+          <button className="bulk-btn danger" onClick={handleBulkDelete}><Trash2 size={14} /> {t.documents.delete}</button>
         </div>
       )}
 
@@ -294,13 +293,13 @@ export default function DocumentsPage() {
           <span className="doc-th doc-col-check">
             <input type="checkbox" className="checkbox" checked={selectedKeys.size === paginatedDocs.length && paginatedDocs.length > 0} onChange={toggleSelectAll} />
           </span>
-          <span className="doc-th doc-col-name">Document Name</span>
-          <span className="doc-th doc-col-date">Document Date</span>
-          <span className="doc-th doc-col-status">Status</span>
-          <span className="doc-th doc-col-ops">Operation Selected</span>
+          <span className="doc-th doc-col-name">{t.documents.documentName}</span>
+          <span className="doc-th doc-col-date">{t.documents.documentDate}</span>
+          <span className="doc-th doc-col-status">{t.documents.status}</span>
+          <span className="doc-th doc-col-ops">{t.documents.operations}</span>
         </div>
         {loading ? (
-          <div className="empty-state">Loading documents from S3...</div>
+          <div className="empty-state">{t.documents.loading}</div>
         ) : paginatedDocs.length > 0 ? (
           paginatedDocs.map((doc) => (
             <div key={doc.key} className="doc-row">
@@ -312,20 +311,20 @@ export default function DocumentsPage() {
                 <span className="doc-name-text">{doc.fileName}</span>
               </span>
               <span className="doc-td doc-col-date">
-                {new Date(doc.lastModified).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                {new Date(doc.lastModified).toLocaleDateString(languageLocale(language), { month: 'short', day: 'numeric', year: 'numeric' })}
               </span>
               <span className="doc-td doc-col-status">
                 <StatusBadge status={doc.status} />
               </span>
               <span className="doc-td doc-col-ops">
-                <button className="op-btn" title="Edit"><Pencil size={13.5} /></button>
-                <button className="op-btn" title="Delete" onClick={() => handleDelete(doc.key)}><Trash2 size={13} /></button>
-                <button className="op-btn" title="Download" onClick={() => handleDownload(doc.key)}><Download size={12} /></button>
+                <button className="op-btn" aria-label={t.documents.edit} title={t.documents.edit}><Pencil size={13.5} /></button>
+                <button className="op-btn" aria-label={t.documents.delete} title={t.documents.delete} onClick={() => handleDelete(doc.key)}><Trash2 size={13} /></button>
+                <button className="op-btn" aria-label={t.documents.download} title={t.documents.download} onClick={() => handleDownload(doc.key)}><Download size={12} /></button>
               </span>
             </div>
           ))
         ) : (
-          <div className="empty-state">No documents found</div>
+          <div className="empty-state">{error || t.documents.empty}</div>
         )}
 
         {/* Pagination */}
