@@ -1,4 +1,4 @@
-const CACHE_NAME = "scout-ai-v1";
+const CACHE_NAME = "scout-ai-v2";
 const urlsToCache = ["/", "/manifest.json"];
 
 self.addEventListener("install", (event) => {
@@ -22,6 +22,8 @@ self.addEventListener("activate", (event) => {
 });
 
 self.addEventListener("fetch", (event) => {
+  if (event.request.method !== "GET") return;
+
   // Network-first strategy for API calls
   if (event.request.url.includes("/prod/")) {
     event.respondWith(
@@ -30,6 +32,29 @@ self.addEventListener("fetch", (event) => {
           headers: { "Content-Type": "application/json" },
         })
       )
+    );
+    return;
+  }
+
+  // Always revalidate page navigations so a previously cached fallback page
+  // cannot mask a newly deployed static route such as /dashboard.
+  if (event.request.mode === "navigate") {
+    event.respondWith(
+      fetch(event.request).catch(async () => {
+        const cachedPage = await caches.match(event.request);
+        if (cachedPage) return cachedPage;
+
+        const requestUrl = new URL(event.request.url);
+        if (requestUrl.pathname === "/") {
+          const cachedHome = await caches.match("/");
+          if (cachedHome) return cachedHome;
+        }
+
+        return new Response("You are offline.", {
+          status: 503,
+          headers: { "Content-Type": "text/plain" },
+        });
+      })
     );
     return;
   }
