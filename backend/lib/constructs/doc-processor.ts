@@ -7,6 +7,7 @@ import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as logs from 'aws-cdk-lib/aws-logs';
 import { Construct } from 'constructs';
+import { PREFIX } from '../config/environment';
 
 export interface DocProcessorProps {
   /** S3 bucket where raw documents are uploaded */
@@ -31,7 +32,7 @@ export class DocProcessor extends Construct {
     // Dead-letter queue: this function runs on S3 ObjectCreated events, so a
     // failed run (after retries) is captured here instead of being lost.
     const deadLetterQueue = new sqs.Queue(this, 'DocProcessorDLQ', {
-      queueName: 'GCC-DocProcessor-DLQ',
+      queueName: `${PREFIX}GCC-DocProcessor-DLQ`,
       encryption: sqs.QueueEncryption.SQS_MANAGED,
       enforceSSL: true,
       retentionPeriod: cdk.Duration.days(14),

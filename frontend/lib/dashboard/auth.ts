@@ -12,8 +12,8 @@
  */
 
 const COGNITO_CONFIG = {
-  userPoolId: process.env.NEXT_PUBLIC_USER_POOL_ID || 'us-east-1_JPREn2oHX',
-  clientId: process.env.NEXT_PUBLIC_CLIENT_ID || '9et474goq05mabug4jtvssufp',
+  userPoolId: process.env.NEXT_PUBLIC_USER_POOL_ID || 'REPLACE_AFTER_CDK_DEPLOY',
+  clientId: process.env.NEXT_PUBLIC_CLIENT_ID || 'REPLACE_AFTER_CDK_DEPLOY',
   region: 'us-east-1',
 };
 

@@ -88,10 +88,6 @@ export async function getFaq(limit: number = 5): Promise<{ faq: FaqItem[]; total
   return fetchApi('/dashboard/faq', { limit: String(limit) });
 }
 
-export async function getFaqAll(limit: number = 30, offset: number = 0): Promise<{ faq: FaqItem[]; total: number; offset: number; limit: number }> {
-  return fetchApi('/dashboard/faq/all', { limit: String(limit), offset: String(offset) });
-}
-
 export async function getConfidence(period: string = 'day') {
   return fetchApi('/dashboard/confidence', { period });
 }
@@ -129,4 +125,46 @@ export async function getUploadUrl(relativePath: string, contentType: string): P
 
 export async function getNegativeFeedback(limit: number = 50, offset: number = 0) {
   return fetchApi('/dashboard/negative-feedback', { limit: String(limit), offset: String(offset) });
+}
+
+export type FeedbackValue = 'positive' | 'negative';
+
+export interface FeedbackConversation {
+  sessionId: string;
+  messageId: string;
+  timestamp: string;
+  userId?: string;
+  question: string;
+  answer: string;
+  feedback: FeedbackValue;
+  confidence: number;
+  sources: string[];
+  escalated: boolean;
+}
+
+export interface SessionTurn {
+  messageId: string;
+  timestamp: string;
+  question: string;
+  answer: string;
+  feedback?: FeedbackValue | null;
+  confidence: number;
+  sources: string[];
+  escalated: boolean;
+}
+
+/** List chat turns that received a thumbs up/down. filter: 'all' | 'positive' | 'negative'. */
+export async function getFeedbackConversations(
+  filter: 'all' | FeedbackValue = 'all',
+  limit: number = 50,
+  offset: number = 0,
+): Promise<{ conversations: FeedbackConversation[]; total: number; offset: number; limit: number; filter: string; note?: string }> {
+  return fetchApi('/dashboard/feedback', { filter, limit: String(limit), offset: String(offset) });
+}
+
+/** Full transcript for a session, used to render the conversation and highlight the rated turn. */
+export async function getSessionTranscript(
+  sessionId: string,
+): Promise<{ sessionId: string; turns: SessionTurn[]; total: number }> {
+  return fetchApi('/dashboard/session', { sessionId });
 }

@@ -88,6 +88,9 @@ USER_POOL_ID="$(get_output UserPoolId)"
 CLIENT_ID="$(get_output UserPoolClientId)"
 DOCUMENT_BUCKET="$(get_output DocumentStoreBucket)"
 KB_BUCKET="$(get_output KnowledgeBaseBucket)"
+FRONTEND_BUCKET="$(get_output FrontendBucket)"
+FRONTEND_DIST_ID="$(get_output FrontendDistributionId)"
+FRONTEND_URL="$(get_output FrontendUrl)"
 
 [[ -n "$CHAT_API_URL" && "$CHAT_API_URL" != "None" ]] || die "Could not read ChatApiUrl output"
 
@@ -102,6 +105,8 @@ ok "User Pool ID:      $USER_POOL_ID"
 ok "User Pool Client:  $CLIENT_ID"
 ok "Document bucket:   $DOCUMENT_BUCKET"
 ok "KB bucket:         $KB_BUCKET"
+ok "Frontend bucket:   $FRONTEND_BUCKET"
+ok "Frontend URL:      $FRONTEND_URL"
 echo
 
 # ── Write frontend/.env.local ────────────────────────────────────────────────
@@ -152,6 +157,30 @@ if [[ -n "$INGEST_DIR" ]]; then
   ok "Documents uploaded (S3 event triggers doc-processor → KB ingestion)"
 fi
 
+# ── Build & publish frontend to CloudFront/S3 ────────────────────────────────
+# Requires frontend/.env.local (written above unless --skip-frontend-env), since
+# NEXT_PUBLIC_* values are baked in at build time for the static export.
+if [[ -n "$FRONTEND_BUCKET" && "$FRONTEND_BUCKET" != "None" ]]; then
+  info "Building frontend (Next.js static export)"
+  ( cd "$SCRIPT_DIR/frontend" && ( npm ci --silent || npm install --silent ) && npm run build )
+  [[ -d "$SCRIPT_DIR/frontend/out" ]] || die "Frontend build did not produce frontend/out (is output:'export' set?)"
+
+  info "Syncing frontend/out → s3://$FRONTEND_BUCKET"
+  aws s3 sync "$SCRIPT_DIR/frontend/out" "s3://$FRONTEND_BUCKET" --delete "${AWS_ARGS[@]}"
+
+  if [[ -n "$FRONTEND_DIST_ID" && "$FRONTEND_DIST_ID" != "None" ]]; then
+    info "Invalidating CloudFront distribution $FRONTEND_DIST_ID"
+    aws cloudfront create-invalidation \
+      --distribution-id "$FRONTEND_DIST_ID" --paths "/*" "${AWS_ARGS[@]}" >/dev/null
+  fi
+  ok "Frontend published"
+else
+  warn "No FrontendBucket output — skipping frontend publish"
+fi
+
 echo
 ok "Deploy complete."
-echo "Next: cd frontend && npm install && npm run dev"
+if [[ -n "$FRONTEND_URL" && "$FRONTEND_URL" != "None" ]]; then
+  echo "Frontend (share with client): ${GREEN}$FRONTEND_URL${NC}"
+fi
+echo "Local dev: cd frontend && npm install && npm run dev"

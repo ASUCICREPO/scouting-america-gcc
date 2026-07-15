@@ -11,6 +11,7 @@ export class ApiGateway extends Construct {
   public readonly api: apigateway.RestApi;
   public readonly chatResource: apigateway.Resource;
   public readonly chatHistoryResource: apigateway.Resource;
+  public readonly chatFeedbackResource: apigateway.Resource;
 
   constructor(scope: Construct, id: string, props: ApiGatewayProps) {
     super(scope, id);
@@ -47,5 +48,8 @@ export class ApiGateway extends Construct {
     // GET /chat/history/{sessionId} — volunteer retrieves past conversation
     const historyResource = this.chatResource.addResource('history');
     this.chatHistoryResource = historyResource.addResource('{sessionId}');
+
+    // POST /chat/feedback — volunteer rates a response thumbs up/down (public)
+    this.chatFeedbackResource = this.chatResource.addResource('feedback');
   }
 }

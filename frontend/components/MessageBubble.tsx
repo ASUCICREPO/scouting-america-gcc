@@ -1,18 +1,20 @@
 "use client";
 
 import { useState } from "react";
-import { ThumbsUp, Copy, Volume2, VolumeX, ExternalLink, ChevronRight } from "lucide-react";
+import { ThumbsUp, ThumbsDown, Copy, Volume2, VolumeX, ExternalLink, ChevronRight } from "lucide-react";
 import { ChatMessage } from "@/lib/api";
 import MarkdownContent from "./MarkdownContent";
 
 interface MessageBubbleProps {
   message: ChatMessage;
   onChipClick: (text: string) => void;
+  onFeedback?: (feedback: "positive" | "negative") => void;
 }
 
 export default function MessageBubble({
   message,
   onChipClick,
+  onFeedback,
 }: MessageBubbleProps) {
   const [copied, setCopied] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
@@ -91,8 +93,25 @@ export default function MessageBubble({
 
       {/* Feedback row */}
       <div className="feedback-row">
-        <button className="feedback-btn" aria-label="Helpful">
+        <button
+          className="feedback-btn"
+          aria-label="Helpful"
+          aria-pressed={message.feedback === "positive"}
+          onClick={() => onFeedback?.("positive")}
+          disabled={!message.messageId}
+          style={message.feedback === "positive" ? { opacity: 1, color: "#006747" } : undefined}
+        >
           <ThumbsUp size={16} />
+        </button>
+        <button
+          className="feedback-btn"
+          aria-label="Not helpful"
+          aria-pressed={message.feedback === "negative"}
+          onClick={() => onFeedback?.("negative")}
+          disabled={!message.messageId}
+          style={message.feedback === "negative" ? { opacity: 1, color: "#CE1126" } : undefined}
+        >
+          <ThumbsDown size={16} />
         </button>
         <button
           className="feedback-btn"
