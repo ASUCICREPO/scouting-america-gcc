@@ -209,6 +209,10 @@ body {
   flex-direction: column;
   gap: 14px;
   width: 100%;
+  background: var(--bg-input);
+  border: 1px solid var(--border-light);
+  border-radius: 10px;
+  padding: 12px 15px;
 }
 
 .ai-response-title {
@@ -779,6 +783,32 @@ body {
 .settings-slider {
   width: 80px;
   cursor: pointer;
+}
+
+.settings-policy-content {
+  padding: 12px 16px 16px;
+  font-size: var(--chat-font-size, 13px);
+  line-height: 1.6;
+  color: var(--text-secondary);
+  border-bottom: 1px solid var(--border-light);
+}
+
+.settings-policy-content p {
+  margin-bottom: 10px;
+}
+
+.settings-policy-content p:last-child {
+  margin-bottom: 0;
+}
+
+.settings-policy-content a {
+  color: var(--primary-blue);
+  text-decoration: underline;
+}
+
+.settings-policy-content strong {
+  color: var(--text-primary);
+  font-weight: 600;
 }
 
 /* Voice overlay */
@@ -1365,8 +1395,13 @@ body {
 .link-card-text,
 .faq-question-text,
 .faq-answer,
-.settings-row-text {
-  font-size: var(--chat-font-size, 14px);
+.settings-row-text,
+.sidebar-new-chat span,
+.sidebar-section-header span,
+.sidebar-history-text,
+.sidebar-item span,
+.sidebar-empty p {
+  font-size: var(--chat-font-size, 14px) !important;
 }
 
 /* Dark mode theme */

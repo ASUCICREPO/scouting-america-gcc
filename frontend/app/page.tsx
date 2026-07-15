@@ -142,8 +142,8 @@ export default function Home() {
             />
             <p className="terms-text">
               By messaging, you agree to our{" "}
-              <a href="#terms">Terms</a> &{" "}
-              <a href="#privacy">Privacy Policy</a>
+              <a href="#" onClick={(e) => { e.preventDefault(); setCurrentView("settings"); }}>Terms</a> &{" "}
+              <a href="#" onClick={(e) => { e.preventDefault(); setCurrentView("settings"); }}>Privacy Policy</a>
             </p>
             <InputBar onSend={handleSend} disabled={isLoading} />
           </>
