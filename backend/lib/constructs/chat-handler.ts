@@ -6,7 +6,7 @@ import * as iam from 'aws-cdk-lib/aws-iam';
 import * as apigateway from 'aws-cdk-lib/aws-apigateway';
 import * as logs from 'aws-cdk-lib/aws-logs';
 import { Construct } from 'constructs';
-import { CONFIG } from '../config/environment';
+import { CONFIG, PREFIX } from '../config/environment';
 import * as path from 'path';
 
 export interface ChatHandlerProps {
@@ -17,6 +17,7 @@ export interface ChatHandlerProps {
   // API Gateway resources to attach routes to
   chatResource: apigateway.Resource;
   chatHistoryResource: apigateway.Resource;
+  chatFeedbackResource: apigateway.Resource;
   // Knowledge Base ID — we'll get this from the KB construct
   knowledgeBaseId: string;
   // Escalation Router Lambda ARN — wire after creating escalation construct
@@ -32,7 +33,7 @@ export class ChatHandler extends Construct {
     // The Lambda function that handles volunteer chat requests
     // (Python 3.13, boto3 in the runtime — no bundling).
     this.function = new lambda.Function(this, 'ChatHandlerFn', {
-      functionName: 'GCC-ChatHandler',
+      functionName: `${PREFIX}GCC-ChatHandler`,
       runtime: lambda.Runtime.PYTHON_3_13,
       handler: 'index.handler',
       code: lambda.Code.fromAsset(path.join(__dirname, '../../lambda/chat-handler')),
@@ -87,6 +88,11 @@ export class ChatHandler extends Construct {
 
     // Connect to API Gateway: GET /chat/history/{sessionId} (no auth — public endpoint)
     props.chatHistoryResource.addMethod('GET', new apigateway.LambdaIntegration(this.function), {
+      authorizationType: apigateway.AuthorizationType.NONE,
+    });
+
+    // Connect to API Gateway: POST /chat/feedback (no auth — public endpoint)
+    props.chatFeedbackResource.addMethod('POST', new apigateway.LambdaIntegration(this.function), {
       authorizationType: apigateway.AuthorizationType.NONE,
     });
   }

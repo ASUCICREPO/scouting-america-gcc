@@ -273,8 +273,48 @@ def handle_chat(event):
         "sources": sources,
         "confidence": confidence,
         "sessionId": session_id,
+        # messageId is the turn's DynamoDB sort key (timestamp). The client
+        # sends it back on POST /chat/feedback to attach a rating to this turn.
+        "messageId": timestamp,
         "escalated": escalate,
     })
+
+
+def record_feedback(event):
+    """Attach a thumbs up/down rating to a specific chat turn.
+
+    Body: { sessionId, messageId, feedback } where messageId is the turn's
+    timestamp (its DynamoDB sort key) returned by POST /chat. Idempotent —
+    re-rating overwrites the previous value.
+    """
+    try:
+        body = json.loads(event.get("body") or "{}")
+    except json.JSONDecodeError:
+        return response(400, {"error": "Request body must be valid JSON"})
+
+    session_id = body.get("sessionId")
+    message_id = body.get("messageId")
+    feedback = body.get("feedback")
+
+    if not isinstance(session_id, str) or not session_id:
+        return response(400, {"error": "sessionId is required"})
+    if not isinstance(message_id, str) or not message_id:
+        return response(400, {"error": "messageId is required"})
+    if feedback not in ("positive", "negative"):
+        return response(400, {"error": "feedback must be 'positive' or 'negative'"})
+
+    try:
+        chat_table.update_item(
+            Key={"sessionId": session_id, "timestamp": message_id},
+            UpdateExpression="SET feedback = :f",
+            # Only rate an existing turn — don't create a phantom item.
+            ConditionExpression="attribute_exists(sessionId)",
+            ExpressionAttributeValues={":f": feedback},
+        )
+    except ddb.meta.client.exceptions.ConditionalCheckFailedException:
+        return response(404, {"error": "Conversation turn not found"})
+
+    return response(200, {"status": "ok", "sessionId": session_id, "messageId": message_id, "feedback": feedback})
 
 
 def get_history(event):
@@ -309,6 +349,8 @@ def handler(event, context):
     try:
         if http_method == "GET" and "history" in resource:
             return get_history(event)
+        if http_method == "POST" and "feedback" in resource:
+            return record_feedback(event)
         if http_method == "POST":
             return handle_chat(event)
         return response(400, {"error": "Invalid route"})

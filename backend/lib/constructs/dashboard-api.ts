@@ -8,6 +8,7 @@ import * as iam from 'aws-cdk-lib/aws-iam';
 import * as logs from 'aws-cdk-lib/aws-logs';
 import { Construct } from 'constructs';
 import * as path from 'path';
+import { PREFIX } from '../config/environment';
 
 export interface DashboardApiProps {
   /** ChatLogs table (read-only) — powers usage/faq/confidence/feedback metrics */
@@ -41,7 +42,7 @@ export class DashboardApi extends Construct {
 
     // ─── Lambda (Python 3.13, boto3 in the runtime — no bundling) ───
     this.function = new lambda.Function(this, 'DashboardFunction', {
-      functionName: 'GCC-AdminDashboard',
+      functionName: `${PREFIX}GCC-AdminDashboard`,
       runtime: lambda.Runtime.PYTHON_3_13,
       handler: 'index.handler',
       code: lambda.Code.fromAsset(path.join(__dirname, '../../lambda/dashboard')),
@@ -118,6 +119,8 @@ export class DashboardApi extends Construct {
     dashboard.addResource('confidence').addMethod('GET', integration, authMethodOptions);
     dashboard.addResource('escalations').addMethod('GET', integration, authMethodOptions);
     dashboard.addResource('negative-feedback').addMethod('GET', integration, authMethodOptions);
+    dashboard.addResource('feedback').addMethod('GET', integration, authMethodOptions);
+    dashboard.addResource('session').addMethod('GET', integration, authMethodOptions);
 
     const faq = dashboard.addResource('faq');
     faq.addMethod('GET', integration, authMethodOptions);

@@ -34,9 +34,21 @@ export default function RootLayout({
           dangerouslySetInnerHTML={{
             __html: `
               if ('serviceWorker' in navigator) {
-                window.addEventListener('load', () => {
-                  navigator.serviceWorker.register('/sw.js');
-                });
+                var isLocal = location.hostname === 'localhost' || location.hostname === '127.0.0.1';
+                if (isLocal) {
+                  // Dev: never cache — unregister any existing SW and clear caches
+                  // so code/env changes always take effect (no stale bundles).
+                  navigator.serviceWorker.getRegistrations().then(function (rs) {
+                    rs.forEach(function (r) { r.unregister(); });
+                  });
+                  if (window.caches) {
+                    caches.keys().then(function (ks) { ks.forEach(function (k) { caches.delete(k); }); });
+                  }
+                } else {
+                  window.addEventListener('load', function () {
+                    navigator.serviceWorker.register('/sw.js');
+                  });
+                }
               }
             `,
           }}

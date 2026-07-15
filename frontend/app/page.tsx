@@ -10,7 +10,7 @@ import Sidebar from "@/components/Sidebar";
 import SettingsView from "@/components/SettingsView";
 import ChatDrawer from "@/components/ChatDrawer";
 import PwaInstallBanner from "@/components/PwaInstallBanner";
-import { sendMessage, getChatHistory, saveSession, ChatMessage, ChatResponse } from "@/lib/api";
+import { sendMessage, sendFeedback, getChatHistory, saveSession, ChatMessage, ChatResponse, Feedback } from "@/lib/api";
 
 type View = "chat" | "faq" | "settings";
 
@@ -78,6 +78,7 @@ export default function Home() {
         timestamp: new Date().toISOString(),
         suggestions: response.suggestions,
         links: response.links,
+        messageId: response.messageId,
       };
 
       setMessages((prev) => [...prev, aiMessage]);
@@ -97,6 +98,28 @@ export default function Home() {
 
   const handleChipClick = (chipText: string) => {
     handleSend(chipText);
+  };
+
+  const handleFeedback = async (index: number, feedback: Feedback) => {
+    const msg = messages[index];
+    if (!msg || msg.role !== "assistant" || !msg.messageId || !sessionId) return;
+    // Already rated this way — no-op (avoids the UI clearing a rating the
+    // backend still holds). Switching between up/down is allowed and persisted.
+    if (msg.feedback === feedback) return;
+    const previous = msg.feedback;
+    // Optimistically reflect the choice.
+    setMessages((prev) =>
+      prev.map((m, i) => (i === index ? { ...m, feedback } : m))
+    );
+    try {
+      await sendFeedback(sessionId, msg.messageId, feedback);
+    } catch (err) {
+      console.error("Feedback error:", err);
+      // Revert on failure.
+      setMessages((prev) =>
+        prev.map((m, i) => (i === index ? { ...m, feedback: previous } : m))
+      );
+    }
   };
 
   const handleEndChat = () => {
@@ -138,6 +161,7 @@ export default function Home() {
               showWelcome={showWelcome}
               onChipClick={handleChipClick}
               onEndChat={handleEndChat}
+              onFeedback={handleFeedback}
               chatEndRef={chatEndRef}
             />
             <p className="terms-text">
