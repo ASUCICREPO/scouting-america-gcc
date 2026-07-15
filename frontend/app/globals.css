@@ -1516,16 +1516,11 @@ body {
     padding: 10px;
   }
 
-  /* PWA banner — small bottom-right card on desktop */
-  .pwa-banner {
-    bottom: 20px;
-    right: 20px;
-    border-radius: 16px;
-  }
 }
 
 /* PWA Install Banner */
 .pwa-banner {
+  display: none;
   position: fixed;
   bottom: 0;
   right: 0;
@@ -1573,6 +1568,22 @@ body {
   font-size: 14px;
   font-weight: 500;
   color: var(--text-primary);
+}
+
+.pwa-banner-instructions {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin-top: 4px;
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.pwa-banner-instructions svg {
+  margin-top: 1px;
+  flex-shrink: 0;
+  color: var(--primary-blue);
 }
 
 .pwa-banner-install {
@@ -1625,7 +1636,7 @@ body {
   background: var(--primary-blue);
   color: white;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.16);
-  display: flex;
+  display: none;
   align-items: center;
   justify-content: center;
   cursor: pointer;
@@ -1644,8 +1655,30 @@ body {
   outline-offset: 2px;
 }
 
+.pwa-banner-mobile {
+  display: block;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  padding-bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+}
+
+.pwa-banner-toggle-mobile {
+  display: flex;
+}
+
 @media (min-width: 768px) {
+  .pwa-banner {
+    display: block;
+    right: 20px;
+    bottom: 20px;
+    width: min(500px, calc(100vw - 40px));
+    border-radius: 8px;
+  }
+
   .pwa-banner-toggle {
+    display: flex;
     right: 20px;
     bottom: 20px;
   }
