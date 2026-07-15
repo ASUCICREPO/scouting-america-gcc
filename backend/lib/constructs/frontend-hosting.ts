@@ -10,7 +10,8 @@ import { Construct } from 'constructs';
  *
  * - Private S3 bucket (no public access) holding the exported static site.
  * - CloudFront distribution with Origin Access Control (OAC) reading from S3.
- * - Client-side-routing-friendly error handling (403/404 -> index.html).
+ * - Viewer-request rewriting for exported per-route index.html files.
+ * - Client-side-routing fallback for unknown routes (403/404 -> root index.html).
  *
  * deploy.sh publishes the built site with:
  *   aws s3 sync frontend/out s3://<SiteBucket> --delete
@@ -33,16 +34,41 @@ export class FrontendHosting extends Construct {
       autoDeleteObjects: true,
     });
 
+    const routeRewriteFunction = new cloudfront.Function(this, 'RouteRewriteFunction', {
+      comment: 'Resolve extensionless Next.js static-export routes',
+      runtime: cloudfront.FunctionRuntime.JS_2_0,
+      code: cloudfront.FunctionCode.fromInline(`
+function handler(event) {
+  var request = event.request;
+  var uri = request.uri;
+
+  if (uri.charAt(uri.length - 1) === '/') {
+    request.uri += 'index.html';
+  } else {
+    var lastSegment = uri.substring(uri.lastIndexOf('/') + 1);
+    if (lastSegment.indexOf('.') === -1) {
+      request.uri += '/index.html';
+    }
+  }
+
+  return request;
+}
+      `),
+    });
+
     this.distribution = new cloudfront.Distribution(this, 'SiteDistribution', {
       comment: 'Scouting America GCC frontend',
       defaultBehavior: {
         origin: origins.S3BucketOrigin.withOriginAccessControl(this.siteBucket),
         viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
         cachePolicy: cloudfront.CachePolicy.CACHING_OPTIMIZED,
+        functionAssociations: [{
+          eventType: cloudfront.FunctionEventType.VIEWER_REQUEST,
+          function: routeRewriteFunction,
+        }],
       },
       defaultRootObject: 'index.html',
-      // Next static export emits per-route HTML; serve index.html for
-      // access-denied (missing key) so client navigation still resolves.
+      // Unknown paths fall back to the public chat shell after route rewriting.
       errorResponses: [
         { httpStatus: 403, responseHttpStatus: 200, responsePagePath: '/index.html' },
         { httpStatus: 404, responseHttpStatus: 200, responsePagePath: '/index.html' },

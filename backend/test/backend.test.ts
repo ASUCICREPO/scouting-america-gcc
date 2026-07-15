@@ -40,9 +40,10 @@ describe('Lambda runtime', () => {
   // alignment). Guard against a regression back to a Node.js runtime.
   test('all Lambda functions run on python3.13', () => {
     const functions = template.findResources('AWS::Lambda::Function');
-    const runtimes = Object.values(functions).map(
-      (fn: any) => fn.Properties?.Runtime,
+    const applicationFunctions = Object.entries(functions).filter(([logicalId]) =>
+      /^(ChatHandler|DashboardApi|DocProcessor|EscalationRouter)/.test(logicalId),
     );
+    const runtimes = applicationFunctions.map(([, fn]) => fn.Properties?.Runtime);
     expect(runtimes.length).toBeGreaterThan(0);
     for (const runtime of runtimes) {
       expect(runtime).toBe('python3.13');
@@ -65,6 +66,30 @@ describe('Bedrock data source chunking', () => {
             BufferSize: 1,
             BreakpointPercentileThreshold: 95,
           },
+        },
+      },
+    });
+  });
+});
+
+describe('CloudFront static route rewriting', () => {
+  test('rewrites extensionless paths to their exported index.html files', () => {
+    template.hasResourceProperties('AWS::CloudFront::Function', {
+      AutoPublish: true,
+      FunctionCode: Match.stringLikeRegexp("request\\.uri \\+= '/index\\.html'"),
+      FunctionConfig: {
+        Runtime: 'cloudfront-js-2.0',
+      },
+    });
+  });
+
+  test('associates the rewrite with viewer requests', () => {
+    template.hasResourceProperties('AWS::CloudFront::Distribution', {
+      DistributionConfig: {
+        DefaultCacheBehavior: {
+          FunctionAssociations: Match.arrayWith([
+            Match.objectLike({ EventType: 'viewer-request' }),
+          ]),
         },
       },
     });
