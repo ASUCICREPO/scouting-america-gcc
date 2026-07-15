@@ -4,7 +4,6 @@ import { useState, useRef, useEffect } from "react";
 import Header from "@/components/Header";
 import ChatArea from "@/components/ChatArea";
 import InputBar from "@/components/InputBar";
-import TabBar from "@/components/TabBar";
 import FAQView from "@/components/FAQView";
 import Sidebar from "@/components/Sidebar";
 import SettingsView from "@/components/SettingsView";
@@ -230,9 +229,8 @@ export default function Home() {
       {/* Main chat area */}
       <div className="app-shell">
         <div className="status-bar-spacer" />
-        <Header onMenuClick={() => setIsDrawerOpen(true)} onLanguageChange={handleLanguageChange} />
+        <Header onMenuClick={() => setIsDrawerOpen(true)} />
         {renderContent()}
-        <TabBar />
         <div className="safe-bottom" />
       </div>
 
