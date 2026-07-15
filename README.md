@@ -1,295 +1,105 @@
-# [INSERT_PROJECT_NAME]
+# Grand Canyon Council Scout AI
 
-[INSERT_PROJECT_DESCRIPTION - 2-3 sentences describing what the project does, who it's for, and the key problem it solves]
+Scout AI is a bilingual English/Spanish support assistant for Scouting America's Grand Canyon Council (GCC). It answers volunteer and family questions from approved council documents, records response quality signals, escalates safety or low-confidence conversations, and gives GCC administrators an authenticated analytics and document-management dashboard.
 
----
+## Architecture
 
-> **🚀 New to this template?** Start with the [GETTING_STARTED.md](./GETTING_STARTED.md) guide for setup instructions and best practices.
+![Grand Canyon Council Scout AI architecture](./docs/media/architecture.png)
 
----
+The Next.js application is exported as static files and served from a private Amazon S3 bucket through CloudFront. Public chat requests use API Gateway, Lambda, and an Amazon Bedrock Knowledge Base backed by S3 Vectors. Admin routes use a separate Cognito-protected API. Uploaded documents trigger a processing Lambda that copies content to the Bedrock data source and starts ingestion.
 
-## Disclaimers
+See the [Architecture Deep Dive](./docs/architectureDeepDive.md) for component, data-flow, security, scaling, and architectural-decision details.
 
-Customers are responsible for making their own independent assessment of the information in this document. This document:
+## Features
 
-(a) is for informational purposes only,
+- Public retrieval-augmented chat grounded in GCC and Scouting America documents
+- English and Spanish interface and response generation
+- Markdown answers, citations, voice input, text-to-speech, feedback, and browser-local chat history
+- Safety-keyword and low-confidence escalation through SNS and SES
+- Cognito-protected admin dashboard with usage, feedback, confidence, and escalation metrics
+- Multi-file and folder-preserving document upload, download, deletion, and ingestion status
+- Light/dark themes, text-size controls, responsive layouts, and installable PWA behavior
+- Prefix-aware AWS deployments so demo and other environments can coexist
 
-(b) references AWS product offerings and practices, which are subject to change without notice,
+## Repository Layout
 
-(c) does not create any commitments or assurances from AWS and its affiliates, suppliers or licensors. AWS products or services are provided "as is" without warranties, representations, or conditions of any kind, whether express or implied. The responsibilities and liabilities of AWS to its customers are controlled by AWS agreements, and this document is not part of, nor does it modify, any agreement between AWS and its customers, and
-
-(d) is not to be considered a recommendation or viewpoint of AWS.
-
-Additionally, you are solely responsible for testing, security and optimizing all code and assets on GitHub repo, and all such code and assets should be considered:
-
-(a) as-is and without warranties or representations of any kind,
-
-(b) not suitable for production environments, or on production or other critical data, and
-
-(c) to include shortcuts in order to support rapid prototyping such as, but not limited to, relaxed authentication and authorization and a lack of strict adherence to security best practices.
-
-All work produced is open source. More information can be found in the GitHub repo.
-
----
-
-## Visual Demo
-
-![User Interface Demo](./docs/media/user-interface.gif)
-
-> **[PLACEHOLDER]** Please provide a GIF or screenshot of the application interface and save it as `docs/media/user-interface.gif`
-
----
-
-## Table of Contents
-
-| Index                                               | Description                                              |
-| :-------------------------------------------------- | :------------------------------------------------------- |
-| [**Getting Started Guide**](./GETTING_STARTED.md)  | **Setup instructions and best practices for this template** |
-| [High Level Architecture](#high-level-architecture) | High level overview illustrating component interactions  |
-| [Deployment Guide](#deployment-guide)               | How to deploy the project                                |
-| [User Guide](#user-guide)                           | End-user instructions and walkthrough                    |
-| [API Documentation](#api-documentation)             | Documentation on the APIs the project uses               |
-| [Directories](#directories)                         | General project directory structure                      |
-| [Modification Guide](#modification-guide)           | Guide for developers extending the project               |
-| [Troubleshooting](#troubleshooting)                 | Common issues and solutions                              |
-| [Removing Commit History](#removing-commit-history) | Steps to clean commit history when using as a template   |
-| [Credits](#credits)                                 | Contributors and acknowledgments                         |
-| [License](#license)                                 | License information                                      |
-
----
-
-## High Level Architecture
-
-[INSERT_ARCHITECTURE_OVERVIEW - Brief paragraph explaining the architecture, how components interact, and the overall system design]
-
-![Architecture Diagram](./docs/media/architecture.png)
-
-> **[PLACEHOLDER]** Please create and provide an architecture diagram showing:
-> - All major components/services
-> - Data flow between components
-> - User interaction points
-> - External services/APIs
-> 
-> Save the diagram as `docs/media/architecture.png` (or .jpeg/.jpg)
-
-For a detailed explanation of the architecture and architectural decisions, see the [Architecture Deep Dive](./docs/architectureDeepDive.md).
-
----
-
-## AI-DLC Development Workflow
-
-This project was built using **AI-DLC (AI Development Lifecycle)**, a structured workflow that guides AI through requirements → design → implementation → testing.
-
-**For developers working on this project:**
-- See [AI-DLC Documentation](./ai_dlc_files.md) for complete details on:
-  - How to use AI-DLC for new features
-  - Writing effective prompts
-  - Understanding generated documentation in `aidlc-docs/`
-  - Adding custom development rules
-
-**Quick Start:**
-```
-using AI-DLC: [describe your feature or change]
+```text
+backend/
+  bin/                         CDK application entry point
+  lib/                         Stack and reusable CDK constructs
+  lambda/                      Python 3.13 Lambda handlers
+  test/                        CDK and Lambda contract tests
+frontend/
+  app/                         Chat, login, and dashboard routes
+  components/                  Shared chat and interface components
+  context/                     Shared language state
+  lib/                         API, auth, settings, and translation modules
+  public/                      PWA and GCC visual assets
+docs/                          User, development, deployment, API, and architecture guides
+deploy.sh                      One-step backend and frontend deployment
+buildspec.yml                  AWS CodeBuild backend build/test/deploy workflow
 ```
 
-> **Note**: Remove this section before production deployment.
+## Local Development
 
----
-
-## Deployment Guide
-
-For complete deployment instructions, see the [Deployment Guide](./docs/deploymentGuide.md).
-
-**Quick Start:**
-1. [INSERT_QUICK_START_STEP_1]
-2. [INSERT_QUICK_START_STEP_2]
-3. [INSERT_QUICK_START_STEP_3]
-
----
-
-## User Guide
-
-For detailed usage instructions with screenshots, see the [User Guide](./docs/userGuide.md).
-
----
-
-## API Documentation
-
-For complete API reference, see the [API Documentation](./docs/APIDoc.md).
-
----
-
-## Modification Guide
-
-For developers looking to extend or modify this project, see the [Modification Guide](./docs/modificationGuide.md).
-
----
-
-## Directories
-
-```
-├── backend/
-│   ├── bin/
-│   │   └── backend.ts
-│   ├── lambda/
-│   │   └── [INSERT_LAMBDA_FUNCTIONS]
-│   ├── lib/
-│   │   └── backend-stack.ts
-│   ├── agent/
-│   │   └── [INSERT_AGENT_FILES]
-│   ├── cdk.json
-│   ├── package.json
-│   └── tsconfig.json
-├── frontend/
-│   ├── app/
-│   │   ├── layout.tsx
-│   │   ├── page.tsx
-│   │   └── globals.css
-│   ├── public/
-│   └── package.json
-├── docs/
-│   ├── architectureDeepDive.md
-│   ├── deploymentGuide.md
-│   ├── userGuide.md
-│   ├── APIDoc.md
-│   ├── modificationGuide.md
-│   └── media/
-│       ├── architecture.png
-│       └── user-interface.gif
-├── LICENSE
-└── README.md
-```
-
-### Directory Explanations:
-
-1. **backend/** - Contains all backend infrastructure and serverless functions
-   - `bin/` - CDK app entry point
-   - `lambda/` - AWS Lambda function handlers
-   - `lib/` - CDK stack definitions
-   - `agent/` - [INSERT_AGENT_DESCRIPTION]
-
-2. **frontend/** - Next.js frontend application
-   - `app/` - Next.js App Router pages and layouts
-   - `public/` - Static assets
-
-3. **docs/** - Project documentation
-   - `media/` - Images, diagrams, and GIFs for documentation
-
----
-
-## Troubleshooting
-
-### MCP Servers Not Connecting
-
-**Issue**: MCP servers show "Disconnected" status in Kiro
-
-**Solutions**:
-1. Verify `uv` and `uvx` are installed: `uvx --version`
-2. Check AWS credentials: `aws sts get-caller-identity`
-3. Update AWS profile in `.kiro/settings/mcp.json`
-4. Restart Kiro or reconnect servers from MCP Server view
-
-### Spec Generation Fails
-
-**Issue**: Kiro fails to create specification documents
-
-**Solutions**:
-1. Ensure you're in **Autopilot mode** (required for subagent delegation)
-2. Verify scope documents are readable and well-formatted
-3. Check that `.kiro/agents/cic-project-specs.md` exists
-4. Try with a simpler project description first
-
-### Subagent Not Delegating
-
-**Issue**: Kiro implements code directly instead of delegating to subagents
-
-**Solutions**:
-1. Confirm you're in **Autopilot mode**
-2. Use clear domain keywords (backend, frontend, deploy, security)
-3. Explicitly request: "Use cic-backend agent to implement this"
-4. Check `.kiro/steering/main-agent-orchestration.md` is present
-
-### CDK Deployment Fails
-
-**Issue**: `cdk deploy` fails with errors
-
-**Solutions**:
-1. Run `cdk synth` first to check for issues
-2. Verify AWS credentials: `aws sts get-caller-identity`
-3. Check cdk-nag findings and address or suppress them
-4. Ensure CDK is bootstrapped: `cdk bootstrap`
-5. Review CloudFormation events in AWS Console
-
-### Amplify Build Fails
-
-**Issue**: Amplify build fails after deployment
-
-**Solutions**:
-1. Check `AMPLIFY_MONOREPO_APP_ROOT` is set to `frontend`
-2. Verify `buildSpec` in CDK matches your project structure
-3. Check Amplify build logs in AWS Console
-4. Ensure Next.js version is 12-15 (not 16+)
-5. Verify environment variables are set on the branch
-
-### Frontend Can't Connect to Backend
-
-**Issue**: Frontend shows CORS errors or can't reach API
-
-**Solutions**:
-1. Verify API URL in frontend environment variables
-2. Check CORS configuration in Lambda Function URL or API Gateway
-3. Ensure Amplify app URL is in backend CORS allowed origins
-4. Test API endpoint directly with curl or Postman
-
-### Security Scan Failures
-
-**Issue**: cdk-nag or security scans report violations
-
-**Solutions**:
-1. Review findings and fix resource configurations
-2. Add suppressions with ADR-format reasons if intentional
-3. Consult `.kiro/steering/security/` files for guidance
-4. Use `cic-security` agent to review and fix issues
-
-### Need More Help?
-
-- **Kiro Documentation**: Check `.kiro/README.md` for MCP and Power setup
-- **Steering Files**: Review `.kiro/steering/` for domain-specific guidance
-- **AWS Documentation**: Use AWS documentation MCP server for latest info
-- **GitHub Issues**: File issues in this repository for template problems
-
----
-
-## Removing Commit History
-
-When using this as a template for a new repo, you can strip the entire commit history to start fresh with a single initial commit:
+Requirements: Node.js 20+, npm, Python 3.13 for Python tests, and AWS credentials when synthesizing or deploying the CDK stack.
 
 ```bash
-git checkout --orphan fresh-start
-git add -A
-git commit -m "Initial commit"
-git remote add new-origin https://github.com/REPO_OWNER/REPO_NAME.git
-git branch -D main
-git branch -m main
-git push origin main --force
+cd frontend
+npm ci
+npm run dev
 ```
 
-> **Warning:** `--force` rewrites the remote branch history. Only do this on a repo you own and before collaborators have cloned it.
+The frontend requires these build-time values in `frontend/.env.local` to call deployed services:
 
----
+```dotenv
+NEXT_PUBLIC_API_URL=https://example.execute-api.us-east-1.amazonaws.com/prod
+NEXT_PUBLIC_DASHBOARD_API_URL=https://example.execute-api.us-east-1.amazonaws.com/prod
+NEXT_PUBLIC_USER_POOL_ID=us-east-1_example
+NEXT_PUBLIC_CLIENT_ID=exampleclientid
+```
 
-## Credits
+For backend validation:
 
-This application was developed by:
+```bash
+cd backend
+npm ci
+npm test
+npx cdk synth
+python3.13 -m venv /tmp/gcc-python-tests
+source /tmp/gcc-python-tests/bin/activate
+python -m pip install boto3
+python -m unittest discover -s test -p 'test_*.py'
+```
 
-- <a href="[INSERT_LINKEDIN_URL]" target="_blank">[INSERT_CONTRIBUTOR_NAME_1]</a>
-- <a href="[INSERT_LINKEDIN_URL]" target="_blank">[INSERT_CONTRIBUTOR_NAME_2]</a>
-- <a href="[INSERT_LINKEDIN_URL]" target="_blank">[INSERT_CONTRIBUTOR_NAME_3]</a>
+See the [Development Guide](./docs/developmentGuide.md) for the complete workflow.
 
-[INSERT_ADDITIONAL_ACKNOWLEDGMENTS - Teams, supporters, or organizations to acknowledge]
+## Deployment
 
----
+The deployment script installs dependencies, deploys the `ScoutingAmericaChatbot` CDK stack, writes the frontend environment, builds the static export, syncs it to S3, and invalidates CloudFront.
+
+```bash
+RESOURCE_PREFIX=demo ./deploy.sh
+```
+
+Always use the same `RESOURCE_PREFIX` when updating an existing prefixed environment. Deployment changes AWS resources and should be run only by an authorized operator after review. See the [Deployment Guide](./docs/deploymentGuide.md) before deploying or removing infrastructure.
+
+## Documentation
+
+| Document | Audience | Purpose |
+| --- | --- | --- |
+| [User Guide](./docs/userGuide.md) | Volunteers and GCC administrators | Chat, language, accessibility, dashboard, and document workflows |
+| [Development Guide](./docs/developmentGuide.md) | Developers | Local setup, tests, branch workflow, and code organization |
+| [Modification Guide](./docs/modificationGuide.md) | Maintainers | Safely extend the UI, translations, APIs, model, and data layer |
+| [Deployment Guide](./docs/deploymentGuide.md) | Operators | Prefix-aware deployment, verification, troubleshooting, and cleanup |
+| [API Documentation](./docs/APIDoc.md) | Integrators | Public chat and protected dashboard API contracts |
+| [Architecture Deep Dive](./docs/architectureDeepDive.md) | Engineers and reviewers | AWS components, data flows, security, scaling, and decisions |
+| [Project Closure](./docs/projectClosure.md) | Client and delivery teams | Scope, deliverables, implementation summary, and future work |
+
+## Safety And Privacy
+
+Scout AI is an informational tool, not an emergency reporting channel. Users should not submit medical information, youth-protection reports, or other sensitive personal information. The application logs chat turns for quality and analytics; administrators can review rated conversations in the protected dashboard.
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](./LICENSE) file for details.
+See [LICENSE](./LICENSE).
