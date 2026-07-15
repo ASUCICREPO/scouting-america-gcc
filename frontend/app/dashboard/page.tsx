@@ -4,6 +4,8 @@ import { useEffect, useState } from 'react';
 import { getSummary, getConversations, getFaq, getFeedbackConversations, getSessionTranscript, SummaryData, ConversationPoint, FaqItem, FeedbackConversation, SessionTurn, FeedbackValue } from '@/lib/dashboard/api';
 import MarkdownContent from '@/components/MarkdownContent';
 import { TrendingUp, TrendingDown, Copy, Clock, AlertTriangle, ChevronLeft, ChevronRight, X, Download, Eye, ThumbsUp, ThumbsDown } from 'lucide-react';
+import { useLanguage } from '@/context/LanguageContext';
+import { formatText, languageLocale } from '@/lib/i18n';
 
 function truncate(text: string, n: number): string {
   if (!text) return '';
@@ -11,6 +13,7 @@ function truncate(text: string, n: number): string {
 }
 
 export default function OverviewPage() {
+  const { language, t } = useLanguage();
   const [summary, setSummary] = useState<SummaryData | null>(null);
   const [chartData, setChartData] = useState<ConversationPoint[]>([]);
   const [faqList, setFaqList] = useState<FaqItem[]>([]);
@@ -33,6 +36,7 @@ export default function OverviewPage() {
 
   useEffect(() => {
     loadData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [period]);
 
   async function loadData() {
@@ -48,7 +52,7 @@ export default function OverviewPage() {
       setChartData(convData.data);
       setFaqList(faqData.faq);
     } catch (err) {
-      setError('Failed to connect to backend. Make sure the API server is running on port 3002.');
+      setError(t.dashboard.backendError);
       console.error(err);
     } finally {
       setLoading(false);
@@ -97,10 +101,10 @@ export default function OverviewPage() {
   const [dateRange, setDateRange] = useState<'7d' | '30d' | '90d' | 'today'>('7d');
 
   const dateRangeLabels: Record<string, string> = {
-    'today': 'Today',
-    '7d': 'Last 7 Days',
-    '30d': 'Last 30 Days',
-    '90d': 'Last 90 Days',
+    'today': t.dashboard.today,
+    '7d': t.dashboard.last7Days,
+    '30d': t.dashboard.last30Days,
+    '90d': t.dashboard.last90Days,
   };
 
   function handleDateChange(range: '7d' | '30d' | '90d' | 'today') {
@@ -113,20 +117,20 @@ export default function OverviewPage() {
   function generateReport() {
     if (!summary || !faqList.length) return;
     const lines = [
-      'GCC Admin Dashboard Report',
-      `Generated: ${new Date().toISOString()}`,
-      `Period: ${dateRangeLabels[dateRange]}`,
+      t.dashboard.reportTitle,
+      `${t.dashboard.generated}: ${new Date().toISOString()}`,
+      `${t.dashboard.period}: ${dateRangeLabels[dateRange]}`,
       '',
-      'SUMMARY',
-      `Total Chats,${summary.totalChats}`,
+      t.dashboard.summary,
+      `${t.dashboard.totalConversations},${summary.totalChats}`,
       `Total Sessions,${summary.totalSessions}`,
-      `Avg Confidence,${summary.avgConfidence}`,
+      `${t.dashboard.avgConfidence},${summary.avgConfidence}`,
       `Avg Session Length,${summary.avgSessionLength}`,
       `Escalation Rate,${summary.escalationRate}%`,
-      `Total Escalations,${summary.totalEscalations}`,
+      `${t.dashboard.escalations},${summary.totalEscalations}`,
       '',
-      'TOP FAQ',
-      'Question,Occurrences,Avg Confidence',
+      t.dashboard.topFaq,
+      `${t.dashboard.question},${t.dashboard.occurrences},${t.dashboard.avgConfidence}`,
       ...faqList.map(f => `"${f.question}",${f.count},${f.avgConfidence}`),
     ];
     const csv = lines.join('\n');
@@ -149,7 +153,6 @@ export default function OverviewPage() {
   useEffect(() => { setChartPage(0); }, [period]);
 
   // Calculate windowed chart data
-  const totalPages = Math.ceil(chartData.length / windowSize);
   // chartPage 0 = latest data (rightmost), negative = older
   const startIdx = Math.max(0, chartData.length - windowSize * (chartPage + 1));
   const endIdx = chartData.length - windowSize * chartPage;
@@ -173,7 +176,7 @@ export default function OverviewPage() {
   const areaPath = linePath ? `${linePath} L ${chartWidth},${chartHeight} L 0,${chartHeight} Z` : '';
 
   if (loading && !summary) {
-    return <div className="loading-state">Loading live data from DynamoDB...</div>;
+    return <div className="loading-state">{t.dashboard.loadingData}</div>;
   }
 
   if (error) {
@@ -185,8 +188,8 @@ export default function OverviewPage() {
       {/* Page Header */}
       <div className="overview-header">
         <div>
-          <h1 className="overview-title">Overview</h1>
-          <p className="overview-date">Live data from GCC Chatbot</p>
+          <h1 className="overview-title">{t.dashboard.overviewTitle}</h1>
+          <p className="overview-date">{t.dashboard.overviewSubtitle}</p>
         </div>
         <div className="overview-actions">
           <div className="date-dropdown-wrapper">
@@ -196,16 +199,16 @@ export default function OverviewPage() {
             </button>
             {showDateDropdown && (
               <div className="date-dropdown">
-                <button className={dateRange === 'today' ? 'active' : ''} onClick={() => handleDateChange('today')}>Today</button>
-                <button className={dateRange === '7d' ? 'active' : ''} onClick={() => handleDateChange('7d')}>Last 7 Days</button>
-                <button className={dateRange === '30d' ? 'active' : ''} onClick={() => handleDateChange('30d')}>Last 30 Days</button>
-                <button className={dateRange === '90d' ? 'active' : ''} onClick={() => handleDateChange('90d')}>Last 90 Days</button>
+                <button className={dateRange === 'today' ? 'active' : ''} onClick={() => handleDateChange('today')}>{t.dashboard.today}</button>
+                <button className={dateRange === '7d' ? 'active' : ''} onClick={() => handleDateChange('7d')}>{t.dashboard.last7Days}</button>
+                <button className={dateRange === '30d' ? 'active' : ''} onClick={() => handleDateChange('30d')}>{t.dashboard.last30Days}</button>
+                <button className={dateRange === '90d' ? 'active' : ''} onClick={() => handleDateChange('90d')}>{t.dashboard.last90Days}</button>
               </div>
             )}
           </div>
           <button className="btn-primary" onClick={generateReport}>
             <Download size={12} />
-            <span>Generate Report</span>
+            <span>{t.dashboard.generateReport}</span>
           </button>
         </div>
       </div>
@@ -213,28 +216,28 @@ export default function OverviewPage() {
       {/* Metric Cards */}
       <div className="metrics-grid">
         <MetricCard
-          label="Total Conversations"
+          label={t.dashboard.totalConversations}
           value={summary?.totalSessions?.toLocaleString() || '0'}
-          change={`+${summary?.totalChats || 0} today`}
+          change={formatText(t.dashboard.todayChats, { count: summary?.totalChats || 0 })}
           icon={<Copy size={13} />}
           positive
         />
         <MetricCard
-          label="Total Upvotes"
+          label={t.dashboard.totalUpvotes}
           value={summary?.positiveCount?.toLocaleString() || '0'}
-          change={`${summary?.satisfactionRate?.toFixed(0) || 0}% satisfaction`}
+          change={formatText(t.dashboard.satisfaction, { count: summary?.satisfactionRate?.toFixed(0) || 0 })}
           icon={<TrendingUp size={13} />}
           positive
         />
         <MetricCard
-          label="Total Downvotes"
+          label={t.dashboard.totalDownvotes}
           value={summary?.negativeCount?.toLocaleString() || '0'}
-          change={`${summary?.totalFeedback || 0} total feedback`}
+          change={formatText(t.dashboard.totalFeedback, { count: summary?.totalFeedback || 0 })}
           icon={<TrendingDown size={13} />}
           positive={false}
         />
         <MetricCard
-          label="Escalations"
+          label={t.dashboard.escalations}
           value={summary?.totalEscalations?.toLocaleString() || '0'}
           change=""
           icon={<AlertTriangle size={13} />}
@@ -246,13 +249,13 @@ export default function OverviewPage() {
       <div className="card">
         <div className="card-header">
           <div>
-            <h2 className="card-title">Conversation Volume</h2>
-            <p className="card-subtitle">Live breakdown of chatbot usage over time</p>
+            <h2 className="card-title">{t.dashboard.conversationVolume}</h2>
+            <p className="card-subtitle">{t.dashboard.volumeSubtitle}</p>
           </div>
           <div className="toggle-group">
-            <button className={`toggle-btn ${period === 'day' ? 'active' : ''}`} onClick={() => setPeriod('day')}>Daily</button>
-            <button className={`toggle-btn ${period === 'week' ? 'active' : ''}`} onClick={() => setPeriod('week')}>Weekly</button>
-            <button className={`toggle-btn ${period === 'month' ? 'active' : ''}`} onClick={() => setPeriod('month')}>Monthly</button>
+            <button className={`toggle-btn ${period === 'day' ? 'active' : ''}`} onClick={() => setPeriod('day')}>{t.dashboard.daily}</button>
+            <button className={`toggle-btn ${period === 'week' ? 'active' : ''}`} onClick={() => setPeriod('week')}>{t.dashboard.weekly}</button>
+            <button className={`toggle-btn ${period === 'month' ? 'active' : ''}`} onClick={() => setPeriod('month')}>{t.dashboard.monthly}</button>
           </div>
         </div>
         <div className="chart-with-arrows">
@@ -301,7 +304,7 @@ export default function OverviewPage() {
               </defs>
             </svg>
           ) : (
-            <div className="chart-empty">Not enough data points for chart</div>
+            <div className="chart-empty">{t.dashboard.chartEmpty}</div>
           )}
           </div>
           <button className="chart-side-arrow right" disabled={!canGoForward} onClick={() => setChartPage(p => p - 1)}>
@@ -314,8 +317,8 @@ export default function OverviewPage() {
       <div className="card">
         <div className="card-header">
           <div>
-            <h2 className="card-title">Conversation Feedback</h2>
-            <p className="card-subtitle">Responses volunteers rated · click the eye to open the full chat</p>
+            <h2 className="card-title">{t.dashboard.conversationFeedback}</h2>
+            <p className="card-subtitle">{t.dashboard.feedbackSubtitle}</p>
           </div>
           <div className="fb-filter-group">
             {(['all', 'positive', 'negative'] as const).map(f => (
@@ -324,7 +327,7 @@ export default function OverviewPage() {
                 className={`toggle-btn ${feedbackFilter === f ? 'active' : ''}`}
                 onClick={() => { setFeedbackFilter(f); setFeedbackPage(0); }}
               >
-                {f === 'all' ? 'All' : f === 'positive' ? 'Upvoted' : 'Downvoted'}
+                {f === 'all' ? t.dashboard.all : f === 'positive' ? t.dashboard.upvoted : t.dashboard.downvoted}
               </button>
             ))}
           </div>
@@ -332,9 +335,10 @@ export default function OverviewPage() {
         <div className="fb-table">
           <div className="fb-header-row">
             <span className="fb-th fb-col-num">#</span>
-            <span className="fb-th fb-col-question">Question</span>
-            <span className="fb-th fb-col-feedback">Feedback</span>
-            <span className="fb-th fb-col-date">Date</span>
+            <span className="fb-th fb-col-question">{t.dashboard.question}</span>
+            <span className="fb-th fb-col-language">{t.dashboard.language}</span>
+            <span className="fb-th fb-col-feedback">{t.dashboard.feedback}</span>
+            <span className="fb-th fb-col-date">{t.dashboard.date}</span>
             <span className="fb-th fb-col-action" />
           </div>
           {feedback.length > 0 ? (
@@ -342,32 +346,35 @@ export default function OverviewPage() {
               <div key={`${conv.sessionId}-${conv.messageId}`} className="fb-row">
                 <span className="fb-td fb-col-num">{String(feedbackPage * FEEDBACK_PER_PAGE + i + 1).padStart(2, '0')}</span>
                 <span className="fb-td fb-col-question" title={conv.question}>{truncate(conv.question, 80)}</span>
+                <span className="fb-td fb-col-language">
+                  <span className="language-badge">{conv.language === 'es' ? t.dashboard.spanishShort : t.dashboard.englishShort}</span>
+                </span>
                 <span className="fb-td fb-col-feedback">
                   <span className={`fb-badge ${conv.feedback}`}>
                     {conv.feedback === 'positive'
-                      ? <><ThumbsUp size={11} /> Up</>
-                      : <><ThumbsDown size={11} /> Down</>}
+                      ? <><ThumbsUp size={11} /> {t.dashboard.up}</>
+                      : <><ThumbsDown size={11} /> {t.dashboard.down}</>}
                   </span>
                 </span>
                 <span className="fb-td fb-col-date">
-                  {new Date(conv.timestamp).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                  {new Date(conv.timestamp).toLocaleDateString(languageLocale(language), { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
                 </span>
                 <span className="fb-td fb-col-action">
-                  <button className="icon-btn" title="View conversation" onClick={() => openSession(conv.sessionId, conv.messageId)}>
+                  <button className="icon-btn" aria-label={t.dashboard.viewConversation} title={t.dashboard.viewConversation} onClick={() => openSession(conv.sessionId, conv.messageId)}>
                     <Eye size={15} />
                   </button>
                 </span>
               </div>
             ))
           ) : (
-            <div className="empty-state">No feedback yet</div>
+            <div className="empty-state">{t.dashboard.noFeedback}</div>
           )}
         </div>
         {feedbackTotal > FEEDBACK_PER_PAGE && (
           <div className="pagination" style={{ padding: '14px 0' }}>
             <button className="page-btn" disabled={feedbackPage === 0} onClick={() => setFeedbackPage(p => Math.max(0, p - 1))}><ChevronLeft size={16} /></button>
             <span className="pagination-info">
-              {feedbackPage * FEEDBACK_PER_PAGE + 1}–{Math.min((feedbackPage + 1) * FEEDBACK_PER_PAGE, feedbackTotal)} of {feedbackTotal}
+              {feedbackPage * FEEDBACK_PER_PAGE + 1}–{Math.min((feedbackPage + 1) * FEEDBACK_PER_PAGE, feedbackTotal)} {t.dashboard.of} {feedbackTotal}
             </span>
             <button className="page-btn" disabled={(feedbackPage + 1) * FEEDBACK_PER_PAGE >= feedbackTotal} onClick={() => setFeedbackPage(p => p + 1)}><ChevronRight size={16} /></button>
           </div>
@@ -380,22 +387,29 @@ export default function OverviewPage() {
           <div className="modal-content session-modal" onClick={e => e.stopPropagation()}>
             <div className="modal-header">
               <div>
-                <h2>Conversation</h2>
-                <p className="card-subtitle">Session {openSessionId.slice(0, 12)}… · the highlighted response received the feedback</p>
+                <h2>{t.dashboard.conversation}</h2>
+                <div className="session-modal-meta">
+                  <p className="card-subtitle">{formatText(t.dashboard.sessionDescription, { id: `${openSessionId.slice(0, 12)}...` })}</p>
+                  {sessionTurns[0] && (
+                    <span className="language-badge">
+                      {sessionTurns[0].language === 'es' ? t.dashboard.spanishShort : t.dashboard.englishShort}
+                    </span>
+                  )}
+                </div>
               </div>
               <button
                 type="button"
                 className="modal-close"
                 onClick={closeSession}
-                aria-label="Close conversation"
-                title="Close conversation"
+                aria-label={t.dashboard.closeConversation}
+                title={t.dashboard.closeConversation}
               >
                 <X size={20} />
               </button>
             </div>
             <div className="modal-body">
               {sessionLoading ? (
-                <div className="empty-state">Loading conversation…</div>
+                <div className="empty-state">{t.dashboard.loadingConversation}</div>
               ) : sessionTurns.length > 0 ? (
                 <div className="session-thread">
                   {sessionTurns.map((turn) => {
@@ -411,8 +425,8 @@ export default function OverviewPage() {
                             {isHighlight && turn.feedback && (
                               <span className={`fb-badge ${turn.feedback}`}>
                                 {turn.feedback === 'positive'
-                                  ? <><ThumbsUp size={11} /> Upvoted</>
-                                  : <><ThumbsDown size={11} /> Downvoted</>}
+                                  ? <><ThumbsUp size={11} /> {t.dashboard.upvoted}</>
+                                  : <><ThumbsDown size={11} /> {t.dashboard.downvoted}</>}
                               </span>
                             )}
                           </div>
@@ -422,11 +436,15 @@ export default function OverviewPage() {
                   })}
                 </div>
               ) : (
-                <div className="empty-state">No messages found for this session</div>
+                <div className="empty-state">{t.dashboard.noMessages}</div>
               )}
             </div>
             <div className="modal-footer">
-              <span className="pagination-info">{sessionTurns.length} message{sessionTurns.length === 1 ? '' : 's'}</span>
+              <span className="pagination-info">
+                {sessionTurns.length === 1
+                  ? t.dashboard.oneMessage
+                  : formatText(t.dashboard.messages, { count: sessionTurns.length })}
+              </span>
             </div>
           </div>
         </div>

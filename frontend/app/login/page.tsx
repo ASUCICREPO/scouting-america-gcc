@@ -1,19 +1,23 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useSyncExternalStore } from 'react';
 import { useRouter } from 'next/navigation';
 import { login, isAuthenticated } from '@/lib/dashboard/auth';
-import { Mail, Lock, Eye, EyeOff } from 'lucide-react';
+import { Mail, Lock, Eye, EyeOff, ArrowLeft } from 'lucide-react';
+import { useLanguage } from '@/context/LanguageContext';
+import LanguageSwitcher from '@/components/LanguageSwitcher';
+import { formatText } from '@/lib/i18n';
 import '../dashboard/dashboard.css';
 
 export default function LoginPage() {
+  const { t } = useLanguage();
   const router = useRouter();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const [mounted, setMounted] = useState(false);
+  const mounted = useSyncExternalStore(() => () => {}, () => true, () => false);
   const [showForgot, setShowForgot] = useState(false);
   const [forgotEmail, setForgotEmail] = useState('');
   const [forgotCode, setForgotCode] = useState('');
@@ -21,9 +25,9 @@ export default function LoginPage() {
   const [forgotStep, setForgotStep] = useState<'email' | 'code'>('email');
   const [forgotMsg, setForgotMsg] = useState('');
   const [forgotLoading, setForgotLoading] = useState(false);
+  const [forgotSuccess, setForgotSuccess] = useState(false);
 
   useEffect(() => {
-    setMounted(true);
     if (isAuthenticated()) {
       router.push('/dashboard');
     }
@@ -40,13 +44,14 @@ export default function LoginPage() {
     if (result.success) {
       router.push('/dashboard');
     } else {
-      setError(result.error || 'Login failed');
+      setError(result.error || t.login.loginFailed);
     }
   }
 
   async function handleForgotSendCode(e: React.FormEvent) {
     e.preventDefault();
     setForgotMsg('');
+    setForgotSuccess(false);
     setForgotLoading(true);
     try {
       const res = await fetch(`https://cognito-idp.us-east-1.amazonaws.com/`, {
@@ -63,12 +68,13 @@ export default function LoginPage() {
       const data = await res.json();
       if (data.CodeDeliveryDetails) {
         setForgotStep('code');
-        setForgotMsg(`Code sent to ${data.CodeDeliveryDetails.Destination}`);
+        setForgotSuccess(true);
+        setForgotMsg(formatText(t.login.codeSent, { destination: data.CodeDeliveryDetails.Destination }));
       } else {
-        setForgotMsg(data.message || 'Failed to send code');
+        setForgotMsg(data.message || t.login.sendCodeFailed);
       }
     } catch {
-      setForgotMsg('Network error');
+      setForgotMsg(t.login.networkError);
     }
     setForgotLoading(false);
   }
@@ -76,6 +82,7 @@ export default function LoginPage() {
   async function handleForgotConfirm(e: React.FormEvent) {
     e.preventDefault();
     setForgotMsg('');
+    setForgotSuccess(false);
     setForgotLoading(true);
     try {
       const res = await fetch(`https://cognito-idp.us-east-1.amazonaws.com/`, {
@@ -93,13 +100,14 @@ export default function LoginPage() {
       });
       const data = await res.json();
       if (!data.__type) {
-        setForgotMsg('Password changed successfully! You can now login.');
+        setForgotSuccess(true);
+        setForgotMsg(t.login.resetSuccess);
         setTimeout(() => { setShowForgot(false); setForgotStep('email'); }, 2000);
       } else {
-        setForgotMsg(data.message || 'Failed to reset password');
+        setForgotMsg(data.message || t.login.resetFailed);
       }
     } catch {
-      setForgotMsg('Network error');
+      setForgotMsg(t.login.networkError);
     }
     setForgotLoading(false);
   }
@@ -109,46 +117,47 @@ export default function LoginPage() {
     return (
       <div className="login-container">
         <div className="login-card">
+          <LanguageSwitcher compact className="login-language-switcher" />
           <div className="login-logo">
             <div className="login-gcc-logo">
               <img src="/gcc-logo.png" alt="Grand Canyon Council" className="gcc-logo-img" />
             </div>
-            <h1 className="login-title">Forgot Password</h1>
-            <p className="login-subtitle">{forgotStep === 'email' ? 'Enter your email to receive a reset code' : 'Enter the code and your new password'}</p>
+            <h1 className="login-title">{t.login.forgotTitle}</h1>
+            <p className="login-subtitle">{forgotStep === 'email' ? t.login.resetEmailSubtitle : t.login.resetCodeSubtitle}</p>
           </div>
 
           {forgotStep === 'email' ? (
             <form onSubmit={handleForgotSendCode} className="login-form">
               <div className="login-field">
-                <label>Email <span className="required">*</span></label>
+                <label>{t.login.email} <span className="required">*</span></label>
                 <div className="input-with-icon">
                   <Mail size={16} className="input-icon" />
-                  <input type="email" value={forgotEmail} onChange={e => setForgotEmail(e.target.value)} placeholder="Enter your email" required disabled={forgotLoading} />
+                  <input type="email" value={forgotEmail} onChange={e => setForgotEmail(e.target.value)} placeholder={t.login.emailPlaceholder} required disabled={forgotLoading} />
                 </div>
               </div>
-              {forgotMsg && <p className={`login-msg ${forgotMsg.includes('sent') ? 'success' : 'error'}`}>{forgotMsg}</p>}
-              <button type="submit" className="login-btn" disabled={forgotLoading}>{forgotLoading ? 'Sending...' : 'Send Code'}</button>
-              <button type="button" className="login-link" onClick={() => setShowForgot(false)}>← Back to Login</button>
+              {forgotMsg && <p className={`login-msg ${forgotSuccess ? 'success' : 'error'}`}>{forgotMsg}</p>}
+              <button type="submit" className="login-btn" disabled={forgotLoading}>{forgotLoading ? t.login.sending : t.login.sendCode}</button>
+              <button type="button" className="login-link" onClick={() => setShowForgot(false)}><ArrowLeft size={14} /> {t.login.backToLogin}</button>
             </form>
           ) : (
             <form onSubmit={handleForgotConfirm} className="login-form">
               <div className="login-field">
-                <label>Verification Code <span className="required">*</span></label>
+                <label>{t.login.verificationCode} <span className="required">*</span></label>
                 <div className="input-with-icon">
                   <Lock size={16} className="input-icon" />
-                  <input type="text" value={forgotCode} onChange={e => setForgotCode(e.target.value)} placeholder="Enter code from email" required disabled={forgotLoading} />
+                  <input type="text" value={forgotCode} onChange={e => setForgotCode(e.target.value)} placeholder={t.login.codePlaceholder} required disabled={forgotLoading} />
                 </div>
               </div>
               <div className="login-field">
-                <label>New Password <span className="required">*</span></label>
+                <label>{t.login.newPassword} <span className="required">*</span></label>
                 <div className="input-with-icon">
                   <Lock size={16} className="input-icon" />
-                  <input type="password" value={newPassword} onChange={e => setNewPassword(e.target.value)} placeholder="Enter new password" required disabled={forgotLoading} />
+                  <input type="password" value={newPassword} onChange={e => setNewPassword(e.target.value)} placeholder={t.login.passwordPlaceholder} required disabled={forgotLoading} />
                 </div>
               </div>
-              {forgotMsg && <p className={`login-msg ${forgotMsg.includes('success') ? 'success' : 'error'}`}>{forgotMsg}</p>}
-              <button type="submit" className="login-btn" disabled={forgotLoading}>{forgotLoading ? 'Resetting...' : 'Change Password'}</button>
-              <button type="button" className="login-link" onClick={() => setShowForgot(false)}>← Back to Login</button>
+              {forgotMsg && <p className={`login-msg ${forgotSuccess ? 'success' : 'error'}`}>{forgotMsg}</p>}
+              <button type="submit" className="login-btn" disabled={forgotLoading}>{forgotLoading ? t.login.resetting : t.login.changePassword}</button>
+              <button type="button" className="login-link" onClick={() => setShowForgot(false)}><ArrowLeft size={14} /> {t.login.backToLogin}</button>
             </form>
           )}
         </div>
@@ -160,39 +169,40 @@ export default function LoginPage() {
   return (
     <div className="login-container">
       <div className="login-card">
+        <LanguageSwitcher compact className="login-language-switcher" />
         <div className="login-logo">
           <div className="login-gcc-logo">
             <img src="/gcc-logo.png" alt="Grand Canyon Council" className="gcc-logo-img" />
           </div>
-          <h1 className="login-title">login</h1>
-          <p className="login-subtitle">Enter your details to get started.</p>
+          <h1 className="login-title">{t.login.title}</h1>
+          <p className="login-subtitle">{t.login.subtitle}</p>
         </div>
 
         <form onSubmit={handleSubmit} className="login-form">
           <div className="login-field">
-            <label>Email <span className="required">*</span></label>
+            <label>{t.login.email} <span className="required">*</span></label>
             <div className="input-with-icon">
               <Mail size={16} className="input-icon" />
-              <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="Username@gmail.com" required disabled={loading} />
+              <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder={t.login.emailPlaceholder} required disabled={loading} />
             </div>
           </div>
           <div className="login-field">
-            <label>Password <span className="required">*</span></label>
+            <label>{t.login.password} <span className="required">*</span></label>
             <div className="input-with-icon">
               <Lock size={16} className="input-icon" />
-              <input type={showPassword ? 'text' : 'password'} value={password} onChange={e => setPassword(e.target.value)} placeholder="Enter your password" required disabled={loading} />
-              <button type="button" className="eye-btn" onClick={() => setShowPassword(!showPassword)}>
+              <input type={showPassword ? 'text' : 'password'} value={password} onChange={e => setPassword(e.target.value)} placeholder={t.login.passwordPlaceholder} required disabled={loading} />
+              <button type="button" className="eye-btn" onClick={() => setShowPassword(!showPassword)} aria-label={showPassword ? t.login.hidePassword : t.login.showPassword}>
                 {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
               </button>
             </div>
           </div>
 
-          <button type="button" className="forgot-link" onClick={() => setShowForgot(true)}>Forgot password?</button>
+          <button type="button" className="forgot-link" onClick={() => setShowForgot(true)}>{t.login.forgotPassword}</button>
 
           {error && <p className="login-error">{error}</p>}
 
           <button type="submit" className="login-btn" disabled={loading}>
-            {loading ? 'Signing in...' : 'Login'}
+            {loading ? t.login.signingIn : t.login.login}
           </button>
         </form>
       </div>

@@ -140,6 +140,7 @@ export interface FeedbackConversation {
   confidence: number;
   sources: string[];
   escalated: boolean;
+  language: 'en' | 'es';
 }
 
 export interface SessionTurn {
@@ -151,6 +152,7 @@ export interface SessionTurn {
   confidence: number;
   sources: string[];
   escalated: boolean;
+  language: 'en' | 'es';
 }
 
 /** List chat turns that received a thumbs up/down. filter: 'all' | 'positive' | 'negative'. */

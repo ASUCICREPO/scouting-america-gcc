@@ -1,22 +1,24 @@
 'use client';
 
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, useSyncExternalStore } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import { isAuthenticated, logout, getUser } from '@/lib/dashboard/auth';
 import { useSettings } from '@/lib/dashboard/settings-context';
 import { LayoutDashboard, FileText, Bell, User, LogOut, Settings } from 'lucide-react';
+import { useLanguage } from '@/context/LanguageContext';
+import LanguageSwitcher from '@/components/LanguageSwitcher';
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
-  const [mounted, setMounted] = useState(false);
+  const mounted = useSyncExternalStore(() => () => {}, () => true, () => false);
   const [showProfileMenu, setShowProfileMenu] = useState(false);
   const profileRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { settings } = useSettings();
+  const { t } = useLanguage();
 
   useEffect(() => {
-    setMounted(true);
     if (!isAuthenticated()) {
       router.push('/login');
     }
@@ -34,8 +36,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   if (!mounted) return null;
 
   const navItems = [
-    { label: 'Overview', href: '/dashboard', icon: LayoutDashboard },
-    { label: 'Manage documents', href: '/dashboard/documents', icon: FileText },
+    { label: t.dashboard.navOverview, href: '/dashboard', icon: LayoutDashboard },
+    { label: t.dashboard.navDocuments, href: '/dashboard/documents', icon: FileText },
   ];
 
   const isActive = (href: string) => {
@@ -76,7 +78,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         <header className="dash-header">
           <div className="dash-header-spacer" />
           <div className="dash-header-right">
-            <button className="dash-header-icon-btn">
+            <LanguageSwitcher compact className="dashboard-language-switcher" />
+            <button className="dash-header-icon-btn" aria-label={t.dashboard.notifications} title={t.dashboard.notifications}>
               <Bell size={16} />
               <span className="dash-notification-badge" />
             </button>
@@ -99,22 +102,22 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                       )}
                     </div>
                     <div className="dash-profile-info">
-                      <span className="dash-profile-email">{getUser()?.email || 'Admin'}</span>
+                      <span className="dash-profile-email">{getUser()?.email || t.dashboard.admin}</span>
                       <span className="dash-profile-role">
                         {settings.firstName || settings.lastName
                           ? `${settings.firstName} ${settings.lastName}`.trim()
-                          : 'Admin'}
+                          : t.dashboard.admin}
                       </span>
                     </div>
                   </div>
                   <div className="dash-profile-menu-divider" />
                   <button className="dash-profile-menu-item" onClick={() => { setShowProfileMenu(false); router.push('/dashboard/settings'); }}>
                     <Settings size={14} />
-                    <span>Settings</span>
+                    <span>{t.dashboard.settings}</span>
                   </button>
                   <button className="dash-profile-menu-item logout" onClick={logout}>
                     <LogOut size={14} />
-                    <span>Logout</span>
+                    <span>{t.dashboard.logout}</span>
                   </button>
                 </div>
               )}
