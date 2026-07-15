@@ -1,31 +1,51 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import Image from "next/image";
 import { X, Download } from "lucide-react";
 
+interface BeforeInstallPromptEvent extends Event {
+  prompt: () => Promise<void>;
+  userChoice: Promise<{ outcome: "accepted" | "dismissed" }>;
+}
+
 export default function PwaInstallBanner() {
-  const [showBanner, setShowBanner] = useState(false);
-  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
+  const [isAvailable, setIsAvailable] = useState(false);
+  const [isExpanded, setIsExpanded] = useState(true);
+  const [deferredPrompt, setDeferredPrompt] =
+    useState<BeforeInstallPromptEvent | null>(null);
 
   useEffect(() => {
     // Check if already installed (standalone mode)
     const isInstalled =
       window.matchMedia("(display-mode: standalone)").matches ||
-      (window.navigator as any).standalone === true;
+      (window.navigator as Navigator & { standalone?: boolean }).standalone ===
+        true;
 
     if (isInstalled) return;
 
-    // Show banner on load (always, unless installed)
-    setShowBanner(true);
+    // Defer the client-only state update until after the initial render.
+    const showFrame = window.requestAnimationFrame(() => setIsAvailable(true));
 
     // Capture the beforeinstallprompt event
     const handler = (e: Event) => {
       e.preventDefault();
-      setDeferredPrompt(e);
+      setDeferredPrompt(e as BeforeInstallPromptEvent);
+    };
+
+    const installedHandler = () => {
+      setIsAvailable(false);
+      setDeferredPrompt(null);
     };
 
     window.addEventListener("beforeinstallprompt", handler);
-    return () => window.removeEventListener("beforeinstallprompt", handler);
+    window.addEventListener("appinstalled", installedHandler);
+
+    return () => {
+      window.cancelAnimationFrame(showFrame);
+      window.removeEventListener("beforeinstallprompt", handler);
+      window.removeEventListener("appinstalled", installedHandler);
+    };
   }, []);
 
   const handleInstall = async () => {
@@ -33,39 +53,59 @@ export default function PwaInstallBanner() {
       deferredPrompt.prompt();
       const { outcome } = await deferredPrompt.userChoice;
       if (outcome === "accepted") {
-        setShowBanner(false);
+        setIsAvailable(false);
       }
       setDeferredPrompt(null);
     }
   };
 
-  const handleDismiss = () => {
-    setShowBanner(false);
-    // Don't persist — will show again on next page load
-  };
+  if (!isAvailable) return null;
 
-  if (!showBanner) return null;
+  if (!isExpanded) {
+    return (
+      <button
+        type="button"
+        className="pwa-banner-toggle"
+        onClick={() => setIsExpanded(true)}
+        aria-label="Show install prompt"
+        aria-expanded="false"
+        title="Show install prompt"
+      >
+        <Download size={20} />
+      </button>
+    );
+  }
 
   return (
-    <div className="pwa-banner">
+    <div className="pwa-banner" role="region" aria-label="Install Scout AI">
       <div className="pwa-banner-content">
         <div className="pwa-banner-icon">
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
-            <path
-              d="M12 2L15.09 8.26L22 9.27L17 14.14L18.18 21.02L12 17.77L5.82 21.02L7 14.14L2 9.27L8.91 8.26L12 2Z"
-              fill="#005696"
-            />
-          </svg>
+          <Image
+            src="/gcc-emblem.jpg"
+            alt="Grand Canyon Council"
+            width={40}
+            height={40}
+          />
         </div>
         <div className="pwa-banner-text">
           <p className="pwa-banner-title">Add Scout AI to your home screen</p>
-          <p className="pwa-banner-sub">Quick access, works offline</p>
         </div>
-        <button className="pwa-banner-install" onClick={handleInstall}>
+        <button
+          type="button"
+          className="pwa-banner-install"
+          onClick={handleInstall}
+        >
           <Download size={14} />
           <span>Install</span>
         </button>
-        <button className="pwa-banner-close" onClick={handleDismiss} aria-label="Dismiss">
+        <button
+          type="button"
+          className="pwa-banner-close"
+          onClick={() => setIsExpanded(false)}
+          aria-label="Hide install prompt"
+          aria-expanded="true"
+          title="Hide install prompt"
+        >
           <X size={16} />
         </button>
       </div>
