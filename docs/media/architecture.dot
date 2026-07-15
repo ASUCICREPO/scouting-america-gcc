@@ -1,0 +1,97 @@
+digraph GCCArchitecture {
+  graph [
+    rankdir=LR,
+    bgcolor="white",
+    pad="0.35",
+    nodesep="0.45",
+    ranksep="0.75",
+    fontname="Arial",
+    label="Grand Canyon Council Scout AI - AWS Architecture",
+    labelloc="t",
+    fontsize=24
+  ];
+  node [shape=box, style="rounded,filled", fontname="Arial", fontsize=11, margin="0.16,0.10", color="#334155", fillcolor="#F8FAFC"];
+  edge [fontname="Arial", fontsize=9, color="#64748B", fontcolor="#475569", arrowsize=0.75];
+
+  subgraph cluster_users {
+    label="Users";
+    color="#CBD5E1";
+    style="rounded";
+    volunteer [label="Volunteers and families", shape=oval, fillcolor="#FFF7ED", color="#C2410C"];
+    admin [label="GCC administrators", shape=oval, fillcolor="#FFF7ED", color="#C2410C"];
+  }
+
+  subgraph cluster_frontend {
+    label="Web delivery";
+    color="#CBD5E1";
+    style="rounded";
+    cloudfront [label="Amazon CloudFront\nroute rewrite + TLS", fillcolor="#ECFEFF", color="#0E7490"];
+    site [label="Private Amazon S3\nNext.js static export", fillcolor="#F0FDF4", color="#15803D"];
+    cognito [label="Amazon Cognito\nadmin authentication", fillcolor="#FFF1F2", color="#BE123C"];
+  }
+
+  subgraph cluster_api {
+    label="APIs and compute";
+    color="#CBD5E1";
+    style="rounded";
+    chat_api [label="API Gateway\npublic chat API", fillcolor="#FDF2F8", color="#BE185D"];
+    chat_lambda [label="AWS Lambda\nchat handler", fillcolor="#FFF7ED", color="#C2410C"];
+    dashboard_api [label="API Gateway\nprotected dashboard API", fillcolor="#FDF2F8", color="#BE185D"];
+    dashboard_lambda [label="AWS Lambda\ndashboard handler", fillcolor="#FFF7ED", color="#C2410C"];
+    doc_lambda [label="AWS Lambda\ndocument processor", fillcolor="#FFF7ED", color="#C2410C"];
+    escalation_lambda [label="AWS Lambda\nescalation router", fillcolor="#FFF7ED", color="#C2410C"];
+  }
+
+  subgraph cluster_ai {
+    label="Retrieval and generation";
+    color="#CBD5E1";
+    style="rounded";
+    bedrock [label="Amazon Bedrock\nKnowledge Base", fillcolor="#ECFDF5", color="#047857"];
+    model [label="Claude Haiku 4.5\nresponse generation", fillcolor="#ECFDF5", color="#047857"];
+    embeddings [label="Titan Text Embeddings v2\n1024 dimensions", fillcolor="#ECFDF5", color="#047857"];
+    vectors [label="Amazon S3 Vectors\ncosine similarity index", fillcolor="#F0FDF4", color="#15803D"];
+  }
+
+  subgraph cluster_data {
+    label="Data, content, and alerts";
+    color="#CBD5E1";
+    style="rounded";
+    chat_logs [label="DynamoDB\nchat logs", fillcolor="#EFF6FF", color="#1D4ED8"];
+    analytics [label="DynamoDB\nanalytics logs", fillcolor="#EFF6FF", color="#1D4ED8"];
+    documents [label="Amazon S3\ndocument store /uploads", fillcolor="#F0FDF4", color="#15803D"];
+    kb_data [label="Amazon S3\nKB data /documents", fillcolor="#F0FDF4", color="#15803D"];
+    guardrails [label="Secrets Manager\nsystem guardrails", fillcolor="#FFF1F2", color="#BE123C"];
+    alerts [label="Amazon SNS + SES\nstaff alerts", fillcolor="#FDF2F8", color="#BE185D"];
+  }
+
+  volunteer -> cloudfront [label="HTTPS"];
+  admin -> cloudfront [label="HTTPS"];
+  cloudfront -> site [label="origin access control"];
+  admin -> cognito [label="sign in"];
+
+  site -> chat_api [label="POST /chat\nhistory + feedback"];
+  chat_api -> chat_lambda;
+  chat_lambda -> bedrock [label="RetrieveAndGenerate"];
+  chat_lambda -> guardrails [label="read prompt"];
+  chat_lambda -> chat_logs [label="persist turn"];
+  chat_lambda -> escalation_lambda [label="async when safety or\nlow confidence"];
+  escalation_lambda -> analytics [label="log event"];
+  escalation_lambda -> alerts [label="notify"];
+
+  site -> dashboard_api [label="/dashboard/* + ID token"];
+  cognito -> dashboard_api [label="authorize admin group"];
+  dashboard_api -> dashboard_lambda;
+  dashboard_lambda -> chat_logs [label="read metrics"];
+  dashboard_lambda -> analytics [label="read metrics"];
+  dashboard_lambda -> documents [label="presigned upload,\nlist, download, delete"];
+
+  documents -> doc_lambda [label="S3 ObjectCreated"];
+  doc_lambda -> kb_data [label="copy document"];
+  doc_lambda -> bedrock [label="start ingestion"];
+  doc_lambda -> analytics [label="processing event"];
+  kb_data -> bedrock [label="S3 data source"];
+  bedrock -> embeddings [label="embed chunks"];
+  embeddings -> vectors [label="store/query vectors"];
+  bedrock -> model [label="grounded prompt"];
+  model -> chat_lambda [label="answer + citations"];
+}

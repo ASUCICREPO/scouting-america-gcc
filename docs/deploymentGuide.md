@@ -1,283 +1,391 @@
 # Deployment Guide
 
-This guide provides step-by-step instructions for deploying [INSERT_PROJECT_NAME].
+This guide describes reviewed deployments of Grand Canyon Council Scout AI to AWS. Deployment changes cloud infrastructure and publishes the frontend. Confirm the target account, region, branch, stack, and resource prefix before running any command.
 
----
+## Deployment Model
 
-## Table of Contents
+The repository deploys one CDK stack named `ScoutingAmericaChatbot`. The stack contains the backend, data stores, authentication, knowledge base, and static frontend hosting.
 
-- [Deployment Guide](#deployment-guide)
-  - [Requirements](#requirements)
-  - [Pre-Deployment](#pre-deployment)
-    - [AWS Account Setup](#aws-account-setup)
-    - [CLI Tools Installation](#cli-tools-installation)
-    - [Environment Configuration](#environment-configuration)
-  - [Deployment](#deployment)
-    - [Backend Deployment](#backend-deployment)
-    - [Frontend Deployment](#frontend-deployment)
-  - [Post-Deployment Verification](#post-deployment-verification)
-  - [Troubleshooting](#troubleshooting)
+`deploy.sh` performs the supported end-to-end workflow:
 
----
+1. Validates local tools and AWS credentials.
+2. Installs backend dependencies.
+3. Deploys the CDK stack.
+4. Reads CloudFormation outputs.
+5. Writes `frontend/.env.local` with API and Cognito settings.
+6. Optionally creates an admin user.
+7. Optionally uploads a local document tree.
+8. Builds the Next.js static export.
+9. Syncs `frontend/out` to the private site bucket.
+10. Creates a CloudFront invalidation.
 
 ## Requirements
 
-Before you deploy, you must have the following:
+### Local Tools
 
-### Accounts
-- [ ] **AWS Account** - [Create an AWS Account](https://aws.amazon.com/)
-- [ ] [INSERT_ADDITIONAL_ACCOUNT_REQUIREMENTS]
+- Bash
+- AWS CLI v2
+- Node.js 20 or newer
+- npm 9 or newer
+- Git
 
-### CLI Tools
-- [ ] **AWS CLI** (v2.x) - [Install AWS CLI](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html)
-- [ ] **Node.js** (v18.x or later) - [Install Node.js](https://nodejs.org/)
-- [ ] **npm** (v9.x or later) - Included with Node.js
-- [ ] **AWS CDK** (v2.x) - Install via `npm install -g aws-cdk`
-- [ ] [INSERT_ADDITIONAL_CLI_TOOLS]
+The script uses the repository-local CDK CLI through `npx`; a global CDK installation is not required.
 
-### Access Permissions
-- [ ] AWS IAM user/role with permissions for:
-  - CloudFormation
-  - Lambda
-  - API Gateway
-  - S3
-  - [INSERT_ADDITIONAL_AWS_SERVICES]
-- [ ] [INSERT_ADDITIONAL_PERMISSIONS]
+### AWS Region And Services
 
-### Software Dependencies
-- [ ] Git - [Install Git](https://git-scm.com/downloads)
-- [ ] [INSERT_ADDITIONAL_DEPENDENCIES]
+The default region is `us-east-1`. The target account must support and authorize:
 
----
+- CloudFormation and IAM
+- Lambda, API Gateway, CloudWatch Logs, and SQS
+- S3, S3 Vectors, CloudFront, and DynamoDB
+- Amazon Bedrock Knowledge Bases and required model access
+- Cognito, Secrets Manager, SNS, and SES
 
-## Pre-Deployment
+Confirm that Claude Haiku 4.5 through the configured inference profile and Titan Text Embeddings v2 are available in the target region.
 
-### AWS Account Setup
+### AWS Permissions
 
-1. **Configure AWS CLI**
-   ```bash
-   aws configure
-   ```
-   Enter your:
-   - AWS Access Key ID
-   - AWS Secret Access Key
-   - Default region: `us-east-1` (or [INSERT_PREFERRED_REGION])
-   - Default output format: `json`
+The deploying identity needs permission to bootstrap and deploy CDK assets and create/update every service above. For a controlled environment, use a dedicated deployment role rather than long-lived administrator credentials.
 
-2. **Bootstrap CDK** (first-time CDK users only)
-   ```bash
-   cdk bootstrap aws://[ACCOUNT_ID]/[REGION]
-   ```
-   > **[PLACEHOLDER]** Replace `[ACCOUNT_ID]` with your AWS account ID and `[REGION]` with your deployment region
+## Pre-Deployment Review
 
-### CLI Tools Installation
+### Confirm The Source
 
-1. **Install Node.js dependencies for backend**
-   ```bash
-   cd backend
-   npm install
-   ```
+Deploy only the reviewed commit or branch approved for the target environment:
 
-2. **Install Node.js dependencies for frontend**
-   ```bash
-   cd frontend
-   npm install
-   ```
-
-3. **Install AWS CDK globally** (if not already installed)
-   ```bash
-   npm install -g aws-cdk
-   ```
-
-### Environment Configuration
-
-1. **Create environment configuration file**
-   
-   [INSERT_ENV_CONFIGURATION_INSTRUCTIONS]
-   
-   ```bash
-   # Example: Create .env file
-   cp .env.example .env
-   ```
-
-2. **Configure required environment variables**
-   
-   [INSERT_ENV_VARIABLES_TABLE]
-   
-   | Variable | Description | Example |
-   |----------|-------------|---------|
-   | `[INSERT_VAR_1]` | [INSERT_DESCRIPTION] | [INSERT_EXAMPLE] |
-   | `[INSERT_VAR_2]` | [INSERT_DESCRIPTION] | [INSERT_EXAMPLE] |
-   | `[INSERT_VAR_3]` | [INSERT_DESCRIPTION] | [INSERT_EXAMPLE] |
-
-3. **[INSERT_ADDITIONAL_CONFIGURATION_STEPS]**
-   
-   > **Important**: [INSERT_IMPORTANT_NOTES]
-
----
-
-## Deployment
-
-### Backend Deployment
-
-1. **Navigate to the backend directory**
-   ```bash
-   cd backend
-   ```
-
-2. **Synthesize the CloudFormation template** (optional, for review)
-   ```bash
-   cdk synth
-   ```
-
-3. **Deploy the backend stack**
-   ```bash
-   cdk deploy
-   ```
-   
-   When prompted:
-   - Review the IAM changes
-   - Type `y` to confirm deployment
-
-4. **Note the outputs**
-   
-   After deployment, note down the following outputs:
-   - **API Endpoint**: `[INSERT_OUTPUT_NAME]`
-   - **[INSERT_ADDITIONAL_OUTPUT]**: [INSERT_DESCRIPTION]
-   
-   > **Important**: Save these values as they will be needed for frontend configuration
-
-### Frontend Deployment
-
-1. **Navigate to the frontend directory**
-   ```bash
-   cd frontend
-   ```
-
-2. **Configure the frontend environment**
-   
-   [INSERT_FRONTEND_CONFIG_INSTRUCTIONS]
-   
-   ```bash
-   # Example: Update API endpoint
-   echo "NEXT_PUBLIC_API_URL=[YOUR_API_ENDPOINT]" >> .env.local
-   ```
-
-3. **Build the frontend**
-   ```bash
-   npm run build
-   ```
-
-4. **Deploy the frontend**
-   
-   [INSERT_FRONTEND_DEPLOYMENT_METHOD]
-   
-   **Option A: Deploy to Vercel**
-   ```bash
-   npx vercel --prod
-   ```
-   
-   **Option B: Deploy to AWS Amplify**
-   ```bash
-   [INSERT_AMPLIFY_COMMANDS]
-   ```
-   
-   **Option C: [INSERT_ALTERNATIVE_DEPLOYMENT]**
-   ```bash
-   [INSERT_COMMANDS]
-   ```
-
----
-
-## Post-Deployment Verification
-
-### Verify Backend Deployment
-
-1. **Check CloudFormation stack status**
-   ```bash
-   aws cloudformation describe-stacks --stack-name [INSERT_STACK_NAME]
-   ```
-   
-   Expected status: `CREATE_COMPLETE` or `UPDATE_COMPLETE`
-
-2. **Test API endpoint**
-   ```bash
-   curl -X GET [INSERT_API_ENDPOINT]/[INSERT_TEST_PATH]
-   ```
-   
-   Expected response: [INSERT_EXPECTED_RESPONSE]
-
-3. **Check Lambda functions**
-   ```bash
-   aws lambda list-functions --query "Functions[?contains(FunctionName, '[INSERT_FUNCTION_PREFIX]')]"
-   ```
-
-### Verify Frontend Deployment
-
-1. **Access the application**
-   
-   Navigate to: `[INSERT_FRONTEND_URL]`
-
-2. **Test basic functionality**
-   - [ ] [INSERT_TEST_CASE_1]
-   - [ ] [INSERT_TEST_CASE_2]
-   - [ ] [INSERT_TEST_CASE_3]
-
----
-
-## Troubleshooting
-
-### Common Issues
-
-#### Issue: [INSERT_COMMON_ISSUE_1]
-**Symptoms**: [INSERT_SYMPTOMS]
-
-**Solution**:
 ```bash
-[INSERT_SOLUTION_COMMANDS]
+git status --short --branch
+git log -1 --oneline
 ```
 
-#### Issue: [INSERT_COMMON_ISSUE_2]
-**Symptoms**: [INSERT_SYMPTOMS]
+Do not deploy with unresolved tracked changes. Untracked ingestion documents and local environment files should not be committed.
 
-**Solution**:
-[INSERT_SOLUTION_STEPS]
+### Confirm AWS Identity And Region
 
-#### Issue: CDK Bootstrap Error
-**Symptoms**: Error message about CDK not being bootstrapped
-
-**Solution**:
 ```bash
-cdk bootstrap aws://[ACCOUNT_ID]/[REGION]
+aws sts get-caller-identity
+aws configure get region
 ```
 
-#### Issue: Permission Denied
-**Symptoms**: Access denied errors during deployment
+For a named profile:
 
-**Solution**:
-- Verify your AWS credentials are configured correctly
-- Ensure your IAM user/role has the required permissions
-- Check if you're deploying to the correct region
+```bash
+aws sts get-caller-identity --profile my-profile
+```
 
----
+### Bootstrap CDK
 
-## Cleanup
-
-To remove all deployed resources:
+Bootstrap each account/region once from `backend/`:
 
 ```bash
 cd backend
-cdk destroy
+npx cdk bootstrap aws://ACCOUNT_ID/us-east-1
+cd ..
 ```
 
-> **Warning**: This will delete all resources created by this stack. Make sure to backup any important data before proceeding.
+Replace `ACCOUNT_ID` with the verified account number.
 
----
+### Choose A Resource Prefix
 
-## Next Steps
+`RESOURCE_PREFIX` allows named AWS resources for different environments to coexist. Examples:
 
-After successful deployment:
-1. Review the [User Guide](./userGuide.md) to learn how to use the application
-2. Check the [API Documentation](./APIDoc.md) for integration details
-3. See the [Modification Guide](./modificationGuide.md) for customization options
+```bash
+RESOURCE_PREFIX=demo ./deploy.sh
+RESOURCE_PREFIX=staging ./deploy.sh
+```
 
+Rules:
+
+- Lowercase letters and numbers are allowed.
+- Hyphens are allowed only inside the prefix.
+- Maximum length is 39 characters.
+- An empty prefix preserves legacy unprefixed names.
+
+**Always reuse the same prefix when updating an existing environment.** Changing or omitting it changes physical resource names and can cause replacements, empty dashboards, missing chat history, bucket-name collisions, or retained duplicate data resources.
+
+The prefix does not change the CloudFormation stack name. This repository manages one `ScoutingAmericaChatbot` stack per account/region unless the stack naming code is changed.
+
+### Configure Upload CORS
+
+By default, the document bucket permits browser uploads from any origin to match the pilot. To restrict it, set a comma-separated list before synthesis/deployment:
+
+```bash
+UPLOAD_ALLOWED_ORIGINS=https://example.cloudfront.net RESOURCE_PREFIX=demo ./deploy.sh
+```
+
+When using multiple origins:
+
+```bash
+UPLOAD_ALLOWED_ORIGINS=https://admin.example.org,http://localhost:3000 RESOURCE_PREFIX=demo ./deploy.sh
+```
+
+Because CloudFront's generated domain is not known before the first deployment, a new environment may require an initial deployment followed by a reviewed CORS-tightening update.
+
+## Recommended Deployment
+
+From the repository root:
+
+```bash
+RESOURCE_PREFIX=demo ./deploy.sh
+```
+
+Optional flags:
+
+```text
+--region REGION
+--profile PROFILE
+--prefix PREFIX
+--admin-email EMAIL
+--admin-password PASSWORD
+--skip-frontend-env
+--ingest DIRECTORY
+```
+
+`RESOURCE_PREFIX=demo ./deploy.sh` and `./deploy.sh --prefix demo` are equivalent.
+
+### Deploy With A Named Profile
+
+```bash
+./deploy.sh --profile my-profile --region us-east-1 --prefix demo
+```
+
+### Create Or Update An Admin User
+
+```bash
+./deploy.sh \
+  --prefix demo \
+  --admin-email admin@example.org \
+  --admin-password 'Use-A-Strong-Reviewed-Password1!'
+```
+
+The script creates the user if necessary, sets a permanent password, ensures the `admin` group exists, and adds the user to it. Avoid shell history exposure for real credentials; use an approved secret-handling workflow or create the user separately in Cognito.
+
+### Deploy And Ingest A Document Directory
+
+```bash
+./deploy.sh --prefix demo --ingest ./ingest
+```
+
+The script syncs the directory to `uploads/` in the document-store bucket. Each new S3 object triggers processing and a Bedrock ingestion request. Large directories can create many overlapping ingestion attempts; for a large corpus, batch uploads deliberately and monitor Bedrock jobs.
+
+## What The Script Writes
+
+After the CDK deployment, `frontend/.env.local` contains:
+
+```dotenv
+NEXT_PUBLIC_API_URL=...
+NEXT_PUBLIC_DASHBOARD_API_URL=...
+NEXT_PUBLIC_USER_POOL_ID=...
+NEXT_PUBLIC_CLIENT_ID=...
+```
+
+These values are embedded into the static frontend during `npm run build`. Do not copy one environment's built `frontend/out/` into another environment.
+
+`--skip-frontend-env` skips regeneration but still builds and publishes the frontend using the existing environment file. Use it only when that file is known to point to the intended stack.
+
+## CloudFormation Outputs
+
+The stack exports:
+
+| Output | Purpose |
+| --- | --- |
+| `ChatApiUrl` | Public chat API base URL |
+| `DashboardApiUrl` | Cognito-protected dashboard API base URL |
+| `UserPoolId` | Cognito User Pool |
+| `UserPoolClientId` | Browser client ID |
+| `DocumentStoreBucket` | Raw document uploads |
+| `KnowledgeBaseBucket` | Bedrock data source documents |
+| `FrontendBucket` | Static export target |
+| `FrontendDistributionId` | CloudFront invalidation target |
+| `FrontendUrl` | Public application URL |
+
+Read them without changing the stack:
+
+```bash
+aws cloudformation describe-stacks \
+  --stack-name ScoutingAmericaChatbot \
+  --region us-east-1 \
+  --query 'Stacks[0].Outputs' \
+  --output table
+```
+
+## Post-Deployment Verification
+
+### Stack Status
+
+```bash
+aws cloudformation describe-stacks \
+  --stack-name ScoutingAmericaChatbot \
+  --region us-east-1 \
+  --query 'Stacks[0].StackStatus' \
+  --output text
+```
+
+Expected status after an update: `UPDATE_COMPLETE`. A first deployment ends at `CREATE_COMPLETE`.
+
+### CloudFront Invalidation
+
+`deploy.sh` submits an invalidation but does not wait for it to finish. Retrieve the distribution output and inspect the newest invalidation:
+
+```bash
+DIST_ID=$(aws cloudformation describe-stacks \
+  --stack-name ScoutingAmericaChatbot \
+  --region us-east-1 \
+  --query "Stacks[0].Outputs[?OutputKey=='FrontendDistributionId'].OutputValue" \
+  --output text)
+
+aws cloudfront list-invalidations \
+  --distribution-id "$DIST_ID" \
+  --max-items 1
+```
+
+Wait for status `Completed` before concluding that every edge location has the new files.
+
+### Frontend Routes
+
+Open the `FrontendUrl` and directly load:
+
+- `/`
+- `/login`
+- `/dashboard`
+- `/dashboard/documents`
+- `/dashboard/settings`
+
+The public route should render without authentication. Dashboard routes should redirect an unauthenticated visitor to `/login`. Refresh each nested route to verify CloudFront path rewriting.
+
+### Public Chat Contract
+
+```bash
+CHAT_API=$(aws cloudformation describe-stacks \
+  --stack-name ScoutingAmericaChatbot \
+  --region us-east-1 \
+  --query "Stacks[0].Outputs[?OutputKey=='ChatApiUrl'].OutputValue" \
+  --output text)
+
+curl -sS -X POST "${CHAT_API%/}/chat" \
+  -H 'Content-Type: application/json' \
+  -d '{"question":"What can you tell me about Camp Geronimo?","language":"en"}'
+```
+
+Repeat with a Spanish question and `"language":"es"`. Confirm the response includes `answer`, `sessionId`, `messageId`, and the selected `language`.
+
+### Dashboard
+
+Sign in with an authorized admin account and verify:
+
+- Summary and feedback data load without `401` or `403`.
+- A rated conversation opens the full transcript.
+- The English/Spanish control works in **Settings > Appearance**.
+- A small test document uploads and progresses toward **Ready**.
+- Download and deletion are available only after authentication.
+
+### Logs And Ingestion
+
+Check recent Lambda errors:
+
+```bash
+aws logs tail /aws/lambda/demo-GCC-ChatHandler --since 15m --region us-east-1
+aws logs tail /aws/lambda/demo-GCC-AdminDashboard --since 15m --region us-east-1
+aws logs tail /aws/lambda/demo-GCC-EscalationRouter --since 15m --region us-east-1
+```
+
+CDK-generated document-processor function names include a stack/logical-ID suffix. Locate it before tailing:
+
+```bash
+aws lambda list-functions \
+  --region us-east-1 \
+  --query "Functions[?contains(FunctionName, 'DocProcessor')].FunctionName" \
+  --output text
+```
+
+Replace `demo-` with the environment's actual prefix.
+
+## Manual Backend-Only Deployment
+
+Use this only when intentionally omitting the frontend publish:
+
+```bash
+cd backend
+npm ci
+npm test
+npx cdk synth
+RESOURCE_PREFIX=demo npx cdk deploy ScoutingAmericaChatbot --require-approval never
+```
+
+Set `RESOURCE_PREFIX` on synthesis and deployment. A backend-only deployment does not regenerate `frontend/.env.local`, rebuild the static export, sync S3, or invalidate CloudFront.
+
+## CodeBuild
+
+`buildspec.yml` installs backend dependencies, runs Jest, synthesizes CDK, deploys the stack, and reports outputs. It does **not** build or publish `frontend/out`.
+
+Configure `RESOURCE_PREFIX` and any upload-CORS value explicitly in the CodeBuild environment if the project should target a prefixed stack. Review build-role permissions and deployment approval controls before enabling automatic builds.
+
+## Troubleshooting
+
+### Resource Already Exists
+
+**Cause:** The deployment used a different prefix, no prefix, or a retained explicit-name resource already exists.
+
+**Action:** Stop and identify the existing environment. Do not delete a bucket or table simply to make deployment pass. Compare the intended prefix with the stack template and retained resources, then choose an approved migration or the original prefix.
+
+### Dashboard Opens The Public Home Page
+
+**Cause:** CloudFront is serving an old export or does not have the route-rewrite function associated.
+
+**Action:** Confirm the current stack includes the CloudFront Function, rebuild with `trailingSlash: true`, sync the complete `frontend/out`, create an invalidation, and wait for completion.
+
+### Frontend Uses The Wrong API
+
+**Cause:** `frontend/.env.local` was generated from another stack/prefix or `--skip-frontend-env` preserved stale values.
+
+**Action:** Run the approved deployment with the correct prefix or rewrite the environment file from the intended stack outputs, then rebuild and republish.
+
+### Chat Returns 500
+
+Check the chat-handler log for Bedrock permissions, model availability, knowledge-base state, prompt-template errors, or DynamoDB access. Verify the KB has a completed ingestion job and that `$search_results$` remains in the generation prompt.
+
+### Document Upload Fails In The Browser
+
+- Confirm the dashboard token is valid.
+- Confirm the file type and size are supported.
+- Check the presigned URL request response.
+- Compare the browser origin with `UPLOAD_ALLOWED_ORIGINS` used at deployment.
+- Check the S3 CORS configuration and dashboard Lambda logs.
+
+### Document Stays Pending
+
+Check the document-processor logs, its dead-letter queue, the copied object under the KB bucket's `documents/` prefix, and Bedrock ingestion jobs. Multiple simultaneous uploads can cause a start request to fail while another ingestion job is active.
+
+### Admin Login Fails
+
+- Verify the frontend User Pool ID and client ID.
+- Verify the account has a permanent password.
+- Verify the user belongs to `admin`.
+- Confirm the configured region is `us-east-1` or update the frontend auth configuration if deploying elsewhere.
+
+## Cleanup And Destruction
+
+Destruction is irreversible for non-retained resources and can make the frontend unavailable. It requires explicit environment-owner approval.
+
+Preview the target first:
+
+```bash
+aws sts get-caller-identity
+aws cloudformation describe-stacks --stack-name ScoutingAmericaChatbot --region us-east-1
+```
+
+The CDK destroy command is:
+
+```bash
+cd backend
+RESOURCE_PREFIX=demo npx cdk destroy ScoutingAmericaChatbot
+```
+
+The document buckets, chat and analytics tables, and Cognito User Pool use `RETAIN`, so stack destruction does not constitute a full data deletion. The static frontend bucket is auto-deleted. Inventory and back up retained data before any separately approved manual cleanup.
+
+## Related Documentation
+
+- [Development Guide](./developmentGuide.md)
+- [API Documentation](./APIDoc.md)
+- [Architecture Deep Dive](./architectureDeepDive.md)
+- [User Guide](./userGuide.md)
