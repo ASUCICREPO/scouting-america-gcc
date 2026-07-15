@@ -1,17 +1,20 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { ChevronLeft, ChevronDown, Globe, Moon, Type } from "lucide-react";
 
 interface SettingsViewProps {
   onBack: () => void;
+  /** When set, opens that policy dropdown on mount (e.g. from the chat's Terms/Privacy links). */
+  initialSection?: "terms" | "privacy" | null;
 }
 
-export default function SettingsView({ onBack }: SettingsViewProps) {
+export default function SettingsView({ onBack, initialSection = null }: SettingsViewProps) {
   const [darkMode, setDarkMode] = useState(false);
   const [fontSize, setFontSize] = useState(14);
   const [language, setLanguage] = useState<"en" | "es">("en");
-  const [expandedSection, setExpandedSection] = useState<string | null>(null);
+  const [expandedSection, setExpandedSection] = useState<string | null>(initialSection);
+  const supportRef = useRef<HTMLParagraphElement>(null);
 
   useEffect(() => {
     const stored = localStorage.getItem("chat_settings");
@@ -31,6 +34,13 @@ export default function SettingsView({ onBack }: SettingsViewProps) {
   useEffect(() => {
     document.documentElement.style.setProperty("--chat-font-size", `${fontSize}px`);
   }, [fontSize]);
+
+  // When opened from a Terms/Privacy link, scroll the Support section into view.
+  useEffect(() => {
+    if (initialSection) {
+      supportRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  }, [initialSection]);
 
   const saveSettings = (updates: Partial<{ darkMode: boolean; fontSize: number; language: string }>) => {
     const next = { darkMode, fontSize, language, ...updates };
@@ -101,7 +111,7 @@ export default function SettingsView({ onBack }: SettingsViewProps) {
         </div>
 
         {/* Support section */}
-        <p className="settings-section-label">Support</p>
+        <p className="settings-section-label" ref={supportRef}>Support</p>
         <div className="settings-card">
           <div
             className="settings-row clickable"

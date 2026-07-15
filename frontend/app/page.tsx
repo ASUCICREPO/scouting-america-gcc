@@ -21,7 +21,13 @@ export default function Home() {
   const [showWelcome, setShowWelcome] = useState(true);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [currentView, setCurrentView] = useState<View>("chat");
+  const [settingsSection, setSettingsSection] = useState<"terms" | "privacy" | null>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
+
+  const openSettings = (section: "terms" | "privacy" | null = null) => {
+    setSettingsSection(section);
+    setCurrentView("settings");
+  };
 
   const scrollToBottom = () => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -150,7 +156,7 @@ export default function Home() {
       case "faq":
         return <FAQView onBack={() => setCurrentView("chat")} />;
       case "settings":
-        return <SettingsView onBack={() => setCurrentView("chat")} />;
+        return <SettingsView onBack={() => setCurrentView("chat")} initialSection={settingsSection} />;
       case "chat":
       default:
         return (
@@ -166,8 +172,8 @@ export default function Home() {
             />
             <p className="terms-text">
               By messaging, you agree to our{" "}
-              <a href="#" onClick={(e) => { e.preventDefault(); setCurrentView("settings"); }}>Terms</a> &{" "}
-              <a href="#" onClick={(e) => { e.preventDefault(); setCurrentView("settings"); }}>Privacy Policy</a>
+              <a href="#" onClick={(e) => { e.preventDefault(); openSettings("terms"); }}>Terms</a> &{" "}
+              <a href="#" onClick={(e) => { e.preventDefault(); openSettings("privacy"); }}>Privacy Policy</a>
             </p>
             <InputBar onSend={handleSend} disabled={isLoading} />
           </>
@@ -181,7 +187,7 @@ export default function Home() {
       <Sidebar
         onNewChat={handleNewChat}
         onFaqClick={() => setCurrentView("faq")}
-        onSettingsClick={() => setCurrentView("settings")}
+        onSettingsClick={() => openSettings()}
         onLoadSession={handleLoadSession}
         activeSessionId={sessionId}
       />
@@ -201,7 +207,7 @@ export default function Home() {
         onClose={() => setIsDrawerOpen(false)}
         onNewChat={handleNewChat}
         onFaqClick={() => setCurrentView("faq")}
-        onSettingsClick={() => setCurrentView("settings")}
+        onSettingsClick={() => openSettings()}
         onLoadSession={handleLoadSession}
         activeSessionId={sessionId}
       />
