@@ -35,6 +35,7 @@ chat_table = ddb.Table(CHAT_LOGS_TABLE)
 # Caps the size of a single question to bound prompt size, Bedrock cost, and
 # abuse on the public (unauthenticated) endpoint.
 MAX_QUESTION_LENGTH = 4000
+SUPPORTED_LANGUAGES = {"en", "es"}
 
 DEFAULT_PROMPT = (
     "You are the GCC AI Volunteer Support Assistant for Scouting America's "
@@ -143,9 +144,20 @@ def trigger_escalation(payload: dict):
 
 # ── Route handlers ─────────────────────────────────────────────────────────
 
-def _retrieve_and_generate(question: str, guardrails: str):
+def _retrieve_and_generate(question: str, guardrails: str, language: str):
+    language_instruction = (
+        "IMPORTANT LANGUAGE REQUIREMENT: Respond ONLY in Spanish. Translate all "
+        "explanations, headings, list labels, and source labels into natural Spanish. "
+        "Keep official organization names, URLs, phone numbers, and document titles "
+        "unchanged when translation would make them inaccurate. Do not switch to "
+        "English unless the user explicitly asks for an English name or quotation."
+        if language == "es"
+        else
+        "IMPORTANT LANGUAGE REQUIREMENT: Respond in English."
+    )
     prompt_template = (
         f"{guardrails}\n\n"
+        f"{language_instruction}\n\n"
         "Search results:\n$search_results$\n\n"
         "User question: $query$\n\n"
         "Answer using the provided search results. Format your response using proper markdown:\n"
@@ -195,6 +207,7 @@ def handle_chat(event):
 
     raw_question = body.get("question")
     existing_session_id = body.get("sessionId")
+    language = body.get("language", "en")
 
     # userId from Cognito claims if present (public endpoint → usually anonymous)
     authz = (event.get("requestContext") or {}).get("authorizer") or {}
@@ -208,6 +221,8 @@ def handle_chat(event):
 
     if existing_session_id is not None and not isinstance(existing_session_id, str):
         return response(400, {"error": "sessionId must be a string"})
+    if language not in SUPPORTED_LANGUAGES:
+        return response(400, {"error": "language must be 'en' or 'es'"})
 
     session_id = existing_session_id or str(uuid.uuid4())
     timestamp = _now()
@@ -218,12 +233,17 @@ def handle_chat(event):
     # doesn't return retrieval scores, so we run both Bedrock calls in parallel
     # to avoid paying two sequential round-trips.
     with ThreadPoolExecutor(max_workers=2) as pool:
-        gen_future = pool.submit(_retrieve_and_generate, question, guardrails)
+        gen_future = pool.submit(_retrieve_and_generate, question, guardrails, language)
         scores_future = pool.submit(_retrieve_scores, question)
         kb_response = gen_future.result()
         retrieve_response = scores_future.result()
 
-    answer = (kb_response.get("output") or {}).get("text") or "I could not find an answer to your question."
+    fallback_answer = (
+        "No pude encontrar una respuesta a tu pregunta."
+        if language == "es"
+        else "I could not find an answer to your question."
+    )
+    answer = (kb_response.get("output") or {}).get("text") or fallback_answer
     citations = kb_response.get("citations", [])
     sources = extract_sources(citations)
 
@@ -250,6 +270,7 @@ def handle_chat(event):
             "answer": answer,
             "reason": reason,
             "confidence": confidence,
+            "language": language,
         })
 
     # DynamoDB requires Decimal for floats — round-trip through the JSON encoder.
@@ -264,6 +285,7 @@ def handle_chat(event):
         "chunkScores": chunk_scores,
         "escalated": escalate,
         "category": "general",
+        "language": language,
         "createdAt": timestamp,
     }), parse_float=_to_decimal)
     chat_table.put_item(Item=item)
@@ -277,6 +299,7 @@ def handle_chat(event):
         # sends it back on POST /chat/feedback to attach a rating to this turn.
         "messageId": timestamp,
         "escalated": escalate,
+        "language": language,
     })
 
 
@@ -334,6 +357,7 @@ def get_history(event):
             "confidence": _to_float(item.get("confidence")),
             "timestamp": item.get("timestamp"),
             "escalated": item.get("escalated"),
+            "language": item.get("language", "en"),
         }
         for item in result.get("Items", [])
     ]

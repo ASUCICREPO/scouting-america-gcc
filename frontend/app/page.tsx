@@ -10,11 +10,15 @@ import Sidebar from "@/components/Sidebar";
 import SettingsView from "@/components/SettingsView";
 import ChatDrawer from "@/components/ChatDrawer";
 import PwaInstallBanner from "@/components/PwaInstallBanner";
+import LanguageConfirmModal from "@/components/LanguageConfirmModal";
 import { sendMessage, sendFeedback, getChatHistory, saveSession, ChatMessage, ChatResponse, Feedback } from "@/lib/api";
+import { useLanguage } from "@/context/LanguageContext";
+import { Language } from "@/lib/i18n";
 
 type View = "chat" | "faq" | "settings";
 
 export default function Home() {
+  const { language, setLanguage, t } = useLanguage();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [sessionId, setSessionId] = useState<string | undefined>();
@@ -22,7 +26,9 @@ export default function Home() {
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [currentView, setCurrentView] = useState<View>("chat");
   const [settingsSection, setSettingsSection] = useState<"terms" | "privacy" | null>(null);
+  const [pendingLanguage, setPendingLanguage] = useState<Language | null>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
+  const activeRequestRef = useRef(0);
 
   const openSettings = (section: "terms" | "privacy" | null = null) => {
     setSettingsSection(section);
@@ -66,15 +72,17 @@ export default function Home() {
 
     setMessages((prev) => [...prev, userMessage]);
     setIsLoading(true);
+    const requestId = ++activeRequestRef.current;
 
     try {
-      const response: ChatResponse = await sendMessage(text, sessionId);
+      const response: ChatResponse = await sendMessage(text, sessionId, language);
+      if (requestId !== activeRequestRef.current) return;
 
       if (response.sessionId) {
         setSessionId(response.sessionId);
         // Save session to history on first message
         if (!sessionId) {
-          saveSession(response.sessionId, text);
+          saveSession(response.sessionId, text, language);
         }
       }
 
@@ -89,16 +97,16 @@ export default function Home() {
 
       setMessages((prev) => [...prev, aiMessage]);
     } catch (error) {
+      if (requestId !== activeRequestRef.current) return;
       console.error("Chat error:", error);
       const errorMessage: ChatMessage = {
         role: "assistant",
-        content:
-          "I'm sorry, I'm having trouble connecting right now. Please try again.",
+        content: t.chat.errorMessage,
         timestamp: new Date().toISOString(),
       };
       setMessages((prev) => [...prev, errorMessage]);
     } finally {
-      setIsLoading(false);
+      if (requestId === activeRequestRef.current) setIsLoading(false);
     }
   };
 
@@ -129,9 +137,27 @@ export default function Home() {
   };
 
   const handleEndChat = () => {
+    activeRequestRef.current += 1;
+    setIsLoading(false);
     setMessages([]);
     setSessionId(undefined);
     setShowWelcome(true);
+  };
+
+  const handleLanguageChange = (nextLanguage: Language) => {
+    if (nextLanguage === language) return;
+    if (messages.length > 0) {
+      setPendingLanguage(nextLanguage);
+      return;
+    }
+    setLanguage(nextLanguage);
+  };
+
+  const confirmLanguageChange = () => {
+    if (!pendingLanguage) return;
+    handleEndChat();
+    setLanguage(pendingLanguage);
+    setPendingLanguage(null);
   };
 
   const handleNewChat = () => {
@@ -140,9 +166,12 @@ export default function Home() {
   };
 
   const handleLoadSession = async (sid: string) => {
+    activeRequestRef.current += 1;
+    setIsLoading(false);
     try {
       const history = await getChatHistory(sid);
-      setMessages(history);
+      setMessages(history.messages);
+      setLanguage(history.language);
       setSessionId(sid);
       setShowWelcome(false);
       setCurrentView("chat");
@@ -156,7 +185,13 @@ export default function Home() {
       case "faq":
         return <FAQView onBack={() => setCurrentView("chat")} />;
       case "settings":
-        return <SettingsView onBack={() => setCurrentView("chat")} initialSection={settingsSection} />;
+        return (
+          <SettingsView
+            onBack={() => setCurrentView("chat")}
+            initialSection={settingsSection}
+            onLanguageChange={handleLanguageChange}
+          />
+        );
       case "chat":
       default:
         return (
@@ -166,14 +201,14 @@ export default function Home() {
               isLoading={isLoading}
               showWelcome={showWelcome}
               onChipClick={handleChipClick}
-              onEndChat={handleEndChat}
               onFeedback={handleFeedback}
               chatEndRef={chatEndRef}
             />
             <p className="terms-text">
-              By messaging, you agree to our{" "}
-              <a href="#" onClick={(e) => { e.preventDefault(); openSettings("terms"); }}>Terms</a> &{" "}
-              <a href="#" onClick={(e) => { e.preventDefault(); openSettings("privacy"); }}>Privacy Policy</a>
+              {t.chat.termsAgreement}{" "}
+              <a href="#" onClick={(e) => { e.preventDefault(); openSettings("terms"); }}>{t.chat.terms}</a>{" "}
+              {t.chat.and}{" "}
+              <a href="#" onClick={(e) => { e.preventDefault(); openSettings("privacy"); }}>{t.chat.privacyPolicy}</a>
             </p>
             <InputBar onSend={handleSend} disabled={isLoading} />
           </>
@@ -195,7 +230,7 @@ export default function Home() {
       {/* Main chat area */}
       <div className="app-shell">
         <div className="status-bar-spacer" />
-        <Header onMenuClick={() => setIsDrawerOpen(true)} />
+        <Header onMenuClick={() => setIsDrawerOpen(true)} onLanguageChange={handleLanguageChange} />
         {renderContent()}
         <TabBar />
         <div className="safe-bottom" />
@@ -212,6 +247,11 @@ export default function Home() {
         activeSessionId={sessionId}
       />
       <PwaInstallBanner />
+      <LanguageConfirmModal
+        isOpen={pendingLanguage !== null}
+        onCancel={() => setPendingLanguage(null)}
+        onConfirm={confirmLanguageChange}
+      />
     </div>
   );
 }

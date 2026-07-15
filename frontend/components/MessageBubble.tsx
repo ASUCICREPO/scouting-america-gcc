@@ -4,6 +4,8 @@ import { useState } from "react";
 import { ThumbsUp, ThumbsDown, Copy, Volume2, VolumeX, ExternalLink, ChevronRight } from "lucide-react";
 import { ChatMessage } from "@/lib/api";
 import MarkdownContent from "./MarkdownContent";
+import { useLanguage } from "@/context/LanguageContext";
+import { languageLocale } from "@/lib/i18n";
 
 interface MessageBubbleProps {
   message: ChatMessage;
@@ -16,6 +18,7 @@ export default function MessageBubble({
   onChipClick,
   onFeedback,
 }: MessageBubbleProps) {
+  const { language, t } = useLanguage();
   const [copied, setCopied] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
 
@@ -36,6 +39,7 @@ export default function MessageBubble({
       return;
     }
     const utterance = new SpeechSynthesisUtterance(message.content);
+    utterance.lang = languageLocale(language);
     utterance.onend = () => setIsSpeaking(false);
     utterance.onerror = () => setIsSpeaking(false);
     window.speechSynthesis.speak(utterance);
@@ -77,7 +81,7 @@ export default function MessageBubble({
       {/* Suggestion chips */}
       {message.suggestions && message.suggestions.length > 0 && (
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-          <p className="suggestions-label">Suggested follow-ups</p>
+          <p className="suggestions-label">{t.chat.suggestedFollowUps}</p>
           {message.suggestions.map((suggestion) => (
             <button
               key={suggestion}
@@ -95,7 +99,7 @@ export default function MessageBubble({
       <div className="feedback-row">
         <button
           className="feedback-btn"
-          aria-label="Helpful"
+          aria-label={t.chat.helpful}
           aria-pressed={message.feedback === "positive"}
           onClick={() => onFeedback?.("positive")}
           disabled={!message.messageId}
@@ -105,7 +109,7 @@ export default function MessageBubble({
         </button>
         <button
           className="feedback-btn"
-          aria-label="Not helpful"
+          aria-label={t.chat.notHelpful}
           aria-pressed={message.feedback === "negative"}
           onClick={() => onFeedback?.("negative")}
           disabled={!message.messageId}
@@ -115,7 +119,7 @@ export default function MessageBubble({
         </button>
         <button
           className="feedback-btn"
-          aria-label="Copy response"
+          aria-label={t.chat.copyResponse}
           onClick={handleCopy}
           style={copied ? { opacity: 1, color: "#006747" } : undefined}
         >
@@ -123,7 +127,7 @@ export default function MessageBubble({
         </button>
         <button
           className="feedback-btn"
-          aria-label={isSpeaking ? "Stop speaking" : "Read aloud"}
+          aria-label={isSpeaking ? t.chat.stopSpeaking : t.chat.readAloud}
           onClick={toggleSpeech}
           style={isSpeaking ? { opacity: 1, color: "#CE1126" } : undefined}
         >

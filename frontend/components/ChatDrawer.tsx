@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { X, Plus, Info, Settings } from "lucide-react";
 import { getSavedSessions, SavedSession } from "@/lib/api";
+import { useLanguage } from "@/context/LanguageContext";
 
 interface ChatDrawerProps {
   isOpen: boolean;
@@ -23,12 +24,13 @@ export default function ChatDrawer({
   onLoadSession,
   activeSessionId,
 }: ChatDrawerProps) {
+  const { t } = useLanguage();
   const [sessions, setSessions] = useState<SavedSession[]>([]);
 
   useEffect(() => {
-    if (isOpen) {
-      setSessions(getSavedSessions());
-    }
+    if (!isOpen) return;
+    const frame = window.requestAnimationFrame(() => setSessions(getSavedSessions()));
+    return () => window.cancelAnimationFrame(frame);
   }, [isOpen]);
 
   if (!isOpen) return null;
@@ -37,18 +39,18 @@ export default function ChatDrawer({
     <>
       <div className="drawer-overlay" onClick={onClose} />
       <div className="drawer animate-in">
-        <button className="drawer-close-btn" onClick={onClose} aria-label="Close">
+        <button className="drawer-close-btn" onClick={onClose} aria-label={t.common.close}>
           <X size={20} />
         </button>
 
         {/* New chat button */}
         <button className="new-chat-btn" onClick={onNewChat}>
           <Plus size={18} />
-          <span>New chat</span>
+          <span>{t.chat.newChat}</span>
         </button>
 
         {/* Chat History */}
-        <p className="history-section-title">Chat History</p>
+        <p className="history-section-title">{t.chat.chatHistory}</p>
         {sessions.length > 0 ? (
           sessions.map((session) => (
             <div
@@ -63,18 +65,18 @@ export default function ChatDrawer({
             </div>
           ))
         ) : (
-          <div className="history-empty">No past conversations</div>
+          <div className="history-empty">{t.chat.noPastConversations}</div>
         )}
 
         {/* More information & Settings */}
-        <p className="history-section-title">Support</p>
+        <p className="history-section-title">{t.chat.support}</p>
         <div className="history-item" onClick={() => { onFaqClick(); onClose(); }}>
           <Info size={14} style={{ marginRight: 8, opacity: 0.6 }} />
-          More information
+          {t.chat.moreInformation}
         </div>
         <div className="history-item" onClick={() => { onSettingsClick(); onClose(); }}>
           <Settings size={14} style={{ marginRight: 8, opacity: 0.6 }} />
-          Settings
+          {t.common.settings}
         </div>
       </div>
     </>

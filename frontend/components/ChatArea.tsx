@@ -11,7 +11,6 @@ interface ChatAreaProps {
   isLoading: boolean;
   showWelcome: boolean;
   onChipClick: (text: string) => void;
-  onEndChat: () => void;
   onFeedback: (index: number, feedback: "positive" | "negative") => void;
   chatEndRef: RefObject<HTMLDivElement | null>;
 }
@@ -21,7 +20,6 @@ export default function ChatArea({
   isLoading,
   showWelcome,
   onChipClick,
-  onEndChat,
   onFeedback,
   chatEndRef,
 }: ChatAreaProps) {

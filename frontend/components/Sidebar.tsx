@@ -10,6 +10,7 @@ import {
   Settings,
 } from "lucide-react";
 import { getSavedSessions, SavedSession } from "@/lib/api";
+import { useLanguage } from "@/context/LanguageContext";
 
 interface SidebarProps {
   onNewChat: () => void;
@@ -28,13 +29,17 @@ export default function Sidebar({
   onLoadSession,
   activeSessionId,
 }: SidebarProps) {
+  const { t } = useLanguage();
   const [collapsed, setCollapsed] = useState(false);
   const [sessions, setSessions] = useState<SavedSession[]>([]);
 
   useEffect(() => {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    if (stored === "true") setCollapsed(true);
-    setSessions(getSavedSessions());
+    const frame = window.requestAnimationFrame(() => {
+      const stored = localStorage.getItem(STORAGE_KEY);
+      if (stored === "true") setCollapsed(true);
+      setSessions(getSavedSessions());
+    });
+    return () => window.cancelAnimationFrame(frame);
   }, []);
 
   // Refresh sessions when sidebar renders (e.g., after a new chat)
@@ -57,7 +62,7 @@ export default function Sidebar({
       <button
         className="sidebar-toggle"
         onClick={toggleCollapse}
-        aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+        aria-label={collapsed ? t.chat.expandSidebar : t.chat.collapseSidebar}
       >
         {collapsed ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
       </button>
@@ -65,14 +70,14 @@ export default function Sidebar({
       {/* New Chat */}
       <button className="sidebar-new-chat" onClick={onNewChat}>
         <Plus size={18} />
-        {!collapsed && <span>New chat</span>}
+        {!collapsed && <span>{t.chat.newChat}</span>}
       </button>
 
       {/* Chat History */}
       <div className="sidebar-section">
         <div className="sidebar-section-header">
           <MessageSquare size={14} />
-          {!collapsed && <span>Chat History</span>}
+          {!collapsed && <span>{t.chat.chatHistory}</span>}
         </div>
         {sessions.length > 0 ? (
           <div className="sidebar-history-list">
@@ -95,7 +100,7 @@ export default function Sidebar({
           </div>
         ) : (
           <div className="sidebar-empty">
-            {!collapsed && <p>Your conversations will appear here</p>}
+            {!collapsed && <p>{t.chat.historyEmpty}</p>}
           </div>
         )}
       </div>
@@ -107,11 +112,11 @@ export default function Sidebar({
       <div className="sidebar-bottom">
         <button className="sidebar-item" onClick={onFaqClick}>
           <Info size={16} />
-          {!collapsed && <span>More information</span>}
+          {!collapsed && <span>{t.chat.moreInformation}</span>}
         </button>
         <button className="sidebar-item" onClick={onSettingsClick}>
           <Settings size={16} />
-          {!collapsed && <span>Settings</span>}
+          {!collapsed && <span>{t.common.settings}</span>}
         </button>
       </div>
     </aside>

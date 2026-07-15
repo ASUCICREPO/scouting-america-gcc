@@ -2,6 +2,32 @@
 
 import { useState, useRef, useEffect, KeyboardEvent } from "react";
 import { Mic, Send, X, Check } from "lucide-react";
+import { useLanguage } from "@/context/LanguageContext";
+import { languageLocale } from "@/lib/i18n";
+
+interface SpeechRecognitionResultLike {
+  0: { transcript: string };
+}
+
+interface SpeechRecognitionEventLike {
+  results: ArrayLike<SpeechRecognitionResultLike>;
+}
+
+interface SpeechRecognitionLike {
+  continuous: boolean;
+  interimResults: boolean;
+  lang: string;
+  onstart: (() => void) | null;
+  onresult: ((event: SpeechRecognitionEventLike) => void) | null;
+  onerror: (() => void) | null;
+  onend: (() => void) | null;
+  start: () => void;
+  stop: () => void;
+}
+
+interface SpeechRecognitionConstructor {
+  new (): SpeechRecognitionLike;
+}
 
 interface InputBarProps {
   onSend: (message: string) => void;
@@ -9,11 +35,12 @@ interface InputBarProps {
 }
 
 export default function InputBar({ onSend, disabled }: InputBarProps) {
+  const { language, t } = useLanguage();
   const [value, setValue] = useState("");
   const [isListening, setIsListening] = useState(false);
   const [transcript, setTranscript] = useState("");
   const [barHeights, setBarHeights] = useState<number[]>(new Array(40).fill(3));
-  const recognitionRef = useRef<any>(null);
+  const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const animFrameRef = useRef<number | null>(null);
@@ -94,19 +121,22 @@ export default function InputBar({ onSend, disabled }: InputBarProps) {
   };
 
   const startListening = () => {
+    const speechWindow = window as typeof window & {
+      SpeechRecognition?: SpeechRecognitionConstructor;
+      webkitSpeechRecognition?: SpeechRecognitionConstructor;
+    };
     const SpeechRecognition =
-      (window as any).SpeechRecognition ||
-      (window as any).webkitSpeechRecognition;
+      speechWindow.SpeechRecognition || speechWindow.webkitSpeechRecognition;
 
     if (!SpeechRecognition) {
-      alert("Speech recognition is not supported in this browser.");
+      alert(t.chat.speechUnsupported);
       return;
     }
 
     const recognition = new SpeechRecognition();
     recognition.continuous = true;
     recognition.interimResults = true;
-    recognition.lang = "en-US";
+    recognition.lang = languageLocale(language);
 
     recognition.onstart = () => {
       setIsListening(true);
@@ -114,9 +144,9 @@ export default function InputBar({ onSend, disabled }: InputBarProps) {
       startAudioAnalysis();
     };
 
-    recognition.onresult = (event: any) => {
+    recognition.onresult = (event: SpeechRecognitionEventLike) => {
       const result = Array.from(event.results)
-        .map((r: any) => r[0].transcript)
+        .map((resultItem) => resultItem[0].transcript)
         .join("");
       setTranscript(result);
     };
@@ -169,7 +199,7 @@ export default function InputBar({ onSend, disabled }: InputBarProps) {
               <button
                 className="recording-cancel-btn"
                 onClick={cancelListening}
-                aria-label="Cancel recording"
+                aria-label={t.chat.cancelRecording}
                 type="button"
               >
                 <X size={18} />
@@ -177,7 +207,7 @@ export default function InputBar({ onSend, disabled }: InputBarProps) {
               <button
                 className="recording-confirm-btn"
                 onClick={confirmListening}
-                aria-label="Confirm recording"
+                aria-label={t.chat.confirmRecording}
                 type="button"
               >
                 <Check size={18} />
@@ -197,17 +227,17 @@ export default function InputBar({ onSend, disabled }: InputBarProps) {
           <input
             type="text"
             className="input-field"
-            placeholder="Chat with Zarg"
+            placeholder={t.chat.inputPlaceholder}
             value={value}
             onChange={(e) => setValue(e.target.value)}
             onKeyDown={handleKeyDown}
             disabled={disabled}
-            aria-label="Chat message input"
+            aria-label={t.chat.inputLabel}
           />
           <div className="input-actions">
             <button
               className="input-btn"
-              aria-label="Send message"
+              aria-label={t.chat.sendMessage}
               type="button"
               onClick={handleSubmit}
               disabled={disabled || !value.trim()}
@@ -216,7 +246,7 @@ export default function InputBar({ onSend, disabled }: InputBarProps) {
             </button>
             <button
               className="input-btn-voice"
-              aria-label="Voice input"
+              aria-label={t.chat.voiceInput}
               type="button"
               onClick={startListening}
             >
