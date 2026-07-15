@@ -10,24 +10,13 @@ export default function Header({ onMenuClick }: HeaderProps) {
   return (
     <header className="header">
       <div className="header-left">
-        <button className="header-avatar-btn" aria-label="Home">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-            <path
-              d="M12 2L15.09 8.26L22 9.27L17 14.14L18.18 21.02L12 17.77L5.82 21.02L7 14.14L2 9.27L8.91 8.26L12 2Z"
-              fill="#005696"
-            />
-          </svg>
-        </button>
-        <span
-          style={{
-            fontSize: 17,
-            fontWeight: 500,
-            color: "#1b1b1b",
-            letterSpacing: "-0.3px",
-          }}
-        >
-          Scouting America
-        </span>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src="/gcc-logo.png"
+          alt="Grand Canyon Council"
+          className="header-logo"
+          style={{ height: 32, width: "auto" }}
+        />
       </div>
       <button
         className="header-menu-btn"
