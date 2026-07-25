@@ -42,7 +42,7 @@ describe('Lambda runtime', () => {
   test('all Lambda functions run on python3.13', () => {
     const functions = template.findResources('AWS::Lambda::Function');
     const applicationFunctions = Object.entries(functions).filter(([logicalId]) =>
-      /^(ChatHandler|DashboardApi|DocProcessor|EscalationRouter)/.test(logicalId),
+      /^(ChatHandler|DashboardApi|DocProcessor|EscalationRouter|ChatArchiver)/.test(logicalId),
     );
     const runtimes = applicationFunctions.map(([, fn]) => fn.Properties?.Runtime);
     expect(runtimes.length).toBeGreaterThan(0);

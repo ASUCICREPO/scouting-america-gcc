@@ -149,8 +149,10 @@ export default function OverviewPage() {
   const WINDOW_SIZES: Record<string, number> = { day: 7, week: 4, month: 6 };
   const windowSize = WINDOW_SIZES[period] || 7;
 
-  // Reset page when period changes
-  useEffect(() => { setChartPage(0); }, [period]);
+  function handlePeriodChange(nextPeriod: 'day' | 'week' | 'month') {
+    setPeriod(nextPeriod);
+    setChartPage(0);
+  }
 
   // Calculate windowed chart data
   // chartPage 0 = latest data (rightmost), negative = older
@@ -253,9 +255,9 @@ export default function OverviewPage() {
             <p className="card-subtitle">{t.dashboard.volumeSubtitle}</p>
           </div>
           <div className="toggle-group">
-            <button className={`toggle-btn ${period === 'day' ? 'active' : ''}`} onClick={() => setPeriod('day')}>{t.dashboard.daily}</button>
-            <button className={`toggle-btn ${period === 'week' ? 'active' : ''}`} onClick={() => setPeriod('week')}>{t.dashboard.weekly}</button>
-            <button className={`toggle-btn ${period === 'month' ? 'active' : ''}`} onClick={() => setPeriod('month')}>{t.dashboard.monthly}</button>
+            <button className={`toggle-btn ${period === 'day' ? 'active' : ''}`} onClick={() => handlePeriodChange('day')}>{t.dashboard.daily}</button>
+            <button className={`toggle-btn ${period === 'week' ? 'active' : ''}`} onClick={() => handlePeriodChange('week')}>{t.dashboard.weekly}</button>
+            <button className={`toggle-btn ${period === 'month' ? 'active' : ''}`} onClick={() => handlePeriodChange('month')}>{t.dashboard.monthly}</button>
           </div>
         </div>
         <div className="chart-with-arrows">

@@ -50,7 +50,9 @@ chat_table = ddb.Table(CHAT_LOGS_TABLE)
 MAX_QUESTION_LENGTH = 4000
 MAX_SESSION_ID_LENGTH = 128
 PROMPT_PATH = Path(__file__).parent / "templates" / "chat_prompt.j2"
-jinja = Environment(autoescape=False, undefined=StrictUndefined)
+# This template produces a plain-text model prompt, not HTML. HTML autoescape
+# would corrupt quoted source material without preventing prompt injection.
+jinja = Environment(autoescape=False, undefined=StrictUndefined)  # nosec B701
 
 
 class HttpStatus(IntEnum):
