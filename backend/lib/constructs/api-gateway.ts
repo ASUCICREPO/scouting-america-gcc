@@ -1,10 +1,8 @@
 import * as apigateway from 'aws-cdk-lib/aws-apigateway';
-import * as cognito from 'aws-cdk-lib/aws-cognito';
 import { Construct } from 'constructs';
 
 export interface ApiGatewayProps {
-  // The Cognito User Pool — kept for potential future admin routes
-  userPool: cognito.IUserPool;
+  allowedOrigin: string;
 }
 
 export class ApiGateway extends Construct {
@@ -25,15 +23,12 @@ export class ApiGateway extends Construct {
         throttlingRateLimit: 100,   // max 100 requests/sec per user
         throttlingBurstLimit: 200,  // allow short bursts up to 200
       },
-      // CORS — lets the browser-based frontend call this API.
-      // No credentials: the chat API is public and uses no cookies, and
-      // `Access-Control-Allow-Credentials: true` is invalid with `*` origins.
       defaultCorsPreflightOptions: {
-        allowOrigins: apigateway.Cors.ALL_ORIGINS,
-        allowMethods: apigateway.Cors.ALL_METHODS,
+        allowOrigins: [props.allowedOrigin],
+        allowMethods: ['GET', 'POST', 'OPTIONS'],
         allowHeaders: [
           'Content-Type',
-          'Authorization',
+          'X-Session-Token',
           'X-Amz-Date',
           'X-Api-Key',
           'X-Amz-Security-Token',

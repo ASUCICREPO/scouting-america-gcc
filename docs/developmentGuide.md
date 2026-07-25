@@ -11,7 +11,7 @@ This guide covers local setup, repository structure, testing, and the normal con
 | Backend infrastructure | AWS CDK v2 in TypeScript |
 | Runtime handlers | Python 3.13 with runtime-provided boto3 |
 | AI | Amazon Bedrock Knowledge Base, Claude Haiku 4.5, Titan Text Embeddings v2 |
-| Persistence | Amazon S3, S3 Vectors, DynamoDB, Secrets Manager |
+| Persistence | Amazon S3, S3 Vectors, DynamoDB, S3 Object Lock |
 | Authentication | Amazon Cognito User Pool |
 | Testing | Jest/CDK assertions, Python unittest, ESLint, Next.js build |
 
@@ -88,11 +88,12 @@ NEXT_PUBLIC_API_URL=https://chat-api-id.execute-api.us-east-1.amazonaws.com/prod
 NEXT_PUBLIC_DASHBOARD_API_URL=https://dashboard-api-id.execute-api.us-east-1.amazonaws.com/prod
 NEXT_PUBLIC_USER_POOL_ID=us-east-1_example
 NEXT_PUBLIC_CLIENT_ID=exampleclientid
+NEXT_PUBLIC_AWS_REGION=us-east-1
 ```
 
 Do not commit `.env.local`. `deploy.sh` regenerates it from CloudFormation outputs during an authorized deployment.
 
-Without a valid public API URL, the page can render but chat requests will fail. Dashboard sign-in and data loading require all four values.
+Without a valid public API URL, the page can render but chat requests will fail. Dashboard sign-in and data loading require the API, Cognito, and region values.
 
 ## Run Locally
 

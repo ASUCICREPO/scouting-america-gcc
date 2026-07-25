@@ -1,6 +1,6 @@
 # Architecture Deep Dive
 
-This document describes the deployed architecture of Grand Canyon Council Scout AI. It reflects the CDK constructs and Lambda handlers in this repository as of July 15, 2026.
+This document describes the deployed architecture of Grand Canyon Council Scout AI. It reflects the CDK constructs and Lambda handlers in this repository as of July 24, 2026.
 
 ## Architecture Diagram
 
@@ -14,28 +14,27 @@ dot -Tpng -Gdpi=160 docs/media/architecture.dot -o docs/media/architecture.png
 
 ## System Boundaries
 
-Scout AI has two browser-facing experiences in one Next.js application:
+Scout AI has two browser-facing experiences built from one Next.js application but published to isolated origins:
 
-- **Public chat** at `/`, available without authentication.
-- **Admin dashboard** at `/dashboard`, protected by Amazon Cognito and an `admin` group check.
+- **Public chat** on the public CloudFront distribution, available without a user account.
+- **Admin dashboard** on a separate admin CloudFront distribution, protected by Amazon Cognito and an `admin` group check.
 
-The frontend is a static export. Application state that does not require the backend, including display preferences and the local list of chat sessions, is stored in browser `localStorage`. Chat turns, feedback, confidence values, and escalation state are stored server-side in DynamoDB.
+The frontend is a static export. Display preferences and the anonymous chat-session credential are stored in browser `localStorage`; admin JWTs use `sessionStorage`. Chat turns, feedback, confidence values, and escalation state are stored server-side in DynamoDB.
 
 ## Request Flows
 
 ### Public Chat Flow
 
-1. The browser downloads the static Next.js application through CloudFront. A CloudFront Function rewrites extensionless paths such as `/dashboard` to the corresponding exported `index.html` file.
-2. The frontend sends `POST /chat` to the public API Gateway with `question`, optional `sessionId`, and `language` (`en` or `es`).
+1. The browser downloads the public static export through its CloudFront distribution. The public edge rejects `/login` and `/dashboard`.
+2. The frontend sends `POST /chat` with `question` and `language`. Existing sessions also send `sessionId` plus the server-issued `X-Session-Token`.
 3. API Gateway invokes the Python 3.13 chat-handler Lambda.
-4. The Lambda validates the request, reads the system guardrails from Secrets Manager, and starts two Bedrock calls in parallel:
-   - `RetrieveAndGenerate` produces the grounded response and citations.
-   - `Retrieve` returns up to five relevance scores for confidence reporting.
-5. The Bedrock Knowledge Base retrieves semantically relevant chunks from S3 Vectors. Titan Text Embeddings v2 produces 1024-dimensional embeddings, and Claude Haiku 4.5 generates the response.
+4. The Lambda validates the typed request and, for existing sessions, compares the bearer-token hash with the stored session hash.
+5. The Lambda retrieves up to five chunks once from the Bedrock Knowledge Base. Those exact chunks are rendered through the immutable Prompt Management version and sent to Claude Haiku 4.5 through `Converse`; Bedrock Guardrails evaluates the generation input and output.
 6. The Lambda averages the returned retrieval scores. A missing score set falls back to confidence `0.3`.
 7. Safety keywords or confidence below `0.7` trigger the escalation-router Lambda asynchronously.
-8. The turn is written to the chat-log DynamoDB table and returned to the browser with a session ID, message ID, sources, confidence, escalation flag, and language.
-9. A thumbs-up or thumbs-down action calls `POST /chat/feedback`, which updates that exact turn using its timestamp-based message ID.
+8. The turn is written to DynamoDB and returned with a session ID, anonymous session token, message ID, exact sources, confidence, escalation flag, and language.
+9. A DynamoDB stream copies the original delivered turn into an object-locked S3 audit archive.
+10. History and feedback calls require both the session ID and anonymous bearer token, preventing access through a guessed or leaked ID alone.
 
 ### Bilingual Flow
 
@@ -47,9 +46,9 @@ The interface does not perform machine translation at render time. English and S
 
 ### Document Ingestion Flow
 
-1. An authenticated administrator requests a presigned upload URL from `POST /dashboard/documents/upload`.
-2. The browser uploads the file directly to the document-store bucket under `uploads/`. Folder paths are preserved after sanitization.
-3. An S3 `ObjectCreated` event invokes the document-processor Lambda.
+1. An authenticated administrator requests a five-minute presigned POST policy from `POST /dashboard/documents/upload`.
+2. The browser uploads directly to the document-store bucket under `uploads/`. The signed policy enforces the approved content type and a 1-byte-to-25-MB size range.
+3. An S3 `ObjectCreated` event enters an encrypted SQS queue.
 4. The Lambda copies the object to `documents/` in the knowledge-base data bucket.
 5. The Lambda starts a Bedrock Knowledge Base ingestion job and records a `document_processing` event in the analytics table.
 6. Bedrock parses the document, applies semantic chunking (maximum 800 tokens), creates Titan embeddings, and stores vectors in the S3 Vectors index.
@@ -60,7 +59,7 @@ Deleting a document removes both the raw upload and its knowledge-base copy, the
 ### Admin Analytics Flow
 
 1. An administrator signs in through the frontend with Cognito `USER_PASSWORD_AUTH`.
-2. The frontend stores Cognito tokens in browser storage and sends the ID token in the `Authorization` header.
+2. The frontend stores Cognito tokens in tab-scoped `sessionStorage` and sends the ID token in the `Authorization` header.
 3. API Gateway validates the token with a Cognito authorizer.
 4. The dashboard Lambda independently verifies that `cognito:groups` contains `admin`.
 5. The Lambda reads DynamoDB and S3 to return summary metrics, time-series usage, frequently asked questions, confidence distribution, escalations, feedback, session transcripts, and document state.
@@ -69,19 +68,21 @@ Deleting a document removes both the raw upload and its knowledge-base copy, the
 
 | Component | Implementation | Responsibility |
 | --- | --- | --- |
-| Frontend hosting | `FrontendHosting` CDK construct | Private S3 origin, CloudFront HTTPS delivery, route rewriting, SPA fallback |
+| Frontend hosting | `FrontendHosting` CDK construct | Separate private S3/CloudFront origins for public and admin surfaces, route rewriting, and security headers |
 | Public API | `ApiGateway` CDK construct | Public chat, history, and feedback routes; 100 requests/second with burst 200 |
 | Chat handler | `GCC-ChatHandler` Lambda | Validation, Bedrock orchestration, confidence, escalation, persistence |
 | Dashboard API | `DashboardApi` CDK construct | Cognito-protected analytics and document routes; 50 requests/second with burst 100 |
 | Dashboard handler | `GCC-AdminDashboard` Lambda | Metrics aggregation, session review, and presigned document operations |
-| Document processor | Python Lambda with SQS DLQ | S3 copy, Bedrock ingestion, and processing analytics |
+| Document processor | SQS-triggered Python Lambda | Bounded-concurrency S3 copy, Bedrock ingestion, and processing analytics |
 | Escalation router | `GCC-EscalationRouter` Lambda with SQS DLQ | SNS notification, high-severity SES email, and escalation analytics |
+| Chat archive | DynamoDB Stream Lambda + object-locked S3 | Append-only audit copy for retention and future Athena/Glue use |
+| Observability | CloudWatch dashboard and alarms | Lambda health, ingestion backlog, and all application DLQs |
 | Knowledge Base | Amazon Bedrock Knowledge Base | Retrieval-augmented generation over approved documents |
 | Vector store | Amazon S3 Vectors | Cosine-similarity index with 1024-dimensional float vectors |
-| Content storage | Two private S3 buckets | Versioned raw uploads and Bedrock data-source copies |
+| Content storage | Private S3 buckets | Versioned raw uploads, Bedrock data-source copies, static sites, and immutable audit records |
 | Operational data | Two DynamoDB tables | Chat turns/feedback and analytics events |
 | Authentication | Cognito User Pool | Dashboard authentication and admin group claims |
-| Configuration | Secrets Manager | Runtime system prompt/guardrail configuration |
+| AI controls | Bedrock Prompt Management + Guardrails | Immutable prompt version and response-generation safety policies |
 
 ## Data Model
 
@@ -96,7 +97,7 @@ Table name: `${RESOURCE_PREFIX}GCC-ChatLogs`
 - Recovery: point-in-time recovery enabled
 - Removal policy: retain
 
-Each item can include `question`, `answer`, `sources`, `confidence`, `chunkScores`, `escalated`, `feedback`, `language`, `userId`, and timestamps.
+Each item can include `question`, `answer`, `sources`, `confidence`, `chunkScores`, `escalated`, `feedback`, `language`, `userId`, `sessionTokenHash`, and timestamps.
 
 ### Analytics Logs
 
@@ -114,7 +115,8 @@ Current event types are `escalation` and `document_processing`.
 
 - `${RESOURCE_PREFIX}gcc-document-store`: versioned source uploads under `uploads/`; retained when the stack is destroyed.
 - `${RESOURCE_PREFIX}gcc-knowledge-base-data`: Bedrock source documents under `documents/`; retained when the stack is destroyed.
-- CloudFront site bucket: generated name, auto-deleted with the stack because it contains only rebuildable static output.
+- `${RESOURCE_PREFIX}gcc-chat-audit-archive`: versioned audit JSON with a one-year S3 Object Lock retention period.
+- Public and admin CloudFront site buckets: generated names, auto-deleted with the stack because they contain only rebuildable static output.
 
 ## Infrastructure As Code
 
@@ -126,12 +128,16 @@ backend/lib/
   config/environment.ts
   constructs/
     api-gateway.ts
+    ai-safety.ts
+    chat-archive.ts
     chat-handler.ts
     dashboard-api.ts
     doc-processor.ts
     escalation-router.ts
     frontend-hosting.ts
     knowledge-base.ts
+    observability.ts
+    python-dependencies.ts
     shared-resources.ts
 ```
 
@@ -144,24 +150,28 @@ backend/lib/
 ### Implemented Controls
 
 - CloudFront redirects HTTP to HTTPS and enforces TLS 1.2 (2021 policy).
-- Frontend, document, and knowledge-base buckets block public access and enforce SSL.
+- Frontend, document, knowledge-base, and audit buckets block public access and enforce SSL.
 - CloudFront uses origin access control to read the private site bucket.
+- Public and admin assets use separate CloudFront distributions and distinct CORS origins; public edge code rejects admin routes.
 - Dashboard routes require a Cognito token and membership in the `admin` group.
 - The dashboard Lambda repeats the group check rather than trusting only the gateway.
 - IAM grants are scoped to the application tables, buckets, secret, and Lambda where resource ARNs are available.
 - Upload and delete paths are validated against `uploads/`; traversal and control characters are rejected.
-- Presigned upload/download URLs expire after five minutes.
+- Presigned uploads/downloads expire after five minutes; upload POST policies enforce content type and a 25 MB maximum.
+- Existing public sessions require a high-entropy bearer credential for continuation, history, and feedback.
+- Bedrock Guardrails evaluates response generation, and the production prompt is an immutable Prompt Management version.
+- Chat inserts stream to an object-locked S3 audit archive.
 - Lambda log groups retain logs for one month.
-- Document processing and escalation use encrypted dead-letter queues.
+- Document processing is buffered with bounded concurrency, and asynchronous paths use encrypted dead-letter queues.
+- CloudWatch alarms notify the staff topic when a DLQ receives a message.
 - Source buckets and DynamoDB data are encrypted at rest with AWS-managed encryption; DynamoDB point-in-time recovery is enabled.
 
 ### Pilot Limitations
 
-- Public chat, history, and feedback routes do not require authentication. Anyone who knows a session ID can call its history endpoint.
-- API Gateway and upload-bucket CORS default to all origins unless `UPLOAD_ALLOWED_ORIGINS` is set for uploads.
+- Public chat does not require a named user account; anonymous bearer tokens remain browser-managed credentials.
 - WAF, API/CloudFront access logging, CloudFront geo restrictions, Cognito MFA, and advanced Cognito security are not enabled.
-- The frontend stores admin JWTs in `localStorage`; a production hardening phase should evaluate an HttpOnly cookie or managed hosted-UI flow.
-- SNS encryption and Secrets Manager rotation are deferred for the pilot.
+- A static SPA cannot use HttpOnly admin-session cookies without adding a backend-for-frontend; the pilot uses tab-scoped storage.
+- SNS encryption is deferred for the pilot.
 - SES delivery requires the configured sender/recipient identity to be verified.
 
 These limitations are intentional pilot tradeoffs, not production security recommendations.
@@ -170,7 +180,7 @@ These limitations are intentional pilot tradeoffs, not production security recom
 
 - API Gateway, Lambda, S3, DynamoDB on-demand, CloudFront, and Bedrock are managed services that scale without fixed application servers.
 - CloudFront caches the static frontend at edge locations.
-- Generation and confidence retrieval execute concurrently to avoid two sequential Bedrock round trips.
+- Generation uses one retrieval, avoiding duplicate vector searches and guaranteeing that answer context, confidence, and sources agree.
 - S3 Vectors has no always-on search cluster and is better aligned with intermittent nonprofit usage.
 - Lambda cold starts and Bedrock generation remain the primary latency contributors.
 - Dashboard endpoints currently scan up to 90 days of chat records for several aggregates. This is acceptable for pilot volume but should move to incremental aggregates or indexed queries as data grows.
@@ -180,11 +190,11 @@ These limitations are intentional pilot tradeoffs, not production security recom
 
 ### Static Next.js Export On S3 And CloudFront
 
-**Decision:** Use `output: "export"` and publish `frontend/out` to a private S3 origin behind CloudFront.
+**Decision:** Use `output: "export"` and publish filtered public assets and admin assets to separate private S3 origins behind separate CloudFront distributions.
 
-**Rationale:** The application does not require server-side rendering. Static hosting reduces operational overhead and keeps the chat and dashboard in one frontend deployment.
+**Rationale:** The application does not require server-side rendering. Origin separation prevents the public domain from serving the admin surface and gives each API a single trusted CORS origin.
 
-**Tradeoff:** Every `NEXT_PUBLIC_*` setting is baked in at build time, and nested routes require explicit CloudFront rewriting.
+**Tradeoff:** Every `NEXT_PUBLIC_*` setting is baked in at build time, nested routes require explicit CloudFront rewriting, and deployment must publish/invalidate two surfaces.
 
 ### Separate Public And Admin APIs
 
@@ -220,12 +230,13 @@ These limitations are intentional pilot tradeoffs, not production security recom
 
 ## Operational Observability
 
-- Lambda execution logs are available in CloudWatch for all four handlers.
+- Lambda execution logs are available in CloudWatch for all handlers.
 - DynamoDB stores response confidence, chunk score samples, feedback, and escalation state for dashboard review.
-- Failed asynchronous document and escalation events are retained in their SQS dead-letter queues for 14 days.
+- Failed document, escalation, and audit-archive events are retained in encrypted SQS dead-letter queues for 14 days.
 - Bedrock ingestion jobs provide the source of document readiness status.
+- A CloudWatch operations dashboard tracks Lambda errors/throttles/duration, ingestion backlog, and DLQ depth. Every application DLQ has an SNS-backed alarm.
 
-The pilot does not yet include centralized alarms, dashboards, distributed tracing, or API/CloudFront access logs.
+The pilot does not yet include distributed tracing or API/CloudFront access logs.
 
 ## Related Documentation
 

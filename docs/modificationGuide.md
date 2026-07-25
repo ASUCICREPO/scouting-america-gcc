@@ -146,7 +146,7 @@ Update both:
 - Backend `ALLOWED_CONTENT_TYPES` and `MAX_FILE_SIZE_BYTES` in `backend/lambda/dashboard/index.py`
 - Frontend validation and user-facing copy in `frontend/lib/dashboard/upload-utils.ts` and `frontend/lib/i18n.ts`
 
-The current 25 MB value is only an advisory field in the backend response; the frontend does not consume it and the presigned PUT does not enforce it. Add coordinated client validation and server-side/S3 policy enforcement before treating it as a limit or security boundary.
+The frontend rejects files over 25 MB, and the presigned POST policy independently enforces the 1-byte-to-25-MB range in S3. Update both layers together.
 
 ### Change Folder Handling
 
@@ -161,7 +161,7 @@ Update `CONFIG.MODEL_ID` in `backend/lib/config/environment.ts`.
 The chat construct builds an inference-profile ARN from that value. Before changing it:
 
 - Confirm availability in the deployment region.
-- Confirm the identifier is an inference profile compatible with `RetrieveAndGenerate`.
+- Confirm the identifier is an inference profile compatible with the Bedrock `Converse` API.
 - Update IAM only if new actions or resource formats are required.
 - Re-run representative English, Spanish, safety, formatting, and citation tests.
 - Compare latency, groundedness, and cost.
@@ -174,25 +174,18 @@ Vector index properties can require replacement. Plan migration and re-ingestion
 
 ### Modify The Prompt
 
-There are two prompt sources:
-
-- Default guardrails in `backend/lambda/chat-handler/index.py`
-- Initial Secrets Manager value in `backend/lib/constructs/shared-resources.ts`
-
-At runtime the Lambda prefers the `systemPrompt` value in Secrets Manager and falls back to the code default. Updating only the code may not affect an existing deployed secret. Modify the live secret only through an approved operational process, version the intended text, and keep the code fallback aligned.
-
-Language enforcement and Bedrock placeholders such as `$search_results$` and `$query$` are part of the contract. Removing or misspelling them can break generation.
+The source template is `backend/lambda/chat-handler/templates/chat_prompt.j2`. CDK publishes that template to Bedrock Prompt Management and creates an immutable version; the packaged file is also the runtime fallback. Update the template through code review, deploy a new prompt version, and keep all Jinja variables declared in `ai-safety.ts`.
 
 ### Change Confidence Or Escalation Rules
 
 Configuration lives in `backend/lib/config/environment.ts`:
 
 - `CONFIDENCE_THRESHOLD`: current value `0.7`
-- `SAFETY_KEYWORDS`: current English keyword list
+- `SAFETY_KEYWORDS`: current English and Spanish keyword list
 
 The handler checks the combined question and answer. Safety matches produce high-severity events; low confidence produces medium severity. SNS is used for both, while SES is attempted only for high-severity safety events.
 
-Before adding keywords, test false positives in both languages. The current safety list is English-only, even though Spanish model responses are supported; expanding Spanish safety coverage is a known hardening opportunity.
+Before adding keywords, test false positives in both languages.
 
 ### Change Chunking
 

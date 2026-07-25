@@ -15,6 +15,9 @@ class FakeTable:
     def put_item(self, Item):  # noqa: N803 - mirrors boto3
         self.items.append(Item)
 
+    def query(self, **_kwargs):
+        return {"Items": self.items}
+
 
 class FakeDynamoResource:
     def __init__(self, table):
@@ -68,6 +71,7 @@ def load_chat_module():
         "GUARDRAIL_VERSION": "1",
         "PROMPT_ID": "prompt-test",
         "PROMPT_VERSION": "1",
+        "ALLOWED_ORIGIN": "https://public.example",
     })
     table = FakeTable()
     agent = FakeBedrockAgent()
@@ -135,6 +139,7 @@ class ChatLanguageTests(unittest.TestCase):
         self.assertEqual(body["sources"], ["s3://approved/source.pdf"])
         self.assertEqual(body["confidence"], 0.8)
         self.assertEqual(body["language"], "es")
+        self.assertTrue(body["sessionToken"])
         self.assertEqual(self.table.items[-1]["language"], "es")
         self.assertEqual(
             self.table.items[-1]["chunkScores"][0]["source"],
@@ -150,6 +155,40 @@ class ChatLanguageTests(unittest.TestCase):
         self.assertEqual(guardrail["guardrailIdentifier"], "guardrail-test")
         self.assertEqual(guardrail["guardrailVersion"], "1")
         self.assertEqual(guardrail["trace"], "enabled")
+
+    def test_existing_session_requires_its_anonymous_bearer_token(self):
+        first = self.module.handle_chat({
+            "body": json.dumps({"question": "First question"})
+        })
+        first_body = json.loads(first["body"])
+        calls_after_first = len(self.retrieval.requests)
+
+        denied = self.module.handle_chat({
+            "body": json.dumps({
+                "question": "Follow-up",
+                "sessionId": first_body["sessionId"],
+            }),
+        })
+        self.assertEqual(denied["statusCode"], 403)
+        self.assertEqual(len(self.retrieval.requests), calls_after_first)
+
+        allowed = self.module.handle_chat({
+            "headers": {"x-session-token": first_body["sessionToken"]},
+            "body": json.dumps({
+                "question": "Follow-up",
+                "sessionId": first_body["sessionId"],
+            }),
+        })
+        self.assertEqual(allowed["statusCode"], 200)
+
+    def test_cors_is_scoped_to_the_public_distribution(self):
+        result = self.module.handle_chat({
+            "body": json.dumps({"question": "Hello"})
+        })
+        self.assertEqual(
+            result["headers"]["Access-Control-Allow-Origin"],
+            "https://public.example",
+        )
 
     def test_jinja_does_not_evaluate_syntax_inside_user_input(self):
         prompt = self.module.render_prompt(

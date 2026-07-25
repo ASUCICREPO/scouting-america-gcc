@@ -16,6 +16,7 @@ export interface ChatHandlerProps {
   guardrailVersion: string;
   promptId: string;
   promptVersion: string;
+  allowedOrigin: string;
   // API Gateway resources to attach routes to
   chatResource: apigateway.Resource;
   chatHistoryResource: apigateway.Resource;
@@ -50,6 +51,7 @@ export class ChatHandler extends Construct {
         GUARDRAIL_VERSION: props.guardrailVersion,
         PROMPT_ID: props.promptId,
         PROMPT_VERSION: props.promptVersion,
+        ALLOWED_ORIGIN: props.allowedOrigin,
         ESCALATION_FUNCTION_ARN: props.escalationFunctionArn || '',
         CONFIDENCE_THRESHOLD: CONFIG.CONFIDENCE_THRESHOLD.toString(),
         SAFETY_KEYWORDS: JSON.stringify(CONFIG.SAFETY_KEYWORDS),

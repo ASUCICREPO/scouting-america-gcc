@@ -29,13 +29,14 @@ Do not assume the public and dashboard API IDs are the same.
 | Header | Public chat API | Dashboard API | Description |
 | --- | --- | --- | --- |
 | `Content-Type: application/json` | Required for POST | Required for POST | JSON request body |
+| `X-Session-Token` | Required after the first turn | Not used | Anonymous bearer credential returned when a chat is created |
 | `Authorization: ID_TOKEN` | Not used | Required | Raw Cognito ID token containing the `admin` group |
 
-Browser CORS responses allow all origins in the current pilot configuration. Dashboard requests allow `Content-Type` and `Authorization` headers. Configure the document bucket's upload CORS separately with `UPLOAD_ALLOWED_ORIGINS` at deployment time.
+The public and admin applications use separate CloudFront distributions. Public API CORS is limited to the public distribution; dashboard API and upload-bucket CORS are limited to the admin distribution.
 
 ## Public Chat API
 
-Public routes do not require authentication. Treat session IDs as sensitive references because anyone with a session ID can request its history.
+Public routes do not require a user account. A new chat receives a high-entropy anonymous `sessionToken`; continuing a session, loading its history, and recording feedback require that token in `X-Session-Token`. A bare session ID is not sufficient.
 
 ### POST /chat
 
@@ -57,6 +58,12 @@ Generate a grounded English or Spanish response and persist the turn.
 | `sessionId` | string | No | Continue an existing session; a UUID is generated when omitted |
 | `language` | string | No | `en` or `es`; defaults to `en` |
 
+When `sessionId` is supplied, also send the `sessionToken` returned when the session was created:
+
+```http
+X-Session-Token: ANONYMOUS_SESSION_TOKEN
+```
+
 Spanish example:
 
 ```json
@@ -76,6 +83,7 @@ Spanish example:
   ],
   "confidence": 0.8234,
   "sessionId": "5901a24e-d15b-4f10-8c1f-example",
+  "sessionToken": "high-entropy-anonymous-bearer-token",
   "messageId": "2026-07-15T16:42:18.123Z",
   "escalated": false,
   "language": "en"
@@ -85,9 +93,10 @@ Spanish example:
 | Field | Type | Description |
 | --- | --- | --- |
 | `answer` | string | Markdown-formatted model response |
-| `sources` | string[] | Unique S3 URIs extracted from Bedrock citations |
+| `sources` | string[] | Unique S3 URIs for the exact chunks used to generate the answer |
 | `confidence` | number | Average of up to five retrieval scores; `0.3` fallback if unavailable |
 | `sessionId` | string | Conversation identifier |
+| `sessionToken` | string | Anonymous bearer credential; persist securely with the local session |
 | `messageId` | string | Turn identifier and DynamoDB sort key; use for feedback |
 | `escalated` | boolean | Whether safety wording or low confidence triggered escalation |
 | `language` | `en` or `es` | Language contract used for generation |
@@ -101,11 +110,18 @@ Spanish example:
 | `400` | Question over 4,000 characters | `{"error":"Question exceeds the maximum length of 4000 characters"}` |
 | `400` | Non-string session ID | `{"error":"sessionId must be a string"}` |
 | `400` | Unsupported language | `{"error":"language must be 'en' or 'es'"}` |
+| `403` | Missing or invalid session credential on an existing session | `{"error":"Invalid session credentials"}` |
 | `500` | Unhandled Bedrock, DynamoDB, or internal error | `{"error":"Internal server error"}` |
 
 ### GET /chat/history/{sessionId}
 
 Return all persisted turns for a session in chronological order.
+
+Required header:
+
+```http
+X-Session-Token: ANONYMOUS_SESSION_TOKEN
+```
 
 #### Response
 
@@ -126,11 +142,17 @@ Return all persisted turns for a session in chronological order.
 }
 ```
 
-The route returns an empty `history` array when the session ID has no items.
+An unknown session or invalid bearer credential returns `403` without revealing whether the session exists.
 
 ### POST /chat/feedback
 
 Attach or replace a thumbs-up/down rating on a specific chat turn.
+
+Required header:
+
+```http
+X-Session-Token: ANONYMOUS_SESSION_TOKEN
+```
 
 #### Request
 
@@ -164,6 +186,7 @@ The operation is idempotent for a given value and can replace the previous ratin
 | Status | Condition |
 | --- | --- |
 | `400` | Invalid JSON, missing IDs, or unsupported feedback value |
+| `403` | Missing or invalid anonymous session credential |
 | `404` | The session/message key does not identify an existing turn |
 | `500` | Internal error |
 
@@ -452,7 +475,7 @@ Status is one of `ready`, `indexing`, `pending`, or `failed`.
 
 ### POST /dashboard/documents/upload
 
-Create a five-minute presigned S3 PUT URL. The API does not receive the file bytes.
+Create a five-minute presigned S3 POST policy. The API does not receive the file bytes.
 
 #### Request
 
@@ -486,20 +509,21 @@ image/jpeg
 ```json
 {
   "url": "https://presigned-s3-url.example/...",
+  "fields": {
+    "Content-Type": "application/pdf",
+    "key": "uploads/Camp Forms/example.pdf",
+    "policy": "...",
+    "x-amz-algorithm": "...",
+    "x-amz-credential": "...",
+    "x-amz-date": "...",
+    "x-amz-signature": "..."
+  },
   "key": "uploads/Camp Forms/example.pdf",
   "maxSizeBytes": 26214400
 }
 ```
 
-Upload the bytes directly to the returned URL with exactly the requested content type:
-
-```bash
-curl -X PUT "$PRESIGNED_URL" \
-  -H 'Content-Type: application/pdf' \
-  --data-binary @example.pdf
-```
-
-`maxSizeBytes` is a 25 MB client hint, not currently enforced by a presigned policy condition in the API.
+Submit every returned field as multipart form data, followed by the file field. The signed policy enforces the exact content type and a file size from 1 byte through 25 MB; S3 rejects uploads outside that range.
 
 | Status | Condition |
 | --- | --- |

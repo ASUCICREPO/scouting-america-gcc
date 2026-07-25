@@ -2,7 +2,10 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
-  turbopack: {},
+  turbopack: {
+    // Prevent an unrelated workspace-level lockfile from changing Next's root.
+    root: process.cwd(),
+  },
   // Static export for S3 + CloudFront hosting (deployed via deploy.sh).
   output: "export",
   images: { unoptimized: true },

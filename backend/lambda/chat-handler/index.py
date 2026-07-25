@@ -7,8 +7,11 @@ and output, while the production Jinja prompt is read from an immutable Bedrock
 Prompt Management version.
 """
 
+import hashlib
+import hmac
 import json
 import os
+import secrets
 import uuid
 from datetime import datetime, timezone
 from decimal import Decimal
@@ -40,6 +43,7 @@ PROMPT_VERSION = os.environ["PROMPT_VERSION"]
 ESCALATION_FUNCTION_ARN = os.environ.get("ESCALATION_FUNCTION_ARN", "")
 CONFIDENCE_THRESHOLD = float(os.environ.get("CONFIDENCE_THRESHOLD", "0.7"))
 SAFETY_KEYWORDS = json.loads(os.environ.get("SAFETY_KEYWORDS", "[]"))
+ALLOWED_ORIGIN = os.environ["ALLOWED_ORIGIN"]
 
 chat_table = ddb.Table(CHAT_LOGS_TABLE)
 
@@ -54,6 +58,7 @@ class HttpStatus(IntEnum):
 
     OK = 200
     BAD_REQUEST = 400
+    FORBIDDEN = 403
     NOT_FOUND = 404
     INTERNAL_SERVER_ERROR = 500
 
@@ -107,6 +112,7 @@ class ChatLog(StrictModel):
     session_id: str = Field(alias="sessionId")
     timestamp: str
     user_id: str = Field(alias="userId")
+    session_token_hash: str = Field(alias="sessionTokenHash")
     question: str
     answer: str
     sources: list[str]
@@ -123,6 +129,7 @@ class ChatResponse(StrictModel):
     sources: list[str]
     confidence: float
     session_id: str = Field(alias="sessionId")
+    session_token: str = Field(alias="sessionToken")
     message_id: str = Field(alias="messageId")
     escalated: bool
     language: Literal["en", "es"]
@@ -180,8 +187,8 @@ def api_response(status: HttpStatus, body: BaseModel | dict[str, Any]) -> dict[s
         statusCode=int(status),
         headers={
             "Content-Type": "application/json",
-            # Replaced with deployment-specific origins in the hosting/CORS slice.
-            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Origin": ALLOWED_ORIGIN,
+            "Vary": "Origin",
         },
         body=json.dumps(payload, ensure_ascii=False),
     ).model_dump(by_alias=True)
@@ -196,6 +203,34 @@ def _validation_error(error: ValidationError) -> ErrorResponse:
 
 def _parse_body(event: dict[str, Any]) -> Any:
     return json.loads(event.get("body") or "{}")
+
+
+def _request_header(event: dict[str, Any], name: str) -> str | None:
+    expected = name.lower()
+    for key, value in (event.get("headers") or {}).items():
+        if key.lower() == expected and isinstance(value, str):
+            return value
+    return None
+
+
+def _token_hash(token: str) -> str:
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def _owns_session(session_id: str, token: str | None) -> bool:
+    """Authorize a public caller without exposing history through a bare ID."""
+    if not token:
+        return False
+    result = chat_table.query(
+        KeyConditionExpression=Key("sessionId").eq(session_id),
+        ProjectionExpression="sessionTokenHash",
+        ScanIndexForward=True,
+        Limit=1,
+        ConsistentRead=True,
+    )
+    items = result.get("Items", [])
+    expected = items[0].get("sessionTokenHash") if items else None
+    return isinstance(expected, str) and hmac.compare_digest(expected, _token_hash(token))
 
 
 @lru_cache(maxsize=1)
@@ -349,7 +384,17 @@ def handle_chat(event: dict[str, Any]) -> dict[str, Any]:
 
     authz = (event.get("requestContext") or {}).get("authorizer") or {}
     user_id = (authz.get("claims") or {}).get("sub", "anonymous")
-    session_id = request.session_id or str(uuid.uuid4())
+    if request.session_id:
+        session_token = _request_header(event, "X-Session-Token")
+        if not _owns_session(request.session_id, session_token):
+            return api_response(
+                HttpStatus.FORBIDDEN,
+                ErrorResponse(error="Invalid session credentials"),
+            )
+        session_id = request.session_id
+    else:
+        session_id = str(uuid.uuid4())
+        session_token = secrets.token_urlsafe(32)
     timestamp = _now()
 
     chunks = retrieve_chunks(request.question)
@@ -390,6 +435,7 @@ def handle_chat(event: dict[str, Any]) -> dict[str, Any]:
         sessionId=session_id,
         timestamp=timestamp,
         userId=user_id,
+        sessionTokenHash=_token_hash(session_token),
         question=request.question,
         answer=answer,
         sources=sources,
@@ -408,6 +454,7 @@ def handle_chat(event: dict[str, Any]) -> dict[str, Any]:
             sources=sources,
             confidence=confidence,
             sessionId=session_id,
+            sessionToken=session_token,
             messageId=timestamp,
             escalated=escalate,
             language=request.language,
@@ -426,6 +473,15 @@ def record_feedback(event: dict[str, Any]) -> dict[str, Any]:
         )
     except ValidationError as error:
         return api_response(HttpStatus.BAD_REQUEST, _validation_error(error))
+
+    if not _owns_session(
+        request.session_id,
+        _request_header(event, "X-Session-Token"),
+    ):
+        return api_response(
+            HttpStatus.FORBIDDEN,
+            ErrorResponse(error="Invalid session credentials"),
+        )
 
     try:
         chat_table.update_item(
@@ -461,6 +517,12 @@ def get_history(event: dict[str, Any]) -> dict[str, Any]:
         return api_response(
             HttpStatus.BAD_REQUEST,
             ErrorResponse(error=f"sessionId must be at most {MAX_SESSION_ID_LENGTH} characters"),
+        )
+
+    if not _owns_session(session_id, _request_header(event, "X-Session-Token")):
+        return api_response(
+            HttpStatus.FORBIDDEN,
+            ErrorResponse(error="Invalid session credentials"),
         )
 
     result = chat_table.query(

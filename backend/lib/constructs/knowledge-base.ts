@@ -12,7 +12,7 @@ export interface KnowledgeBaseProps {
 }
 
 export class KnowledgeBase extends Construct {
-  // The KB ID — Chat Handler needs this to call RetrieveAndGenerate
+  // The KB ID — Chat Handler uses it for the single retrieval step
   public readonly knowledgeBaseId: string;
   // The Data Source ID — Doc Processor needs this for StartIngestionJob
   public readonly dataSourceId: string;

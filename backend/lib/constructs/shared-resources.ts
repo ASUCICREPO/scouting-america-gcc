@@ -7,6 +7,10 @@ import * as subscriptions from 'aws-cdk-lib/aws-sns-subscriptions';
 import { Construct } from 'constructs';
 import { CONFIG } from '../config/environment';
 
+export interface SharedResourcesProps {
+  adminOrigin: string;
+}
+
 export class SharedResources extends Construct {
   // S3 Buckets
   public readonly documentStoreBucket: s3.Bucket;
@@ -24,7 +28,7 @@ export class SharedResources extends Construct {
   // SNS
   public readonly staffAlertTopic: sns.Topic;
 
-  constructor(scope: Construct, id: string) {
+  constructor(scope: Construct, id: string, props: SharedResourcesProps) {
     super(scope, id);
 
     // ---------------------------------------------------------------
@@ -39,13 +43,11 @@ export class SharedResources extends Construct {
       blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
       removalPolicy: cdk.RemovalPolicy.RETAIN,
       enforceSSL: true,
-      // Allow the admin dashboard (browser) to PUT files directly via presigned
-      // URLs, and GET them back for download. Origins are configurable — tighten
-      // via UPLOAD_ALLOWED_ORIGINS in production.
+      // Only the isolated admin CloudFront surface may use presigned uploads.
       cors: [
         {
-          allowedMethods: [s3.HttpMethods.PUT, s3.HttpMethods.GET, s3.HttpMethods.HEAD],
-          allowedOrigins: CONFIG.UPLOAD_ALLOWED_ORIGINS,
+          allowedMethods: [s3.HttpMethods.POST, s3.HttpMethods.GET, s3.HttpMethods.HEAD],
+          allowedOrigins: [props.adminOrigin],
           allowedHeaders: ['*'],
           exposedHeaders: ['ETag'],
           maxAge: 3000,
@@ -117,7 +119,7 @@ export class SharedResources extends Construct {
 
     this.userPool = new cognito.UserPool(this, 'GCCUserPool', {
       userPoolName: 'GCC-VolunteerPool',
-      selfSignUpEnabled: true,
+      selfSignUpEnabled: false,
       signInAliases: { email: true },
       autoVerify: { email: true },
       standardAttributes: {

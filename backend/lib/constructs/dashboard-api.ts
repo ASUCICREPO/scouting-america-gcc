@@ -24,6 +24,8 @@ export interface DashboardApiProps {
   /** Bedrock KB id + data source id — re-sync ingestion after a delete */
   knowledgeBaseId: string;
   dataSourceId: string;
+  allowedOrigin: string;
+  dependenciesLayer: lambda.ILayerVersion;
 }
 
 /**
@@ -48,6 +50,7 @@ export class DashboardApi extends Construct {
       code: lambda.Code.fromAsset(path.join(__dirname, '../../lambda/dashboard')),
       timeout: cdk.Duration.seconds(30),
       memorySize: 512,
+      layers: [props.dependenciesLayer],
       environment: {
         CHAT_LOGS_TABLE: props.chatLogsTable.tableName,
         ANALYTICS_LOGS_TABLE: props.analyticsLogsTable.tableName,
@@ -55,6 +58,7 @@ export class DashboardApi extends Construct {
         KB_BUCKET: props.knowledgeBaseBucket.bucketName,
         KNOWLEDGE_BASE_ID: props.knowledgeBaseId,
         DATA_SOURCE_ID: props.dataSourceId,
+        ALLOWED_ORIGIN: props.allowedOrigin,
       },
       logGroup: new logs.LogGroup(this, 'DashboardLogs', {
         retention: logs.RetentionDays.ONE_MONTH,
@@ -93,8 +97,8 @@ export class DashboardApi extends Construct {
         throttlingBurstLimit: 100,
       },
       defaultCorsPreflightOptions: {
-        allowOrigins: apigateway.Cors.ALL_ORIGINS, // tighten to the dashboard origin in production
-        allowMethods: apigateway.Cors.ALL_METHODS,
+        allowOrigins: [props.allowedOrigin],
+        allowMethods: ['GET', 'POST', 'DELETE', 'OPTIONS'],
         allowHeaders: ['Content-Type', 'Authorization'],
       },
     });

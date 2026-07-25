@@ -16,8 +16,8 @@ The repository deploys one CDK stack named `ScoutingAmericaChatbot`. The stack c
 6. Optionally creates an admin user.
 7. Optionally uploads a local document tree.
 8. Builds the Next.js static export.
-9. Syncs `frontend/out` to the private site bucket.
-10. Creates a CloudFront invalidation.
+9. Publishes public and admin assets to separate private S3 origins.
+10. Invalidates both CloudFront distributions.
 
 ## Requirements
 
@@ -39,7 +39,7 @@ The default region is `us-east-1`. The target account must support and authorize
 - Lambda, API Gateway, CloudWatch Logs, and SQS
 - S3, S3 Vectors, CloudFront, and DynamoDB
 - Amazon Bedrock Knowledge Bases and required model access
-- Cognito, Secrets Manager, SNS, and SES
+- Cognito, Bedrock Prompt Management and Guardrails, SNS, and SES
 
 Confirm that Claude Haiku 4.5 through the configured inference profile and Titan Text Embeddings v2 are available in the target region.
 
@@ -105,21 +105,9 @@ Rules:
 
 The prefix does not change the CloudFormation stack name. This repository manages one `ScoutingAmericaChatbot` stack per account/region unless the stack naming code is changed.
 
-### Configure Upload CORS
+### Public And Admin Origins
 
-By default, the document bucket permits browser uploads from any origin to match the pilot. To restrict it, set a comma-separated list before synthesis/deployment:
-
-```bash
-UPLOAD_ALLOWED_ORIGINS=https://example.cloudfront.net RESOURCE_PREFIX=demo ./deploy.sh
-```
-
-When using multiple origins:
-
-```bash
-UPLOAD_ALLOWED_ORIGINS=https://admin.example.org,http://localhost:3000 RESOURCE_PREFIX=demo ./deploy.sh
-```
-
-Because CloudFront's generated domain is not known before the first deployment, a new environment may require an initial deployment followed by a reviewed CORS-tightening update.
+The stack creates separate public and admin S3/CloudFront deployments. CloudFormation passes those generated domains directly into API Gateway, Lambda, and upload-bucket CORS configuration, so a second CORS-tightening deployment is not required. For custom domains, keep the same separation: use the public application at the root domain and the dashboard at an admin subdomain.
 
 ## Recommended Deployment
 
@@ -166,7 +154,7 @@ The script creates the user if necessary, sets a permanent password, ensures the
 ./deploy.sh --prefix demo --ingest ./ingest
 ```
 
-The script syncs the directory to `uploads/` in the document-store bucket. Each new S3 object triggers processing and a Bedrock ingestion request. Large directories can create many overlapping ingestion attempts; for a large corpus, batch uploads deliberately and monitor Bedrock jobs.
+The script syncs the directory to `uploads/` in the document-store bucket. Each new S3 object enters the document-processing queue. The Lambda event source caps worker concurrency, retries transient failures, and moves exhausted messages to the monitored DLQ.
 
 ## What The Script Writes
 
@@ -177,6 +165,7 @@ NEXT_PUBLIC_API_URL=...
 NEXT_PUBLIC_DASHBOARD_API_URL=...
 NEXT_PUBLIC_USER_POOL_ID=...
 NEXT_PUBLIC_CLIENT_ID=...
+NEXT_PUBLIC_AWS_REGION=...
 ```
 
 These values are embedded into the static frontend during `npm run build`. Do not copy one environment's built `frontend/out/` into another environment.
@@ -195,9 +184,14 @@ The stack exports:
 | `UserPoolClientId` | Browser client ID |
 | `DocumentStoreBucket` | Raw document uploads |
 | `KnowledgeBaseBucket` | Bedrock data source documents |
-| `FrontendBucket` | Static export target |
-| `FrontendDistributionId` | CloudFront invalidation target |
-| `FrontendUrl` | Public application URL |
+| `PublicFrontendBucket` | Public chat static-export target; admin paths are excluded |
+| `PublicFrontendDistributionId` | Public CloudFront invalidation target |
+| `PublicFrontendUrl` | Public chat URL |
+| `AdminFrontendBucket` | Admin dashboard static-export target |
+| `AdminFrontendDistributionId` | Admin CloudFront invalidation target |
+| `AdminFrontendUrl` | Admin login/dashboard URL |
+| `ChatArchiveBucket` | Object-locked chat audit archive |
+| `OperationsDashboardName` | CloudWatch operations dashboard |
 
 Read them without changing the stack:
 
@@ -228,30 +222,22 @@ Expected status after an update: `UPDATE_COMPLETE`. A first deployment ends at `
 `deploy.sh` submits an invalidation but does not wait for it to finish. Retrieve the distribution output and inspect the newest invalidation:
 
 ```bash
-DIST_ID=$(aws cloudformation describe-stacks \
+PUBLIC_DIST_ID=$(aws cloudformation describe-stacks \
   --stack-name ScoutingAmericaChatbot \
   --region us-east-1 \
-  --query "Stacks[0].Outputs[?OutputKey=='FrontendDistributionId'].OutputValue" \
+  --query "Stacks[0].Outputs[?OutputKey=='PublicFrontendDistributionId'].OutputValue" \
   --output text)
 
 aws cloudfront list-invalidations \
-  --distribution-id "$DIST_ID" \
+  --distribution-id "$PUBLIC_DIST_ID" \
   --max-items 1
 ```
 
-Wait for status `Completed` before concluding that every edge location has the new files.
+Repeat with `AdminFrontendDistributionId`. Wait for status `Completed` before concluding that every edge location has the new files.
 
 ### Frontend Routes
 
-Open the `FrontendUrl` and directly load:
-
-- `/`
-- `/login`
-- `/dashboard`
-- `/dashboard/documents`
-- `/dashboard/settings`
-
-The public route should render without authentication. Dashboard routes should redirect an unauthenticated visitor to `/login`. Refresh each nested route to verify CloudFront path rewriting.
+Open `PublicFrontendUrl` and verify `/` works while `/login` and `/dashboard` return an error. Open `AdminFrontendUrl`; `/` should resolve to `/login`, and authenticated deep links under `/dashboard` should refresh successfully.
 
 ### Public Chat Contract
 
@@ -267,7 +253,7 @@ curl -sS -X POST "${CHAT_API%/}/chat" \
   -d '{"question":"What can you tell me about Camp Geronimo?","language":"en"}'
 ```
 
-Repeat with a Spanish question and `"language":"es"`. Confirm the response includes `answer`, `sessionId`, `messageId`, and the selected `language`.
+Repeat with a Spanish question and `"language":"es"`. Confirm the response includes `answer`, `sessionId`, `sessionToken`, `messageId`, and the selected `language`. A follow-up with `sessionId` must also send the returned value in `X-Session-Token`.
 
 ### Dashboard
 
@@ -318,7 +304,7 @@ Set `RESOURCE_PREFIX` on synthesis and deployment. A backend-only deployment doe
 
 `buildspec.yml` installs backend dependencies, runs Jest, synthesizes CDK, deploys the stack, and reports outputs. It does **not** build or publish `frontend/out`.
 
-Configure `RESOURCE_PREFIX` and any upload-CORS value explicitly in the CodeBuild environment if the project should target a prefixed stack. Review build-role permissions and deployment approval controls before enabling automatic builds.
+Configure `RESOURCE_PREFIX` explicitly in the CodeBuild environment if the project should target a prefixed stack. Review build-role permissions and deployment approval controls before enabling automatic builds.
 
 ## Troubleshooting
 
@@ -330,9 +316,9 @@ Configure `RESOURCE_PREFIX` and any upload-CORS value explicitly in the CodeBuil
 
 ### Dashboard Opens The Public Home Page
 
-**Cause:** CloudFront is serving an old export or does not have the route-rewrite function associated.
+**Cause:** One CloudFront surface is serving an old export or does not have its route-rewrite function associated.
 
-**Action:** Confirm the current stack includes the CloudFront Function, rebuild with `trailingSlash: true`, sync the complete `frontend/out`, create an invalidation, and wait for completion.
+**Action:** Confirm the current stack includes both CloudFront Functions, rebuild with `trailingSlash: true`, publish with `deploy.sh`, and wait for both invalidations. Do not sync `/login` or `/dashboard` into the public bucket.
 
 ### Frontend Uses The Wrong API
 
@@ -348,8 +334,8 @@ Check the chat-handler log for Bedrock permissions, model availability, knowledg
 
 - Confirm the dashboard token is valid.
 - Confirm the file type and size are supported.
-- Check the presigned URL request response.
-- Compare the browser origin with `UPLOAD_ALLOWED_ORIGINS` used at deployment.
+- Check the presigned POST policy response and ensure the browser submits all returned fields before the file.
+- Compare the browser origin with `AdminFrontendUrl`.
 - Check the S3 CORS configuration and dashboard Lambda logs.
 
 ### Document Stays Pending
@@ -361,7 +347,7 @@ Check the document-processor logs, its dead-letter queue, the copied object unde
 - Verify the frontend User Pool ID and client ID.
 - Verify the account has a permanent password.
 - Verify the user belongs to `admin`.
-- Confirm the configured region is `us-east-1` or update the frontend auth configuration if deploying elsewhere.
+- Confirm `NEXT_PUBLIC_AWS_REGION` in the generated frontend environment matches the deployed region.
 
 ## Cleanup And Destruction
 

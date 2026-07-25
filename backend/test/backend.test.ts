@@ -163,6 +163,19 @@ describe('Failure observability', () => {
 });
 
 describe('CloudFront static route rewriting', () => {
+  test('isolates public chat and admin dashboard in two distributions', () => {
+    template.resourceCountIs('AWS::CloudFront::Distribution', 2);
+    template.resourceCountIs('AWS::CloudFront::Function', 2);
+    template.hasResourceProperties('AWS::CloudFront::Distribution', {
+      DistributionConfig: {
+        DefaultRootObject: 'login/index.html',
+      },
+    });
+    template.hasResourceProperties('AWS::CloudFront::Function', {
+      FunctionCode: Match.stringLikeRegexp("uri === '/dashboard'"),
+    });
+  });
+
   test('rewrites extensionless paths to their exported index.html files', () => {
     template.hasResourceProperties('AWS::CloudFront::Function', {
       AutoPublish: true,
@@ -181,6 +194,42 @@ describe('CloudFront static route rewriting', () => {
             Match.objectLike({ EventType: 'viewer-request' }),
           ]),
         },
+      },
+    });
+  });
+});
+
+describe('Origin and session hardening', () => {
+  test('scopes upload CORS to the admin distribution', () => {
+    const buckets = Object.values(template.findResources('AWS::S3::Bucket'));
+    const documentBucket = buckets.find(
+      (resource) => resource.Properties?.BucketName === 'gcc-document-store',
+    );
+    const origins =
+      documentBucket?.Properties?.CorsConfiguration?.CorsRules?.[0]?.AllowedOrigins;
+    expect(origins).toHaveLength(1);
+    expect(origins).not.toContain('*');
+  });
+
+  test('does not allow self-signup into the admin user pool', () => {
+    template.hasResourceProperties('AWS::Cognito::UserPool', {
+      AdminCreateUserConfig: {
+        AllowAdminCreateUserOnly: true,
+      },
+    });
+  });
+
+  test('passes distinct CloudFront origins to public and admin Lambdas', () => {
+    template.hasResourceProperties('AWS::Lambda::Function', {
+      FunctionName: 'GCC-ChatHandler',
+      Environment: {
+        Variables: Match.objectLike({ ALLOWED_ORIGIN: Match.anyValue() }),
+      },
+    });
+    template.hasResourceProperties('AWS::Lambda::Function', {
+      FunctionName: 'GCC-AdminDashboard',
+      Environment: {
+        Variables: Match.objectLike({ ALLOWED_ORIGIN: Match.anyValue() }),
       },
     });
   });

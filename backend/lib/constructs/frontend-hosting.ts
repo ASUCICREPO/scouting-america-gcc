@@ -1,46 +1,108 @@
 import * as cdk from 'aws-cdk-lib';
-import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as cloudfront from 'aws-cdk-lib/aws-cloudfront';
 import * as origins from 'aws-cdk-lib/aws-cloudfront-origins';
+import * as s3 from 'aws-cdk-lib/aws-s3';
 import { Construct } from 'constructs';
 
+interface StaticSurface {
+  bucket: s3.Bucket;
+  distribution: cloudfront.Distribution;
+}
+
 /**
- * Static hosting for the Next.js frontend (built with `output: 'export'`)
- * behind CloudFront.
+ * Two isolated static origins for the public chat and authenticated admin UI.
  *
- * - Private S3 bucket (no public access) holding the exported static site.
- * - CloudFront distribution with Origin Access Control (OAC) reading from S3.
- * - Viewer-request rewriting for exported per-route index.html files.
- * - Client-side-routing fallback for unknown routes (403/404 -> root index.html).
- *
- * deploy.sh publishes the built site with:
- *   aws s3 sync frontend/out s3://<SiteBucket> --delete
- *   aws cloudfront create-invalidation --distribution-id <Id> --paths "/*"
+ * deploy.sh intentionally omits /login and /dashboard from the public bucket.
+ * A viewer-request guard also denies those paths at the public edge. Admin
+ * routes live in a separate S3 origin and CloudFront distribution so each API
+ * can trust one distinct browser origin.
  */
 export class FrontendHosting extends Construct {
-  public readonly siteBucket: s3.Bucket;
-  public readonly distribution: cloudfront.Distribution;
+  public readonly publicBucket: s3.Bucket;
+  public readonly publicDistribution: cloudfront.Distribution;
+  public readonly adminBucket: s3.Bucket;
+  public readonly adminDistribution: cloudfront.Distribution;
 
   constructor(scope: Construct, id: string) {
     super(scope, id);
 
-    // Private bucket for the exported static site — CloudFront reads it via OAC.
-    this.siteBucket = new s3.Bucket(this, 'SiteBucket', {
+    const securityHeaders = new cloudfront.ResponseHeadersPolicy(this, 'SecurityHeaders', {
+      comment: 'Security headers shared by GCC public and admin static sites',
+      securityHeadersBehavior: {
+        contentTypeOptions: { override: true },
+        frameOptions: {
+          frameOption: cloudfront.HeadersFrameOption.DENY,
+          override: true,
+        },
+        referrerPolicy: {
+          referrerPolicy: cloudfront.HeadersReferrerPolicy.STRICT_ORIGIN_WHEN_CROSS_ORIGIN,
+          override: true,
+        },
+        strictTransportSecurity: {
+          accessControlMaxAge: cdk.Duration.days(365),
+          includeSubdomains: true,
+          preload: true,
+          override: true,
+        },
+      },
+    });
+
+    const publicSite = this.createSurface(
+      'Public',
+      'Scouting America GCC public chat',
+      false,
+      securityHeaders,
+    );
+    const adminSite = this.createSurface(
+      'Admin',
+      'Scouting America GCC admin dashboard',
+      true,
+      securityHeaders,
+    );
+
+    this.publicBucket = publicSite.bucket;
+    this.publicDistribution = publicSite.distribution;
+    this.adminBucket = adminSite.bucket;
+    this.adminDistribution = adminSite.distribution;
+  }
+
+  private createSurface(
+    id: string,
+    comment: string,
+    admin: boolean,
+    securityHeaders: cloudfront.IResponseHeadersPolicy,
+  ): StaticSurface {
+    const bucket = new s3.Bucket(this, `${id}SiteBucket`, {
       encryption: s3.BucketEncryption.S3_MANAGED,
       blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
       enforceSSL: true,
-      // Test/demo hosting — allow clean teardown (no user data lives here).
       removalPolicy: cdk.RemovalPolicy.DESTROY,
       autoDeleteObjects: true,
     });
 
-    const routeRewriteFunction = new cloudfront.Function(this, 'RouteRewriteFunction', {
-      comment: 'Resolve extensionless Next.js static-export routes',
+    const routeRewrite = new cloudfront.Function(this, `${id}RouteRewrite`, {
+      comment: `Resolve ${id.toLowerCase()} Next.js static-export routes`,
       runtime: cloudfront.FunctionRuntime.JS_2_0,
       code: cloudfront.FunctionCode.fromInline(`
 function handler(event) {
   var request = event.request;
   var uri = request.uri;
+
+  ${admin ? `
+  if (uri === '/') {
+    request.uri = '/login/index.html';
+    return request;
+  }
+  ` : `
+  if (uri === '/login' || uri.indexOf('/login/') === 0 ||
+      uri === '/dashboard' || uri.indexOf('/dashboard/') === 0) {
+    return {
+      statusCode: 404,
+      statusDescription: 'Not Found',
+      headers: { 'cache-control': { value: 'no-store' } }
+    };
+  }
+  `}
 
   if (uri.charAt(uri.length - 1) === '/') {
     request.uri += 'index.html';
@@ -56,24 +118,31 @@ function handler(event) {
       `),
     });
 
-    this.distribution = new cloudfront.Distribution(this, 'SiteDistribution', {
-      comment: 'Scouting America GCC frontend',
+    const fallback = admin ? '/login/index.html' : '/index.html';
+    const distribution = new cloudfront.Distribution(this, `${id}Distribution`, {
+      comment,
       defaultBehavior: {
-        origin: origins.S3BucketOrigin.withOriginAccessControl(this.siteBucket),
+        origin: origins.S3BucketOrigin.withOriginAccessControl(bucket),
         viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
         cachePolicy: cloudfront.CachePolicy.CACHING_OPTIMIZED,
+        responseHeadersPolicy: securityHeaders,
         functionAssociations: [{
           eventType: cloudfront.FunctionEventType.VIEWER_REQUEST,
-          function: routeRewriteFunction,
+          function: routeRewrite,
         }],
       },
-      defaultRootObject: 'index.html',
-      // Unknown paths fall back to the public chat shell after route rewriting.
-      errorResponses: [
-        { httpStatus: 403, responseHttpStatus: 200, responsePagePath: '/index.html' },
-        { httpStatus: 404, responseHttpStatus: 200, responsePagePath: '/index.html' },
-      ],
+      defaultRootObject: admin ? 'login/index.html' : 'index.html',
+      // The public site intentionally returns real errors for unknown/admin
+      // paths. The admin site falls back to login for an expired deep link.
+      errorResponses: admin
+        ? [
+          { httpStatus: 403, responseHttpStatus: 200, responsePagePath: fallback },
+          { httpStatus: 404, responseHttpStatus: 200, responsePagePath: fallback },
+        ]
+        : [],
       minimumProtocolVersion: cloudfront.SecurityPolicyProtocol.TLS_V1_2_2021,
     });
+
+    return { bucket, distribution };
   }
 }
