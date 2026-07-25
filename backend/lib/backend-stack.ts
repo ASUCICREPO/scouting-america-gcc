@@ -10,6 +10,8 @@ import { ChatHandler } from './constructs/chat-handler';
 import { DocProcessor } from './constructs/doc-processor';
 import { DashboardApi } from './constructs/dashboard-api';
 import { FrontendHosting } from './constructs/frontend-hosting';
+import { AiSafety } from './constructs/ai-safety';
+import { PythonDependencies } from './constructs/python-dependencies';
 
 export class ScoutingAmericaChatbot extends cdk.Stack {
   constructor(scope: Construct, id: string, props?: cdk.StackProps) {
@@ -21,7 +23,7 @@ export class ScoutingAmericaChatbot extends cdk.Stack {
     Aspects.of(this).add(new AwsSolutionsChecks({ verbose: true }));
 
     // ---------------------------------------------------------------
-    // Shared Resources (S3, DynamoDB, Cognito, SNS, Secrets Manager)
+    // Shared Resources (S3, DynamoDB, Cognito, SNS)
     // ---------------------------------------------------------------
     const sharedResources = new SharedResources(this, 'SharedResources');
 
@@ -31,6 +33,9 @@ export class ScoutingAmericaChatbot extends cdk.Stack {
     const knowledgeBase = new KnowledgeBase(this, 'KnowledgeBase', {
       knowledgeBaseBucket: sharedResources.knowledgeBaseBucket,
     });
+
+    const pythonDependencies = new PythonDependencies(this, 'PythonDependencies');
+    const aiSafety = new AiSafety(this, 'AiSafety');
 
     // ---------------------------------------------------------------
     // Escalation Router (alerts staff when safety/low-confidence detected)
@@ -52,7 +57,11 @@ export class ScoutingAmericaChatbot extends cdk.Stack {
     // ---------------------------------------------------------------
     new ChatHandler(this, 'ChatHandler', {
       chatLogsTable: sharedResources.chatLogsTable,
-      guardrailsSecret: sharedResources.guardrailsSecret,
+      dependenciesLayer: pythonDependencies.layer,
+      guardrailId: aiSafety.guardrailId,
+      guardrailVersion: aiSafety.guardrailVersion,
+      promptId: aiSafety.promptId,
+      promptVersion: aiSafety.promptVersion,
       chatResource: apiGateway.chatResource,
       chatHistoryResource: apiGateway.chatHistoryResource,
       chatFeedbackResource: apiGateway.chatFeedbackResource,
@@ -178,10 +187,6 @@ export class ScoutingAmericaChatbot extends cdk.Stack {
       {
         id: 'AwsSolutions-SNS3',
         reason: 'ADR: SNS SSL enforcement deferred | Rationale: POC phase, subscribers are AWS services | Alternative: Require SSL (will add for production)',
-      },
-      {
-        id: 'AwsSolutions-SMG4',
-        reason: 'ADR: Secret rotation deferred | Rationale: Guardrails are app config, not credentials | Alternative: Enable rotation (not applicable for config data)',
       },
       {
         id: 'AwsSolutions-IAM4',

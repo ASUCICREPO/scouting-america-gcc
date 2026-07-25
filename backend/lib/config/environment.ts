@@ -4,7 +4,7 @@
 // (e.g. RESOURCE_PREFIX=dev). Defaults to no prefix, preserving the existing
 // resource names so the current deployment is unaffected.
 // Exported so constructs can prefix account/region-unique names that aren't in
-// CONFIG (Lambda function names, SQS queues, the guardrails secret, the KB) —
+// CONFIG (Lambda function names, SQS queues, Bedrock resources, the KB) —
 // otherwise a prefixed deploy collides with an existing unprefixed stack.
 export const PREFIX = process.env.RESOURCE_PREFIX ? `${process.env.RESOURCE_PREFIX}-` : '';
 
@@ -42,5 +42,20 @@ export const CONFIG = {
 
   // Thresholds
   CONFIDENCE_THRESHOLD: 0.7,
-  SAFETY_KEYWORDS: ['abuse', 'emergency', 'injury', 'youth protection', 'danger', 'hurt'],
+  SAFETY_KEYWORDS: [
+    'abuse',
+    'emergency',
+    'injury',
+    'youth protection',
+    'danger',
+    'hurt',
+    'abuso',
+    'emergencia',
+    'lesión',
+    'herida',
+    'protección juvenil',
+    'peligro',
+    'lastimado',
+    'ayuda inmediata',
+  ],
 };

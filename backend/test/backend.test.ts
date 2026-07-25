@@ -72,6 +72,33 @@ describe('Bedrock data source chunking', () => {
   });
 });
 
+describe('Grounded response generation controls', () => {
+  test('provisions immutable Prompt Management and Guardrail versions', () => {
+    template.resourceCountIs('AWS::Bedrock::Prompt', 1);
+    template.resourceCountIs('AWS::Bedrock::PromptVersion', 1);
+    template.resourceCountIs('AWS::Bedrock::Guardrail', 1);
+    template.resourceCountIs('AWS::Bedrock::GuardrailVersion', 1);
+  });
+
+  test('applies the Guardrail and versioned prompt to the chat Lambda', () => {
+    template.hasResourceProperties('AWS::Lambda::Function', {
+      FunctionName: 'GCC-ChatHandler',
+      Environment: {
+        Variables: Match.objectLike({
+          GUARDRAIL_ID: Match.anyValue(),
+          GUARDRAIL_VERSION: Match.anyValue(),
+          PROMPT_ID: Match.anyValue(),
+          PROMPT_VERSION: Match.anyValue(),
+        }),
+      },
+    });
+  });
+
+  test('does not store system prompts in Secrets Manager', () => {
+    template.resourceCountIs('AWS::SecretsManager::Secret', 0);
+  });
+});
+
 describe('CloudFront static route rewriting', () => {
   test('rewrites extensionless paths to their exported index.html files', () => {
     template.hasResourceProperties('AWS::CloudFront::Function', {

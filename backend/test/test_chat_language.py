@@ -1,11 +1,11 @@
-"""Focused bilingual contract tests for the public chat Lambda."""
+"""Focused bilingual and retrieval-consistency tests for the public chat Lambda."""
 
 import importlib.util
 import json
 import os
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 
 class FakeTable:
@@ -19,18 +19,42 @@ class FakeTable:
 class FakeDynamoResource:
     def __init__(self, table):
         self.table = table
+        self.meta = MagicMock()
 
     def Table(self, _name):  # noqa: N802 - mirrors boto3
         return self.table
 
 
-class FakeBedrock:
-    def __init__(self):
-        self.request = None
+class FakeBedrockAgent:
+    def get_prompt(self, **_kwargs):
+        raise RuntimeError("Use packaged prompt in unit tests")
 
-    def retrieve_and_generate(self, **kwargs):
-        self.request = kwargs
-        return {"output": {"text": "ok"}, "citations": []}
+
+class FakeBedrockRetrieval:
+    def __init__(self):
+        self.requests = []
+
+    def retrieve(self, **kwargs):
+        self.requests.append(kwargs)
+        return {
+            "retrievalResults": [{
+                "location": {"s3Location": {"uri": "s3://approved/source.pdf"}},
+                "score": 0.8,
+                "content": {"text": "Approved source text"},
+            }]
+        }
+
+
+class FakeBedrockRuntime:
+    def __init__(self):
+        self.requests = []
+
+    def converse(self, **kwargs):
+        self.requests.append(kwargs)
+        return {
+            "output": {"message": {"content": [{"text": "Respuesta"}]}},
+            "stopReason": "end_turn",
+        }
 
 
 def load_chat_module():
@@ -40,63 +64,101 @@ def load_chat_module():
         "KB_ID": "kb-test",
         "MODEL_ARN": "model-test",
         "CHAT_LOGS_TABLE": "chat-test",
-        "SECRETS_ARN": "secret-test",
+        "GUARDRAIL_ID": "guardrail-test",
+        "GUARDRAIL_VERSION": "1",
+        "PROMPT_ID": "prompt-test",
+        "PROMPT_VERSION": "1",
     })
     table = FakeTable()
-    bedrock = FakeBedrock()
+    agent = FakeBedrockAgent()
+    retrieval = FakeBedrockRetrieval()
+    runtime = FakeBedrockRuntime()
 
-    def fake_client(name):
-        return bedrock if name == "bedrock-agent-runtime" else unittest.mock.MagicMock()
+    clients = {
+        "bedrock-agent": agent,
+        "bedrock-agent-runtime": retrieval,
+        "bedrock-runtime": runtime,
+        "lambda": MagicMock(),
+    }
 
     module_path = Path(__file__).parents[1] / "lambda" / "chat-handler" / "index.py"
     spec = importlib.util.spec_from_file_location("chat_handler_language_test", module_path)
     module = importlib.util.module_from_spec(spec)
-    with patch("boto3.client", side_effect=fake_client), patch(
+    with patch("boto3.client", side_effect=lambda name: clients[name]), patch(
         "boto3.resource", return_value=FakeDynamoResource(table)
     ):
         spec.loader.exec_module(module)
-    return module, bedrock, table
+    return module, retrieval, runtime, table
 
 
 class ChatLanguageTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.module, cls.bedrock, cls.table = load_chat_module()
+        cls.module, cls.retrieval, cls.runtime, cls.table = load_chat_module()
+
+    def setUp(self):
+        self.retrieval.requests.clear()
+        self.runtime.requests.clear()
+        self.table.items.clear()
 
     def test_spanish_prompt_requires_spanish_only(self):
-        self.module._retrieve_and_generate("¿Cómo me uno?", "guardrails", "es")
-        prompt = self.bedrock.request["retrieveAndGenerateConfiguration"][
-            "knowledgeBaseConfiguration"
-        ]["generationConfiguration"]["promptTemplate"]["textPromptTemplate"]
-        self.assertIn("Respond ONLY in Spanish", prompt)
-        self.assertIn("$search_results$", prompt)
+        chunk = self.module.RetrievedChunk(
+            source="s3://approved/source.pdf",
+            score=0.8,
+            content="Texto aprobado",
+        )
+        prompt = self.module.render_prompt("¿Cómo me uno?", "es", [chunk])
+        self.assertIn("Respond only in natural Spanish", prompt)
+        self.assertIn("Texto aprobado", prompt)
+        self.assertNotIn("$search_results$", prompt)
 
     def test_invalid_language_is_rejected_before_generation(self):
         result = self.module.handle_chat({
             "body": json.dumps({"question": "Hello", "language": "fr"})
         })
         self.assertEqual(result["statusCode"], 400)
-        self.assertIn("language must be", json.loads(result["body"])["error"])
+        self.assertIn("language", json.loads(result["body"])["error"])
+        self.assertEqual(self.retrieval.requests, [])
+        self.assertEqual(self.runtime.requests, [])
 
-    def test_selected_language_is_returned_and_persisted(self):
-        self.table.items.clear()
-        with patch.object(self.module, "get_guardrails", return_value="guardrails"), patch.object(
-            self.module,
-            "_retrieve_and_generate",
-            return_value={"output": {"text": "Respuesta"}, "citations": []},
-        ), patch.object(
-            self.module, "_retrieve_scores", return_value={"retrievalResults": []}
-        ), patch.object(
-            self.module, "check_escalation", return_value=(False, "")
-        ):
-            result = self.module.handle_chat({
-                "body": json.dumps({"question": "¿Cómo me uno?", "language": "es"})
-            })
+    def test_one_retrieval_drives_generation_confidence_and_sources(self):
+        result = self.module.handle_chat({
+            "body": json.dumps({"question": "¿Cómo me uno?", "language": "es"})
+        })
 
         body = json.loads(result["body"])
         self.assertEqual(result["statusCode"], 200)
+        self.assertEqual(len(self.retrieval.requests), 1)
+        self.assertEqual(len(self.runtime.requests), 1)
+        generated_prompt = self.runtime.requests[0]["messages"][0]["content"][0]["text"]
+        self.assertIn("Approved source text", generated_prompt)
+        self.assertEqual(body["sources"], ["s3://approved/source.pdf"])
+        self.assertEqual(body["confidence"], 0.8)
         self.assertEqual(body["language"], "es")
         self.assertEqual(self.table.items[-1]["language"], "es")
+        self.assertEqual(
+            self.table.items[-1]["chunkScores"][0]["source"],
+            body["sources"][0],
+        )
+
+    def test_generation_applies_versioned_guardrail(self):
+        self.module.handle_chat({
+            "body": json.dumps({"question": "What are the requirements?"})
+        })
+
+        guardrail = self.runtime.requests[0]["guardrailConfig"]
+        self.assertEqual(guardrail["guardrailIdentifier"], "guardrail-test")
+        self.assertEqual(guardrail["guardrailVersion"], "1")
+        self.assertEqual(guardrail["trace"], "enabled")
+
+    def test_jinja_does_not_evaluate_syntax_inside_user_input(self):
+        prompt = self.module.render_prompt(
+            "{{ 7 * 7 }}",
+            "en",
+            [],
+        )
+        self.assertIn("{{ 7 * 7 }}", prompt)
+        self.assertNotIn("\n49\n", prompt)
 
 
 if __name__ == "__main__":

@@ -2,10 +2,9 @@ import * as cdk from 'aws-cdk-lib';
 import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
 import * as cognito from 'aws-cdk-lib/aws-cognito';
-import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
 import * as sns from 'aws-cdk-lib/aws-sns';
 import { Construct } from 'constructs';
-import { CONFIG, PREFIX } from '../config/environment';
+import { CONFIG } from '../config/environment';
 
 export class SharedResources extends Construct {
   // S3 Buckets
@@ -19,9 +18,6 @@ export class SharedResources extends Construct {
   // Cognito
   public readonly userPool: cognito.UserPool;
   public readonly userPoolClient: cognito.UserPoolClient;
-
-  // Secrets Manager
-  public readonly guardrailsSecret: secretsmanager.Secret;
 
   // SNS
   public readonly staffAlertTopic: sns.Topic;
@@ -144,19 +140,6 @@ export class SharedResources extends Construct {
         userSrp: true,
       },
       preventUserExistenceErrors: true,
-    });
-
-    // ---------------------------------------------------------------
-    // Secrets Manager
-    // ---------------------------------------------------------------
-
-    this.guardrailsSecret = new secretsmanager.Secret(this, 'GuardrailsSecret', {
-      secretName: `${PREFIX}gcc-system-guardrails`,
-      description: 'System instructions and guardrails for the AI assistant',
-      secretStringValue: cdk.SecretValue.unsafePlainText(JSON.stringify({
-        systemPrompt: 'You are the GCC AI Volunteer Support Assistant. Answer questions using only approved GCC and Scouting America resources. If you are unsure or the question is about safety, youth protection, or emergencies, clearly state your limitations and direct the user to appropriate human contacts.',
-        lastUpdated: new Date().toISOString(),
-      })),
     });
 
     // ---------------------------------------------------------------

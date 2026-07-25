@@ -1,124 +1,318 @@
-"""Chat Handler — public volunteer chat endpoint.
+"""Public volunteer chat API.
 
-Answers questions from the Bedrock Knowledge Base (RetrieveAndGenerate),
-retrieves per-chunk scores in parallel for CI logging, escalates on safety
-keywords or low confidence, and persists each turn to DynamoDB.
+Each answer is generated from one Bedrock Knowledge Base retrieval. The exact
+retrieved chunks drive generation, confidence, citations, and audit logging so
+those views cannot drift apart. Bedrock Guardrails evaluates generation input
+and output, while the production Jinja prompt is read from an immutable Bedrock
+Prompt Management version.
 """
 
 import json
 import os
 import uuid
-from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from decimal import Decimal
+from enum import IntEnum
+from functools import lru_cache
+from pathlib import Path
+from typing import Any, Literal
 
 import boto3
 from boto3.dynamodb.conditions import Key
+from jinja2 import Environment, StrictUndefined
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
-# AWS clients (module-scoped — reused across warm invocations)
-bedrock = boto3.client("bedrock-agent-runtime")
+# AWS clients are module-scoped and reused across warm invocations.
+bedrock_agent = boto3.client("bedrock-agent")
+bedrock_retrieval = boto3.client("bedrock-agent-runtime")
+bedrock_runtime = boto3.client("bedrock-runtime")
 ddb = boto3.resource("dynamodb")
 lambda_client = boto3.client("lambda")
-secrets = boto3.client("secretsmanager")
 
-# Env vars set by the CDK construct
+# Environment set by the CDK construct.
 KB_ID = os.environ["KB_ID"]
 MODEL_ARN = os.environ["MODEL_ARN"]
 CHAT_LOGS_TABLE = os.environ["CHAT_LOGS_TABLE"]
-SECRETS_ARN = os.environ["SECRETS_ARN"]
+GUARDRAIL_ID = os.environ["GUARDRAIL_ID"]
+GUARDRAIL_VERSION = os.environ["GUARDRAIL_VERSION"]
+PROMPT_ID = os.environ["PROMPT_ID"]
+PROMPT_VERSION = os.environ["PROMPT_VERSION"]
 ESCALATION_FUNCTION_ARN = os.environ.get("ESCALATION_FUNCTION_ARN", "")
 CONFIDENCE_THRESHOLD = float(os.environ.get("CONFIDENCE_THRESHOLD", "0.7"))
 SAFETY_KEYWORDS = json.loads(os.environ.get("SAFETY_KEYWORDS", "[]"))
 
 chat_table = ddb.Table(CHAT_LOGS_TABLE)
 
-# Caps the size of a single question to bound prompt size, Bedrock cost, and
-# abuse on the public (unauthenticated) endpoint.
 MAX_QUESTION_LENGTH = 4000
-SUPPORTED_LANGUAGES = {"en", "es"}
-
-DEFAULT_PROMPT = (
-    "You are the GCC AI Volunteer Support Assistant for Scouting America's "
-    "Grand Canyon Council. Answer questions using ONLY approved GCC and "
-    "Scouting America resources provided in the search results. If you cannot "
-    "find the answer in the provided documents, say so clearly. Never make up "
-    "information or present uncertain answers as definitive.\n\n"
-    "EMERGENCY & SAFETY PROTOCOL:\n"
-    "When a user mentions abuse, emergencies, injuries, youth protection, danger, "
-    "or someone being hurt, you MUST:\n"
-    "1. Immediately provide these emergency resources at the TOP of your response:\n"
-    "   - Emergency: Call 911\n"
-    "   - Scouting America Youth Protection Hotline: 1-800-BSA-LOSS (1-800-272-5677)\n"
-    "   - GCC Council Office: (602) 955-7747\n"
-    "   - Childhelp National Child Abuse Hotline: 1-800-422-4453\n"
-    "2. Clearly state that this AI cannot handle emergencies and human intervention is required.\n"
-    "3. Do NOT attempt to provide medical, legal, or safety advice.\n"
-    "4. Direct the user to contact their Scoutmaster, unit leader, or council representative immediately.\n\n"
-    "FORMATTING RULES (MANDATORY):\n"
-    "- Use markdown headers (## or ###) for major topic titles when the response covers a distinct subject.\n"
-    "- Use **bold text** for subsection labels when grouping related items.\n"
-    "- Format grouped or related items as markdown bullet lists (- item) with a blank line before and after.\n"
-    "- If there are 3 or more related items, they MUST be a bulleted list. Never list them as plain consecutive lines.\n"
-    "- Add a blank line between headers/labels and the content that follows.\n"
-    "- Keep source citations as a distinctly styled line at the end, separated by a blank line (e.g., *Source: Document Name*).\n"
-    "- NEVER narrate internal search status or tool behavior to the user. If retrieval returns nothing useful, "
-    "answer from general Scouting knowledge or ask a clarifying question. Do not say things like "
-    "'I notice the search results aren't providing useful content' or 'Based on the search results available'.\n"
-    "- Write in a helpful, conversational tone while maintaining structure."
-)
+MAX_SESSION_ID_LENGTH = 128
+PROMPT_PATH = Path(__file__).parent / "templates" / "chat_prompt.j2"
+jinja = Environment(autoescape=False, undefined=StrictUndefined)
 
 
-# ── Helpers ──────────────────────────────────────────────────────────────────
+class HttpStatus(IntEnum):
+    """HTTP response codes used by the Lambda proxy integration."""
 
-def _to_decimal(x):
-    """DynamoDB stores numbers as Decimal; convert floats on write."""
-    return Decimal(str(x))
-
-
-def _to_float(x):
-    if isinstance(x, Decimal):
-        return float(x)
-    return x
+    OK = 200
+    BAD_REQUEST = 400
+    NOT_FOUND = 404
+    INTERNAL_SERVER_ERROR = 500
 
 
-def _now():
+class StrictModel(BaseModel):
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+
+
+class ErrorResponse(StrictModel):
+    error: str
+
+
+class ChatRequest(StrictModel):
+    question: str = Field(min_length=1, max_length=MAX_QUESTION_LENGTH)
+    session_id: str | None = Field(
+        default=None,
+        alias="sessionId",
+        min_length=1,
+        max_length=MAX_SESSION_ID_LENGTH,
+    )
+    language: Literal["en", "es"] = "en"
+
+    @field_validator("question")
+    @classmethod
+    def normalize_question(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("Question must not be blank")
+        return normalized
+
+
+class FeedbackRequest(StrictModel):
+    session_id: str = Field(alias="sessionId", min_length=1, max_length=MAX_SESSION_ID_LENGTH)
+    message_id: str = Field(alias="messageId", min_length=1, max_length=64)
+    feedback: Literal["positive", "negative"]
+
+
+class RetrievedChunk(StrictModel):
+    source: str
+    score: float = Field(ge=0, le=1)
+    content: str
+
+
+class ChunkScore(StrictModel):
+    source: str
+    score: float
+    chunk_text: str = Field(alias="chunkText")
+
+
+class ChatLog(StrictModel):
+    session_id: str = Field(alias="sessionId")
+    timestamp: str
+    user_id: str = Field(alias="userId")
+    question: str
+    answer: str
+    sources: list[str]
+    confidence: float
+    chunk_scores: list[ChunkScore] = Field(alias="chunkScores")
+    escalated: bool
+    category: str = "general"
+    language: Literal["en", "es"]
+    created_at: str = Field(alias="createdAt")
+
+
+class ChatResponse(StrictModel):
+    answer: str
+    sources: list[str]
+    confidence: float
+    session_id: str = Field(alias="sessionId")
+    message_id: str = Field(alias="messageId")
+    escalated: bool
+    language: Literal["en", "es"]
+
+
+class FeedbackResponse(StrictModel):
+    status: Literal["ok"] = "ok"
+    session_id: str = Field(alias="sessionId")
+    message_id: str = Field(alias="messageId")
+    feedback: Literal["positive", "negative"]
+
+
+class HistoryTurn(StrictModel):
+    question: str | None = None
+    answer: str | None = None
+    sources: list[str] | None = None
+    confidence: float | None = None
+    timestamp: str | None = None
+    escalated: bool | None = None
+    language: Literal["en", "es"] = "en"
+
+
+class HistoryResponse(StrictModel):
+    session_id: str = Field(alias="sessionId")
+    history: list[HistoryTurn]
+
+
+class ProxyResponse(StrictModel):
+    status_code: int = Field(alias="statusCode")
+    headers: dict[str, str]
+    body: str
+
+
+def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
 
 
-def response(status_code: int, body):
-    return {
-        "statusCode": status_code,
-        "headers": {
+def _to_dynamodb(value: Any) -> Any:
+    """Convert typed model data to DynamoDB-compatible values."""
+    if isinstance(value, float):
+        return Decimal(str(value))
+    if isinstance(value, dict):
+        return {key: _to_dynamodb(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_to_dynamodb(item) for item in value]
+    return value
+
+
+def api_response(status: HttpStatus, body: BaseModel | dict[str, Any]) -> dict[str, Any]:
+    if isinstance(body, BaseModel):
+        payload = body.model_dump(by_alias=True, mode="json", exclude_none=True)
+    else:
+        payload = body
+    return ProxyResponse(
+        statusCode=int(status),
+        headers={
             "Content-Type": "application/json",
+            # Replaced with deployment-specific origins in the hosting/CORS slice.
             "Access-Control-Allow-Origin": "*",
         },
-        "body": json.dumps(body),
-    }
+        body=json.dumps(payload, ensure_ascii=False),
+    ).model_dump(by_alias=True)
 
 
-def get_guardrails() -> str:
-    """Reads the system prompt/guardrails from Secrets Manager."""
+def _validation_error(error: ValidationError) -> ErrorResponse:
+    first = error.errors(include_url=False)[0]
+    location = ".".join(str(part) for part in first.get("loc", ()))
+    message = first.get("msg", "Invalid request")
+    return ErrorResponse(error=f"{location}: {message}" if location else message)
+
+
+def _parse_body(event: dict[str, Any]) -> Any:
+    return json.loads(event.get("body") or "{}")
+
+
+@lru_cache(maxsize=1)
+def get_prompt_template() -> str:
+    """Fetch and cache the immutable Prompt Management template."""
     try:
-        secret = secrets.get_secret_value(SecretId=SECRETS_ARN)
-        parsed = json.loads(secret.get("SecretString") or "{}")
-        return parsed.get("systemPrompt") or DEFAULT_PROMPT
-    except Exception:  # noqa: BLE001 - fall back to the default prompt
-        return DEFAULT_PROMPT
+        result = bedrock_agent.get_prompt(
+            promptIdentifier=PROMPT_ID,
+            promptVersion=PROMPT_VERSION,
+        )
+        for variant in result.get("variants", []):
+            text = (
+                (variant.get("templateConfiguration") or {})
+                .get("text", {})
+                .get("text")
+            )
+            if text:
+                return text
+        raise ValueError("Prompt version contains no text variant")
+    except Exception as error:  # noqa: BLE001 - local version is a deployment-safe fallback
+        print(f"Prompt Management lookup failed; using packaged prompt: {error}")
+        return PROMPT_PATH.read_text(encoding="utf-8")
 
 
-def extract_sources(citations) -> list:
-    """Extracts unique source document URIs from Bedrock KB citations."""
-    sources = []
-    for citation in citations or []:
-        for ref in citation.get("retrievedReferences", []) or []:
-            uri = (ref.get("location") or {}).get("s3Location", {}).get("uri")
-            if uri and uri not in sources:
-                sources.append(uri)
-    return sources
+def _language_instruction(language: Literal["en", "es"]) -> str:
+    if language == "es":
+        return (
+            "Respond only in natural Spanish. Translate headings, explanations, and "
+            "list labels. Preserve official names, URLs, phone numbers, and document "
+            "titles when translating them would reduce accuracy."
+        )
+    return "Respond in English."
 
 
-def check_escalation(question: str, answer: str, confidence: float):
-    """Returns (escalate: bool, reason: str) for safety keywords or low confidence."""
+def _retrieval_context(chunks: list[RetrievedChunk]) -> str:
+    if not chunks:
+        return "[No approved source excerpts were retrieved.]"
+
+    sections = []
+    for index, chunk in enumerate(chunks, start=1):
+        # Prevent source text from closing the outer delimiter in the prompt.
+        safe_content = chunk.content.replace("</approved_sources>", "&lt;/approved_sources&gt;")
+        sections.append(
+            f'<source index="{index}" uri="{chunk.source}">\n'
+            f"{safe_content}\n"
+            "</source>"
+        )
+    return "\n\n".join(sections)
+
+
+def render_prompt(
+    question: str,
+    language: Literal["en", "es"],
+    chunks: list[RetrievedChunk],
+) -> str:
+    """Render values as data; Jinja does not evaluate syntax inside those values."""
+    template = jinja.from_string(get_prompt_template())
+    return template.render(
+        language_instruction=_language_instruction(language),
+        retrieval_context=_retrieval_context(chunks),
+        question=question,
+    )
+
+
+def retrieve_chunks(question: str) -> list[RetrievedChunk]:
+    result = bedrock_retrieval.retrieve(
+        knowledgeBaseId=KB_ID,
+        retrievalQuery={"text": question},
+        retrievalConfiguration={
+            "vectorSearchConfiguration": {"numberOfResults": 5},
+        },
+    )
+    chunks = []
+    for item in result.get("retrievalResults", []) or []:
+        chunks.append(RetrievedChunk(
+            source=(item.get("location") or {}).get("s3Location", {}).get("uri", "unknown"),
+            score=float(item.get("score", 0)),
+            content=(item.get("content") or {}).get("text", ""),
+        ))
+    return chunks
+
+
+def generate_answer(
+    question: str,
+    language: Literal["en", "es"],
+    chunks: list[RetrievedChunk],
+) -> tuple[str, str]:
+    """Generate from the same chunks used for confidence and citations."""
+    result = bedrock_runtime.converse(
+        modelId=MODEL_ARN,
+        messages=[{
+            "role": "user",
+            "content": [{"text": render_prompt(question, language, chunks)}],
+        }],
+        inferenceConfig={
+            "maxTokens": 2000,
+            "temperature": 0.1,
+        },
+        guardrailConfig={
+            "guardrailIdentifier": GUARDRAIL_ID,
+            "guardrailVersion": GUARDRAIL_VERSION,
+            "trace": "enabled",
+        },
+    )
+    content = ((result.get("output") or {}).get("message") or {}).get("content", [])
+    answer = "\n".join(block["text"] for block in content if block.get("text")).strip()
+    if not answer:
+        answer = (
+            "No pude encontrar una respuesta respaldada por los recursos aprobados."
+            if language == "es"
+            else "I could not find an answer supported by the approved resources."
+        )
+    return answer, result.get("stopReason", "")
+
+
+def check_escalation(question: str, answer: str, confidence: float) -> tuple[bool, str]:
+    """Return whether staff should review this turn and the audit reason."""
     combined = f"{question} {answer}".lower()
     for keyword in SAFETY_KEYWORDS:
         if keyword.lower() in combined:
@@ -128,245 +322,170 @@ def check_escalation(question: str, answer: str, confidence: float):
     return False, ""
 
 
-def trigger_escalation(payload: dict):
-    """Fires the Escalation Router Lambda asynchronously (best-effort)."""
+def trigger_escalation(payload: dict[str, Any]) -> None:
+    """Invoke the Escalation Router asynchronously on a best-effort basis."""
     if not ESCALATION_FUNCTION_ARN:
         return
     try:
         lambda_client.invoke(
             FunctionName=ESCALATION_FUNCTION_ARN,
-            InvocationType="Event",  # async — don't wait for a response
+            InvocationType="Event",
             Payload=json.dumps(payload).encode("utf-8"),
         )
-    except Exception as err:  # noqa: BLE001
-        print(f"Failed to trigger escalation: {err}")
+    except Exception as error:  # noqa: BLE001 - answering should not depend on alert delivery
+        print(f"Failed to trigger escalation: {error}")
 
 
-# ── Route handlers ─────────────────────────────────────────────────────────
-
-def _retrieve_and_generate(question: str, guardrails: str, language: str):
-    language_instruction = (
-        "IMPORTANT LANGUAGE REQUIREMENT: Respond ONLY in Spanish. Translate all "
-        "explanations, headings, list labels, and source labels into natural Spanish. "
-        "Keep official organization names, URLs, phone numbers, and document titles "
-        "unchanged when translation would make them inaccurate. Do not switch to "
-        "English unless the user explicitly asks for an English name or quotation."
-        if language == "es"
-        else
-        "IMPORTANT LANGUAGE REQUIREMENT: Respond in English."
-    )
-    prompt_template = (
-        f"{guardrails}\n\n"
-        f"{language_instruction}\n\n"
-        "Search results:\n$search_results$\n\n"
-        "User question: $query$\n\n"
-        "Answer using the provided search results. Format your response using proper markdown:\n"
-        "- Use ## headers for major topics\n"
-        "- Use **bold** for subsection labels\n"
-        "- Use bullet lists (- item) for 3+ related items\n"
-        "- Add blank lines between sections\n"
-        "- Place source citations at the end as: *Source: Document Name*\n"
-        "- Never mention search results, retrieval status, or internal tool behavior\n"
-        "- If the search results don't contain the answer, respond helpfully from general Scouting knowledge or ask a clarifying question\n"
-        "Respond in a clear, conversational tone."
-    )
-    return bedrock.retrieve_and_generate(
-        input={"text": question},
-        retrieveAndGenerateConfiguration={
-            "type": "KNOWLEDGE_BASE",
-            "knowledgeBaseConfiguration": {
-                "knowledgeBaseId": KB_ID,
-                "modelArn": MODEL_ARN,
-                "generationConfiguration": {
-                    "promptTemplate": {"textPromptTemplate": prompt_template},
-                },
-            },
-        },
-    )
-
-
-def _retrieve_scores(question: str):
+def handle_chat(event: dict[str, Any]) -> dict[str, Any]:
     try:
-        return bedrock.retrieve(
-            knowledgeBaseId=KB_ID,
-            retrievalQuery={"text": question},
-            retrievalConfiguration={
-                "vectorSearchConfiguration": {"numberOfResults": 5},
-            },
-        )
-    except Exception as err:  # noqa: BLE001 - best-effort, shouldn't block the answer
-        print(f"Failed to retrieve scores: {err}")
-        return None
-
-
-def handle_chat(event):
-    try:
-        body = json.loads(event.get("body") or "{}")
+        request = ChatRequest.model_validate(_parse_body(event))
     except json.JSONDecodeError:
-        return response(400, {"error": "Request body must be valid JSON"})
+        return api_response(
+            HttpStatus.BAD_REQUEST,
+            ErrorResponse(error="Request body must be valid JSON"),
+        )
+    except ValidationError as error:
+        return api_response(HttpStatus.BAD_REQUEST, _validation_error(error))
 
-    raw_question = body.get("question")
-    existing_session_id = body.get("sessionId")
-    language = body.get("language", "en")
-
-    # userId from Cognito claims if present (public endpoint → usually anonymous)
     authz = (event.get("requestContext") or {}).get("authorizer") or {}
     user_id = (authz.get("claims") or {}).get("sub", "anonymous")
-
-    if not isinstance(raw_question, str) or not raw_question.strip():
-        return response(400, {"error": "Question is required and must be a non-empty string"})
-    question = raw_question.strip()
-    if len(question) > MAX_QUESTION_LENGTH:
-        return response(400, {"error": f"Question exceeds the maximum length of {MAX_QUESTION_LENGTH} characters"})
-
-    if existing_session_id is not None and not isinstance(existing_session_id, str):
-        return response(400, {"error": "sessionId must be a string"})
-    if language not in SUPPORTED_LANGUAGES:
-        return response(400, {"error": "language must be 'en' or 'es'"})
-
-    session_id = existing_session_id or str(uuid.uuid4())
+    session_id = request.session_id or str(uuid.uuid4())
     timestamp = _now()
 
-    guardrails = get_guardrails()
+    chunks = retrieve_chunks(request.question)
+    answer, stop_reason = generate_answer(request.question, request.language, chunks)
 
-    # Generation and score retrieval are independent — RetrieveAndGenerate
-    # doesn't return retrieval scores, so we run both Bedrock calls in parallel
-    # to avoid paying two sequential round-trips.
-    with ThreadPoolExecutor(max_workers=2) as pool:
-        gen_future = pool.submit(_retrieve_and_generate, question, guardrails, language)
-        scores_future = pool.submit(_retrieve_scores, question)
-        kb_response = gen_future.result()
-        retrieve_response = scores_future.result()
-
-    fallback_answer = (
-        "No pude encontrar una respuesta a tu pregunta."
-        if language == "es"
-        else "I could not find an answer to your question."
+    sources = list(dict.fromkeys(chunk.source for chunk in chunks if chunk.source != "unknown"))
+    chunk_scores = [
+        ChunkScore(
+            source=chunk.source,
+            score=chunk.score,
+            chunkText=chunk.content[:200],
+        )
+        for chunk in chunks
+    ]
+    confidence = (
+        sum(chunk.score for chunk in chunks) / len(chunks)
+        if chunks
+        else 0.3
     )
-    answer = (kb_response.get("output") or {}).get("text") or fallback_answer
-    citations = kb_response.get("citations", [])
-    sources = extract_sources(citations)
 
-    chunk_scores = []
-    for result in (retrieve_response or {}).get("retrievalResults", []) or []:
-        chunk_scores.append({
-            "source": (result.get("location") or {}).get("s3Location", {}).get("uri", "unknown"),
-            "score": result.get("score", 0),
-            "chunkText": (result.get("content") or {}).get("text", "")[:200],
-        })
+    escalate, reason = check_escalation(request.question, answer, confidence)
+    if stop_reason == "guardrail_intervened":
+        escalate = True
+        reason = "Bedrock Guardrail intervened"
 
-    # Confidence = average of chunk scores; falls back to 0.3 when unavailable.
-    if chunk_scores:
-        confidence = sum(s["score"] for s in chunk_scores) / len(chunk_scores)
-    else:
-        confidence = 0.3
-
-    escalate, reason = check_escalation(question, answer, confidence)
     if escalate:
         trigger_escalation({
             "sessionId": session_id,
             "userId": user_id,
-            "question": question,
+            "question": request.question,
             "answer": answer,
             "reason": reason,
             "confidence": confidence,
-            "language": language,
+            "language": request.language,
         })
 
-    # DynamoDB requires Decimal for floats — round-trip through the JSON encoder.
-    item = json.loads(json.dumps({
-        "sessionId": session_id,
-        "timestamp": timestamp,
-        "userId": user_id,
-        "question": question,
-        "answer": answer,
-        "sources": sources,
-        "confidence": confidence,
-        "chunkScores": chunk_scores,
-        "escalated": escalate,
-        "category": "general",
-        "language": language,
-        "createdAt": timestamp,
-    }), parse_float=_to_decimal)
-    chat_table.put_item(Item=item)
+    log = ChatLog(
+        sessionId=session_id,
+        timestamp=timestamp,
+        userId=user_id,
+        question=request.question,
+        answer=answer,
+        sources=sources,
+        confidence=confidence,
+        chunkScores=chunk_scores,
+        escalated=escalate,
+        language=request.language,
+        createdAt=timestamp,
+    )
+    chat_table.put_item(Item=_to_dynamodb(log.model_dump(by_alias=True)))
 
-    return response(200, {
-        "answer": answer,
-        "sources": sources,
-        "confidence": confidence,
-        "sessionId": session_id,
-        # messageId is the turn's DynamoDB sort key (timestamp). The client
-        # sends it back on POST /chat/feedback to attach a rating to this turn.
-        "messageId": timestamp,
-        "escalated": escalate,
-        "language": language,
-    })
+    return api_response(
+        HttpStatus.OK,
+        ChatResponse(
+            answer=answer,
+            sources=sources,
+            confidence=confidence,
+            sessionId=session_id,
+            messageId=timestamp,
+            escalated=escalate,
+            language=request.language,
+        ),
+    )
 
 
-def record_feedback(event):
-    """Attach a thumbs up/down rating to a specific chat turn.
-
-    Body: { sessionId, messageId, feedback } where messageId is the turn's
-    timestamp (its DynamoDB sort key) returned by POST /chat. Idempotent —
-    re-rating overwrites the previous value.
-    """
+def record_feedback(event: dict[str, Any]) -> dict[str, Any]:
+    """Attach an idempotent thumbs-up/down rating to an existing chat turn."""
     try:
-        body = json.loads(event.get("body") or "{}")
+        request = FeedbackRequest.model_validate(_parse_body(event))
     except json.JSONDecodeError:
-        return response(400, {"error": "Request body must be valid JSON"})
-
-    session_id = body.get("sessionId")
-    message_id = body.get("messageId")
-    feedback = body.get("feedback")
-
-    if not isinstance(session_id, str) or not session_id:
-        return response(400, {"error": "sessionId is required"})
-    if not isinstance(message_id, str) or not message_id:
-        return response(400, {"error": "messageId is required"})
-    if feedback not in ("positive", "negative"):
-        return response(400, {"error": "feedback must be 'positive' or 'negative'"})
+        return api_response(
+            HttpStatus.BAD_REQUEST,
+            ErrorResponse(error="Request body must be valid JSON"),
+        )
+    except ValidationError as error:
+        return api_response(HttpStatus.BAD_REQUEST, _validation_error(error))
 
     try:
         chat_table.update_item(
-            Key={"sessionId": session_id, "timestamp": message_id},
+            Key={"sessionId": request.session_id, "timestamp": request.message_id},
             UpdateExpression="SET feedback = :f",
-            # Only rate an existing turn — don't create a phantom item.
             ConditionExpression="attribute_exists(sessionId)",
-            ExpressionAttributeValues={":f": feedback},
+            ExpressionAttributeValues={":f": request.feedback},
         )
     except ddb.meta.client.exceptions.ConditionalCheckFailedException:
-        return response(404, {"error": "Conversation turn not found"})
+        return api_response(
+            HttpStatus.NOT_FOUND,
+            ErrorResponse(error="Conversation turn not found"),
+        )
 
-    return response(200, {"status": "ok", "sessionId": session_id, "messageId": message_id, "feedback": feedback})
+    return api_response(
+        HttpStatus.OK,
+        FeedbackResponse(
+            sessionId=request.session_id,
+            messageId=request.message_id,
+            feedback=request.feedback,
+        ),
+    )
 
 
-def get_history(event):
+def get_history(event: dict[str, Any]) -> dict[str, Any]:
     session_id = (event.get("pathParameters") or {}).get("sessionId")
-    if not session_id:
-        return response(400, {"error": "sessionId is required"})
+    if not isinstance(session_id, str) or not session_id:
+        return api_response(
+            HttpStatus.BAD_REQUEST,
+            ErrorResponse(error="sessionId is required"),
+        )
+    if len(session_id) > MAX_SESSION_ID_LENGTH:
+        return api_response(
+            HttpStatus.BAD_REQUEST,
+            ErrorResponse(error=f"sessionId must be at most {MAX_SESSION_ID_LENGTH} characters"),
+        )
 
     result = chat_table.query(
         KeyConditionExpression=Key("sessionId").eq(session_id),
-        ScanIndexForward=True,  # oldest first
+        ScanIndexForward=True,
     )
     history = [
-        {
-            "question": item.get("question"),
-            "answer": item.get("answer"),
-            "sources": item.get("sources"),
-            "confidence": _to_float(item.get("confidence")),
-            "timestamp": item.get("timestamp"),
-            "escalated": item.get("escalated"),
-            "language": item.get("language", "en"),
-        }
+        HistoryTurn(
+            question=item.get("question"),
+            answer=item.get("answer"),
+            sources=item.get("sources"),
+            confidence=float(item["confidence"]) if item.get("confidence") is not None else None,
+            timestamp=item.get("timestamp"),
+            escalated=item.get("escalated"),
+            language=item.get("language", "en"),
+        )
         for item in result.get("Items", [])
     ]
-    return response(200, {"sessionId": session_id, "history": history})
+    return api_response(
+        HttpStatus.OK,
+        HistoryResponse(sessionId=session_id, history=history),
+    )
 
 
-# ── Entrypoint ───────────────────────────────────────────────────────────────
-
-def handler(event, context):
+def handler(event: dict[str, Any], _context: Any) -> dict[str, Any]:
     http_method = event.get("httpMethod")
     resource = event.get("resource") or ""
 
@@ -377,7 +496,13 @@ def handler(event, context):
             return record_feedback(event)
         if http_method == "POST":
             return handle_chat(event)
-        return response(400, {"error": "Invalid route"})
-    except Exception as err:  # noqa: BLE001
-        print(f"Chat handler error: {err}")
-        return response(500, {"error": "Internal server error"})
+        return api_response(
+            HttpStatus.BAD_REQUEST,
+            ErrorResponse(error="Invalid route"),
+        )
+    except Exception as error:  # noqa: BLE001 - avoid leaking implementation details
+        print(f"Chat handler error: {error}")
+        return api_response(
+            HttpStatus.INTERNAL_SERVER_ERROR,
+            ErrorResponse(error="Internal server error"),
+        )
