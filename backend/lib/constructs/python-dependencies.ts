@@ -20,11 +20,11 @@ export class PythonDependencies extends Construct {
 
     const dependencyDir = path.join(__dirname, '../../lambda/python-dependencies');
     const requirementsFile = path.join(dependencyDir, 'requirements.txt');
-
-    this.layer = new lambda.LayerVersion(this, 'Layer', {
-      description: 'Shared Jinja2 and Pydantic dependencies for GCC Python Lambdas',
-      compatibleRuntimes: [lambda.Runtime.PYTHON_3_13],
-      code: lambda.Code.fromAsset(dependencyDir, {
+    const code = process.env.CDK_TEST_SKIP_PYTHON_BUNDLING === 'true'
+      // Unit tests only inspect the synthesized layer reference. Avoid making
+      // deterministic template tests depend on PyPI availability.
+      ? lambda.Code.fromAsset(dependencyDir)
+      : lambda.Code.fromAsset(dependencyDir, {
         assetHashType: cdk.AssetHashType.SOURCE,
         bundling: {
           image: lambda.Runtime.PYTHON_3_13.bundlingImage,
@@ -54,7 +54,12 @@ export class PythonDependencies extends Construct {
             },
           },
         },
-      }),
+      });
+
+    this.layer = new lambda.LayerVersion(this, 'Layer', {
+      description: 'Shared Jinja2 and Pydantic dependencies for GCC Python Lambdas',
+      compatibleRuntimes: [lambda.Runtime.PYTHON_3_13],
+      code,
     });
   }
 }

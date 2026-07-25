@@ -12,6 +12,8 @@ import { DashboardApi } from './constructs/dashboard-api';
 import { FrontendHosting } from './constructs/frontend-hosting';
 import { AiSafety } from './constructs/ai-safety';
 import { PythonDependencies } from './constructs/python-dependencies';
+import { ChatArchive } from './constructs/chat-archive';
+import { Observability } from './constructs/observability';
 
 export class ScoutingAmericaChatbot extends cdk.Stack {
   constructor(scope: Construct, id: string, props?: cdk.StackProps) {
@@ -55,7 +57,7 @@ export class ScoutingAmericaChatbot extends cdk.Stack {
     // ---------------------------------------------------------------
     // Chat Handler (processes volunteer questions via Bedrock KB)
     // ---------------------------------------------------------------
-    new ChatHandler(this, 'ChatHandler', {
+    const chatHandler = new ChatHandler(this, 'ChatHandler', {
       chatLogsTable: sharedResources.chatLogsTable,
       dependenciesLayer: pythonDependencies.layer,
       guardrailId: aiSafety.guardrailId,
@@ -80,12 +82,18 @@ export class ScoutingAmericaChatbot extends cdk.Stack {
       dataSourceId: knowledgeBase.dataSourceId,
     });
 
-    // Add S3 event notification to trigger Doc Processor on uploads
+    // Buffer uploads in SQS; the worker consumes one at a time so document
+    // processing cannot exhaust account Lambda concurrency.
     sharedResources.documentStoreBucket.addEventNotification(
       cdk.aws_s3.EventType.OBJECT_CREATED,
-      new cdk.aws_s3_notifications.LambdaDestination(docProcessor.function),
+      new cdk.aws_s3_notifications.SqsDestination(docProcessor.processingQueue),
       { prefix: 'uploads/' },
     );
+
+    const chatArchive = new ChatArchive(this, 'ChatArchive', {
+      chatLogsTable: sharedResources.chatLogsTable,
+      archiveBucket: sharedResources.chatArchiveBucket,
+    });
 
     // ---------------------------------------------------------------
     // Admin Dashboard API (metrics + document management, Cognito-authed)
@@ -107,6 +115,23 @@ export class ScoutingAmericaChatbot extends cdk.Stack {
     // static export here and invalidates the distribution.
     // ---------------------------------------------------------------
     const frontendHosting = new FrontendHosting(this, 'FrontendHosting');
+
+    new Observability(this, 'Observability', {
+      alertTopic: sharedResources.staffAlertTopic,
+      functions: [
+        chatHandler.function,
+        dashboardApi.function,
+        docProcessor.function,
+        escalationRouter.function,
+        chatArchive.function,
+      ],
+      deadLetterQueues: [
+        docProcessor.deadLetterQueue,
+        escalationRouter.deadLetterQueue,
+        chatArchive.deadLetterQueue,
+      ],
+      documentQueue: docProcessor.processingQueue,
+    });
 
     // ---------------------------------------------------------------
     // Stack Outputs
@@ -139,6 +164,11 @@ export class ScoutingAmericaChatbot extends cdk.Stack {
     new cdk.CfnOutput(this, 'KnowledgeBaseBucket', {
       value: sharedResources.knowledgeBaseBucket.bucketName,
       description: 'S3 Bucket for KB processed chunks',
+    });
+
+    new cdk.CfnOutput(this, 'ChatArchiveBucket', {
+      value: sharedResources.chatArchiveBucket.bucketName,
+      description: 'Object-locked S3 archive of delivered chat turns',
     });
 
     new cdk.CfnOutput(this, 'FrontendBucket', {

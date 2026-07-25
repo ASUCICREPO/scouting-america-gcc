@@ -3,6 +3,7 @@ import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
 import * as cognito from 'aws-cdk-lib/aws-cognito';
 import * as sns from 'aws-cdk-lib/aws-sns';
+import * as subscriptions from 'aws-cdk-lib/aws-sns-subscriptions';
 import { Construct } from 'constructs';
 import { CONFIG } from '../config/environment';
 
@@ -10,6 +11,7 @@ export class SharedResources extends Construct {
   // S3 Buckets
   public readonly documentStoreBucket: s3.Bucket;
   public readonly knowledgeBaseBucket: s3.Bucket;
+  public readonly chatArchiveBucket: s3.Bucket;
 
   // DynamoDB Tables
   public readonly chatLogsTable: dynamodb.Table;
@@ -60,6 +62,20 @@ export class SharedResources extends Construct {
       enforceSSL: true,
     });
 
+    // Immutable chat audit archive. DynamoDB remains the live query store for
+    // history/admin screens; its stream is copied here for lower-cost retention
+    // and future Athena/Glue analytics.
+    this.chatArchiveBucket = new s3.Bucket(this, 'ChatArchiveBucket', {
+      bucketName: CONFIG.CHAT_ARCHIVE_BUCKET,
+      encryption: s3.BucketEncryption.S3_MANAGED,
+      versioned: true,
+      objectLockEnabled: true,
+      objectLockDefaultRetention: s3.ObjectLockRetention.governance(cdk.Duration.days(365)),
+      blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
+      removalPolicy: cdk.RemovalPolicy.RETAIN,
+      enforceSSL: true,
+    });
+
     // Note: the S3 -> Doc Processor event notification is wired in backend-stack.ts
     // after both the bucket and the Doc Processor Lambda exist.
 
@@ -73,6 +89,7 @@ export class SharedResources extends Construct {
       partitionKey: { name: 'sessionId', type: dynamodb.AttributeType.STRING },
       sortKey: { name: 'timestamp', type: dynamodb.AttributeType.STRING },
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+      stream: dynamodb.StreamViewType.NEW_IMAGE,
       removalPolicy: cdk.RemovalPolicy.RETAIN,
       pointInTimeRecoverySpecification: { pointInTimeRecoveryEnabled: true },
     });
@@ -150,5 +167,8 @@ export class SharedResources extends Construct {
       topicName: CONFIG.STAFF_ALERT_TOPIC,
       displayName: 'GCC Staff Alerts - Escalation Notifications',
     });
+    this.staffAlertTopic.addSubscription(
+      new subscriptions.EmailSubscription(CONFIG.STAFF_EMAIL),
+    );
   }
 }

@@ -16,6 +16,7 @@ export const CONFIG = {
   // S3 Buckets
   DOCUMENT_STORE_BUCKET: `${PREFIX}gcc-document-store`,
   KNOWLEDGE_BASE_BUCKET: `${PREFIX}gcc-knowledge-base-data`,
+  CHAT_ARCHIVE_BUCKET: `${PREFIX}gcc-chat-audit-archive`,
 
   // S3 Vectors (Bedrock KB storage)
   VECTOR_BUCKET: `${PREFIX}gcc-volunteer-vectors`,

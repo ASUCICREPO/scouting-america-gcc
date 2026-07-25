@@ -5,6 +5,7 @@ import { ScoutingAmericaChatbot } from '../lib/backend-stack';
 let template: Template;
 
 beforeAll(() => {
+  process.env.CDK_TEST_SKIP_PYTHON_BUNDLING = 'true';
   const app = new cdk.App();
   const stack = new ScoutingAmericaChatbot(app, 'TestStack', {
     env: { account: '123456789012', region: 'us-east-1' },
@@ -96,6 +97,68 @@ describe('Grounded response generation controls', () => {
 
   test('does not store system prompts in Secrets Manager', () => {
     template.resourceCountIs('AWS::SecretsManager::Secret', 0);
+  });
+});
+
+describe('Bounded ingestion and immutable audit storage', () => {
+  test('buffers document uploads in SQS with bounded worker concurrency', () => {
+    template.hasResourceProperties('AWS::Lambda::Function', {
+      Description: 'Copies uploaded documents to KB bucket and triggers Bedrock ingestion',
+      ReservedConcurrentExecutions: 2,
+    });
+    template.hasResourceProperties('AWS::Lambda::EventSourceMapping', {
+      BatchSize: 1,
+      ScalingConfig: { MaximumConcurrency: 2 },
+    });
+    template.hasResourceProperties('Custom::S3BucketNotifications', {
+      NotificationConfiguration: {
+        QueueConfigurations: Match.arrayWith([
+          Match.objectLike({
+            Events: ['s3:ObjectCreated:*'],
+            Filter: {
+              Key: {
+                FilterRules: Match.arrayWith([
+                  { Name: 'prefix', Value: 'uploads/' },
+                ]),
+              },
+            },
+          }),
+        ]),
+      },
+    });
+  });
+
+  test('archives DynamoDB inserts in a one-year object-locked S3 bucket', () => {
+    template.hasResourceProperties('AWS::DynamoDB::Table', {
+      StreamSpecification: { StreamViewType: 'NEW_IMAGE' },
+    });
+    template.hasResourceProperties('AWS::S3::Bucket', {
+      ObjectLockEnabled: true,
+      ObjectLockConfiguration: {
+        ObjectLockEnabled: 'Enabled',
+        Rule: {
+          DefaultRetention: {
+            Days: 365,
+            Mode: 'GOVERNANCE',
+          },
+        },
+      },
+      VersioningConfiguration: { Status: 'Enabled' },
+    });
+  });
+});
+
+describe('Failure observability', () => {
+  test('alarms on every application dead-letter queue', () => {
+    template.resourceCountIs('AWS::CloudWatch::Alarm', 3);
+    template.resourceCountIs('AWS::CloudWatch::Dashboard', 1);
+  });
+
+  test('subscribes the configured staff mailbox to alerts', () => {
+    template.hasResourceProperties('AWS::SNS::Subscription', {
+      Protocol: 'email',
+      Endpoint: 'staff@grandcanyonbsa.org',
+    });
   });
 });
 

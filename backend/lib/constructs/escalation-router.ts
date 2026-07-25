@@ -19,13 +19,14 @@ export interface EscalationRouterProps {
 export class EscalationRouter extends Construct {
   // Expose the function so Chat Handler can reference its ARN
   public readonly function: lambda.Function;
+  public readonly deadLetterQueue: sqs.Queue;
 
   constructor(scope: Construct, id: string, props: EscalationRouterProps) {
     super(scope, id);
 
     // Dead-letter queue: this function is invoked asynchronously by the chat
     // handler, so failed events (after retries) land here instead of being lost.
-    const deadLetterQueue = new sqs.Queue(this, 'EscalationRouterDLQ', {
+    this.deadLetterQueue = new sqs.Queue(this, 'EscalationRouterDLQ', {
       queueName: `${PREFIX}GCC-EscalationRouter-DLQ`,
       encryption: sqs.QueueEncryption.SQS_MANAGED,
       enforceSSL: true,
@@ -45,7 +46,7 @@ export class EscalationRouter extends Construct {
         STAFF_EMAIL: CONFIG.STAFF_EMAIL,
         ANALYTICS_TABLE: props.analyticsLogsTable.tableName,
       },
-      deadLetterQueue,
+      deadLetterQueue: this.deadLetterQueue,
       // Escalation alerts reference the volunteer's question/answer, so bound
       // how long those logs are retained.
       logGroup: new logs.LogGroup(this, 'EscalationRouterLogs', {
