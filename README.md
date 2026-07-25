@@ -94,7 +94,6 @@ Always use the same `RESOURCE_PREFIX` when updating an existing prefixed environ
 | [Development Guide](./docs/developmentGuide.md) | Developers | Local setup, tests, branch workflow, and code organization |
 | [Modification Guide](./docs/modificationGuide.md) | Maintainers | Safely extend the UI, translations, APIs, model, and data layer |
 | [Deployment Guide](./docs/deploymentGuide.md) | Operators | Prefix-aware deployment, verification, troubleshooting, and cleanup |
-| [IAM Policies Reference](./docs/iamPolicies.md) | Client cloud administrators and operators | Deployment identity, CDK bootstrap, runtime roles, and pre-deployment checklist |
 | [API Documentation](./docs/APIDoc.md) | Integrators | Public chat and protected dashboard API contracts |
 | [Architecture Deep Dive](./docs/architectureDeepDive.md) | Engineers and reviewers | AWS components, data flows, security, scaling, and decisions |
 | [Project Closure](./docs/projectClosure.md) | Client and delivery teams | Scope, deliverables, implementation summary, and future work |
