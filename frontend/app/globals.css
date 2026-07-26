@@ -641,6 +641,7 @@ body {
 
 .input-field {
   flex: 1;
+  min-width: 0;
   border: none;
   background: transparent;
   font-size: 14px;
@@ -664,6 +665,7 @@ body {
   display: flex;
   gap: 8px;
   align-items: center;
+  margin-right: 4px;
 }
 
 .input-btn {
