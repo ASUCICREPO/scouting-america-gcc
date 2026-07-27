@@ -77,8 +77,8 @@ export interface DocumentItem {
   status?: DocumentStatus;
 }
 
-export async function getSummary(): Promise<SummaryData> {
-  return fetchApi('/dashboard/summary');
+export async function getSummary(days: number = 90): Promise<SummaryData> {
+  return fetchApi('/dashboard/summary', { days: String(days) });
 }
 
 export async function getConversations(period: string = 'day'): Promise<{ data: ConversationPoint[]; total: number }> {

@@ -169,6 +169,7 @@ export default function Home() {
 
   const handleNewChat = () => {
     handleEndChat();
+    setCurrentView("chat");
     setIsDrawerOpen(false);
   };
 

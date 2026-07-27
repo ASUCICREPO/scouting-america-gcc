@@ -214,9 +214,17 @@ def scan_with_time_filter(table, days_back=None):
     return items
 
 
-def query_by_event_type(event_type: str):
+def query_by_event_type(event_type: str, days_back: int | None = None):
     items = []
-    kwargs = {"KeyConditionExpression": Key("eventType").eq(event_type)}
+    key_expr = Key("eventType").eq(event_type)
+    if days_back:
+        cutoff = (
+            (datetime.now(timezone.utc) - timedelta(days=days_back))
+            .isoformat(timespec="milliseconds")
+            .replace("+00:00", "Z")
+        )
+        key_expr = key_expr & Key("timestamp").gte(cutoff)
+    kwargs = {"KeyConditionExpression": key_expr}
     while True:
         resp = analytics_table.query(**kwargs)
         items.extend(resp.get("Items", []))
@@ -263,9 +271,12 @@ def aggregate_faq(chat_items):
 # ── Route handlers ─────────────────────────────────────────────────────────
 
 def get_summary(event):
-    chat_items = scan_with_time_filter(chat_table, 90)
-    escalation_items = query_by_event_type("escalation")
-    doc_items = query_by_event_type("document_processing")
+    days = int(_qs(event, "days", "90"))
+    if days not in (1, 7, 30, 90):
+        days = 90
+    chat_items = scan_with_time_filter(chat_table, days)
+    escalation_items = query_by_event_type("escalation", days)
+    doc_items = query_by_event_type("document_processing", days)
 
     total_chats = len(chat_items)
     unique_sessions = len({i.get("sessionId") for i in chat_items})

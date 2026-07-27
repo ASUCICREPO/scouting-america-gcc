@@ -4,7 +4,7 @@ import { useEffect, useState, useRef, useSyncExternalStore } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import { isAuthenticated, logout, getUser } from '@/lib/dashboard/auth';
 import { useSettings } from '@/lib/dashboard/settings-context';
-import { LayoutDashboard, FileText, Bell, User, LogOut, Settings } from 'lucide-react';
+import { LayoutDashboard, FileText, User, LogOut, Settings } from 'lucide-react';
 import { useLanguage } from '@/context/LanguageContext';
 import LanguageSwitcher from '@/components/LanguageSwitcher';
 
@@ -79,10 +79,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           <div className="dash-header-spacer" />
           <div className="dash-header-right">
             <LanguageSwitcher compact className="dashboard-language-switcher" />
-            <button className="dash-header-icon-btn" aria-label={t.dashboard.notifications} title={t.dashboard.notifications}>
-              <Bell size={16} />
-              <span className="dash-notification-badge" />
-            </button>
             <div className="dash-profile-wrapper" ref={profileRef}>
               <button className="dash-avatar-btn" onClick={() => setShowProfileMenu(!showProfileMenu)}>
                 {settings.profileImage ? (
