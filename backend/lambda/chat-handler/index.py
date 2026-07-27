@@ -144,7 +144,31 @@ def trigger_escalation(payload: dict):
 
 # ── Route handlers ─────────────────────────────────────────────────────────
 
-def _retrieve_and_generate(question: str, guardrails: str, language: str):
+MAX_HISTORY_TURNS = 5
+
+
+def _load_conversation_history(session_id):
+    """Load the last N turns from DynamoDB for in-context conversation memory."""
+    try:
+        result = chat_table.query(
+            KeyConditionExpression=Key("sessionId").eq(session_id),
+            ScanIndexForward=False,  # newest first
+            Limit=MAX_HISTORY_TURNS,
+        )
+        items = list(reversed(result.get("Items", [])))  # back to chronological
+        history = []
+        for item in items:
+            q = item.get("question", "")
+            a = item.get("answer", "")
+            if q and a:
+                history.append(f"User: {q}\nAssistant: {a}")
+        return "\n\n".join(history)
+    except Exception as err:  # noqa: BLE001 - history is best-effort
+        print(f"Failed to load conversation history: {err}")
+        return ""
+
+
+def _retrieve_and_generate(question: str, guardrails: str, language: str, conversation_history: str = ""):
     language_instruction = (
         "IMPORTANT LANGUAGE REQUIREMENT: Respond ONLY in Spanish. Translate all "
         "explanations, headings, list labels, and source labels into natural Spanish. "
@@ -158,6 +182,13 @@ def _retrieve_and_generate(question: str, guardrails: str, language: str):
     prompt_template = (
         f"{guardrails}\n\n"
         f"{language_instruction}\n\n"
+    )
+    if conversation_history:
+        prompt_template += (
+            "CONVERSATION HISTORY (use this for context about what the user has already asked):\n"
+            f"{conversation_history}\n\n"
+        )
+    prompt_template += (
         "Search results:\n$search_results$\n\n"
         "User question: $query$\n\n"
         "Answer using the provided search results. Format your response using proper markdown:\n"
@@ -167,6 +198,7 @@ def _retrieve_and_generate(question: str, guardrails: str, language: str):
         "- Add blank lines between sections\n"
         "- Place source citations at the end as: *Source: Document Name*\n"
         "- Never mention search results, retrieval status, or internal tool behavior\n"
+        "- Do NOT start the response with a heading that repeats or summarizes the user's question\n"
         "- If the search results don't contain the answer, respond helpfully from general Scouting knowledge or ask a clarifying question\n"
         "Respond in a clear, conversational tone."
     )
@@ -229,11 +261,16 @@ def handle_chat(event):
 
     guardrails = get_guardrails()
 
+    # Load conversation history for follow-up context
+    conversation_history = ""
+    if existing_session_id:
+        conversation_history = _load_conversation_history(session_id)
+
     # Generation and score retrieval are independent — RetrieveAndGenerate
     # doesn't return retrieval scores, so we run both Bedrock calls in parallel
     # to avoid paying two sequential round-trips.
     with ThreadPoolExecutor(max_workers=2) as pool:
-        gen_future = pool.submit(_retrieve_and_generate, question, guardrails, language)
+        gen_future = pool.submit(_retrieve_and_generate, question, guardrails, language, conversation_history)
         scores_future = pool.submit(_retrieve_scores, question)
         kb_response = gen_future.result()
         retrieve_response = scores_future.result()
