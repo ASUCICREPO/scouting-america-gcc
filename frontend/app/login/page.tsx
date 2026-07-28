@@ -7,6 +7,7 @@ import { Mail, Lock, Eye, EyeOff, ArrowLeft } from 'lucide-react';
 import { useLanguage } from '@/context/LanguageContext';
 import LanguageSwitcher from '@/components/LanguageSwitcher';
 import { formatText } from '@/lib/i18n';
+import { COGNITO_CONFIG } from '@/lib/config';
 import '../dashboard/dashboard.css';
 
 export default function LoginPage() {
@@ -54,14 +55,14 @@ export default function LoginPage() {
     setForgotSuccess(false);
     setForgotLoading(true);
     try {
-      const res = await fetch(`https://cognito-idp.us-east-1.amazonaws.com/`, {
+      const res = await fetch(`https://cognito-idp.${COGNITO_CONFIG.region}.amazonaws.com/`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/x-amz-json-1.1',
           'X-Amz-Target': 'AWSCognitoIdentityProviderService.ForgotPassword',
         },
         body: JSON.stringify({
-          ClientId: process.env.NEXT_PUBLIC_CLIENT_ID || 'REPLACE_AFTER_CDK_DEPLOY',
+          ClientId: COGNITO_CONFIG.clientId,
           Username: forgotEmail,
         }),
       });
@@ -85,14 +86,14 @@ export default function LoginPage() {
     setForgotSuccess(false);
     setForgotLoading(true);
     try {
-      const res = await fetch(`https://cognito-idp.us-east-1.amazonaws.com/`, {
+      const res = await fetch(`https://cognito-idp.${COGNITO_CONFIG.region}.amazonaws.com/`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/x-amz-json-1.1',
           'X-Amz-Target': 'AWSCognitoIdentityProviderService.ConfirmForgotPassword',
         },
         body: JSON.stringify({
-          ClientId: process.env.NEXT_PUBLIC_CLIENT_ID || 'REPLACE_AFTER_CDK_DEPLOY',
+          ClientId: COGNITO_CONFIG.clientId,
           Username: forgotEmail,
           ConfirmationCode: forgotCode,
           Password: newPassword,

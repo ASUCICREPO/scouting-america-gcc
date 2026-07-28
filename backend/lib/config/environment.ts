@@ -4,7 +4,7 @@
 // (e.g. RESOURCE_PREFIX=dev). Defaults to no prefix, preserving the existing
 // resource names so the current deployment is unaffected.
 // Exported so constructs can prefix account/region-unique names that aren't in
-// CONFIG (Lambda function names, SQS queues, the guardrails secret, the KB) —
+// CONFIG (Lambda function names, SQS queues, Bedrock resources, the KB) —
 // otherwise a prefixed deploy collides with an existing unprefixed stack.
 export const PREFIX = process.env.RESOURCE_PREFIX ? `${process.env.RESOURCE_PREFIX}-` : '';
 
@@ -16,6 +16,7 @@ export const CONFIG = {
   // S3 Buckets
   DOCUMENT_STORE_BUCKET: `${PREFIX}gcc-document-store`,
   KNOWLEDGE_BASE_BUCKET: `${PREFIX}gcc-knowledge-base-data`,
+  CHAT_ARCHIVE_BUCKET: `${PREFIX}gcc-chat-audit-archive`,
 
   // S3 Vectors (Bedrock KB storage)
   VECTOR_BUCKET: `${PREFIX}gcc-volunteer-vectors`,
@@ -28,19 +29,26 @@ export const CONFIG = {
   STAFF_ALERT_TOPIC: `${PREFIX}gcc-staff-alerts`,
   STAFF_EMAIL: 'staff@grandcanyonbsa.org',
 
-  // Browser upload CORS — origins allowed to PUT documents directly to S3 via
-  // presigned URLs. Set UPLOAD_ALLOWED_ORIGINS (comma-separated) at synth/deploy
-  // time to lock this down in production. Defaults to '*' to match the existing
-  // API Gateway CORS posture for local/dev.
-  UPLOAD_ALLOWED_ORIGINS: process.env.UPLOAD_ALLOWED_ORIGINS
-    ? process.env.UPLOAD_ALLOWED_ORIGINS.split(',').map((o) => o.trim()).filter(Boolean)
-    : ['*'],
-
   // Bedrock
   MODEL_ID: 'us.anthropic.claude-haiku-4-5-20251001-v1:0',
   EMBEDDING_MODEL_ID: 'amazon.titan-embed-text-v2:0',
 
   // Thresholds
   CONFIDENCE_THRESHOLD: 0.7,
-  SAFETY_KEYWORDS: ['abuse', 'emergency', 'injury', 'youth protection', 'danger', 'hurt'],
+  SAFETY_KEYWORDS: [
+    'abuse',
+    'emergency',
+    'injury',
+    'youth protection',
+    'danger',
+    'hurt',
+    'abuso',
+    'emergencia',
+    'lesión',
+    'herida',
+    'protección juvenil',
+    'peligro',
+    'lastimado',
+    'ayuda inmediata',
+  ],
 };

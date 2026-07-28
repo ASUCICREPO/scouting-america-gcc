@@ -2,8 +2,8 @@ version: 0.2
 
 # CodeBuild spec for the Scouting America GCC Chatbot backend.
 # Builds + tests the CDK app, then deploys the ScoutingAmericaChatbot stack.
-# Lambda handlers are Python 3.13 (boto3 in the runtime — no build step needed);
-# the CDK app itself is TypeScript and runs on Node.
+# Lambda handlers are Python 3.13 (boto3 in the runtime). CDK bundles the
+# shared Pydantic/Jinja layer during synthesis; the CDK app runs on Node.
 
 env:
   variables:

@@ -1,10 +1,13 @@
-"""Doc Processor — triggered by S3 ObjectCreated on the document-store bucket.
+"""Document ingestion worker — receives S3 notifications through SQS.
 
 Copies the uploaded file into the knowledge-base bucket (which the Bedrock KB
 data source reads) and starts an ingestion job. Bedrock handles PDF parsing,
-chunking, and embedding natively.
+chunking, and embedding natively. SQS retries transient failures and bounds
+concurrency before this worker.
 """
 
+import hashlib
+import json
 import os
 import time
 import urllib.parse
@@ -28,12 +31,26 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
 
 
-def handler(event, context):
+def _s3_records(event):
+    """Yield S3 records from the SQS envelope (and legacy direct events)."""
     for record in event.get("Records", []):
+        event_source = record.get("eventSource") or record.get("EventSource")
+        if event_source == "aws:sqs":
+            notification = json.loads(record.get("body") or "{}")
+            for s3_record in notification.get("Records", []):
+                yield s3_record
+        else:
+            yield record
+
+
+def handler(event, _context):
+    for record in _s3_records(event):
         start_time = time.time()
         bucket = record["s3"]["bucket"]["name"]
         key = urllib.parse.unquote_plus(record["s3"]["object"]["key"])
         file_size = record["s3"]["object"].get("size", 0)
+        etag = record["s3"]["object"].get("eTag", "")
+        version_id = record["s3"]["object"].get("versionId", "")
 
         print(f"Processing file: s3://{bucket}/{key} ({file_size} bytes)")
 
@@ -52,6 +69,10 @@ def handler(event, context):
         bedrock_agent.start_ingestion_job(
             knowledgeBaseId=KNOWLEDGE_BASE_ID,
             dataSourceId=DATA_SOURCE_ID,
+            # Retrying the same SQS message cannot start duplicate jobs.
+            clientToken=hashlib.sha256(
+                f"{bucket}:{key}:{etag}:{version_id}".encode("utf-8")
+            ).hexdigest(),
         )
         print("Started Bedrock Knowledge Base ingestion job")
 

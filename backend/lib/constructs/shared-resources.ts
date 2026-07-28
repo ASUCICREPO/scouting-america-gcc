@@ -2,15 +2,20 @@ import * as cdk from 'aws-cdk-lib';
 import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
 import * as cognito from 'aws-cdk-lib/aws-cognito';
-import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
 import * as sns from 'aws-cdk-lib/aws-sns';
+import * as subscriptions from 'aws-cdk-lib/aws-sns-subscriptions';
 import { Construct } from 'constructs';
-import { CONFIG, PREFIX } from '../config/environment';
+import { CONFIG } from '../config/environment';
+
+export interface SharedResourcesProps {
+  adminOrigin: string;
+}
 
 export class SharedResources extends Construct {
   // S3 Buckets
   public readonly documentStoreBucket: s3.Bucket;
   public readonly knowledgeBaseBucket: s3.Bucket;
+  public readonly chatArchiveBucket: s3.Bucket;
 
   // DynamoDB Tables
   public readonly chatLogsTable: dynamodb.Table;
@@ -20,13 +25,10 @@ export class SharedResources extends Construct {
   public readonly userPool: cognito.UserPool;
   public readonly userPoolClient: cognito.UserPoolClient;
 
-  // Secrets Manager
-  public readonly guardrailsSecret: secretsmanager.Secret;
-
   // SNS
   public readonly staffAlertTopic: sns.Topic;
 
-  constructor(scope: Construct, id: string) {
+  constructor(scope: Construct, id: string, props: SharedResourcesProps) {
     super(scope, id);
 
     // ---------------------------------------------------------------
@@ -41,13 +43,11 @@ export class SharedResources extends Construct {
       blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
       removalPolicy: cdk.RemovalPolicy.RETAIN,
       enforceSSL: true,
-      // Allow the admin dashboard (browser) to PUT files directly via presigned
-      // URLs, and GET them back for download. Origins are configurable — tighten
-      // via UPLOAD_ALLOWED_ORIGINS in production.
+      // Only the isolated admin CloudFront surface may use presigned uploads.
       cors: [
         {
-          allowedMethods: [s3.HttpMethods.PUT, s3.HttpMethods.GET, s3.HttpMethods.HEAD],
-          allowedOrigins: CONFIG.UPLOAD_ALLOWED_ORIGINS,
+          allowedMethods: [s3.HttpMethods.POST, s3.HttpMethods.GET, s3.HttpMethods.HEAD],
+          allowedOrigins: [props.adminOrigin],
           allowedHeaders: ['*'],
           exposedHeaders: ['ETag'],
           maxAge: 3000,
@@ -59,6 +59,20 @@ export class SharedResources extends Construct {
     this.knowledgeBaseBucket = new s3.Bucket(this, 'KnowledgeBaseBucket', {
       bucketName: CONFIG.KNOWLEDGE_BASE_BUCKET,
       encryption: s3.BucketEncryption.S3_MANAGED,
+      blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
+      removalPolicy: cdk.RemovalPolicy.RETAIN,
+      enforceSSL: true,
+    });
+
+    // Immutable chat audit archive. DynamoDB remains the live query store for
+    // history/admin screens; its stream is copied here for lower-cost retention
+    // and future Athena/Glue analytics.
+    this.chatArchiveBucket = new s3.Bucket(this, 'ChatArchiveBucket', {
+      bucketName: CONFIG.CHAT_ARCHIVE_BUCKET,
+      encryption: s3.BucketEncryption.S3_MANAGED,
+      versioned: true,
+      objectLockEnabled: true,
+      objectLockDefaultRetention: s3.ObjectLockRetention.governance(cdk.Duration.days(365)),
       blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
       removalPolicy: cdk.RemovalPolicy.RETAIN,
       enforceSSL: true,
@@ -77,6 +91,7 @@ export class SharedResources extends Construct {
       partitionKey: { name: 'sessionId', type: dynamodb.AttributeType.STRING },
       sortKey: { name: 'timestamp', type: dynamodb.AttributeType.STRING },
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+      stream: dynamodb.StreamViewType.NEW_IMAGE,
       removalPolicy: cdk.RemovalPolicy.RETAIN,
       pointInTimeRecoverySpecification: { pointInTimeRecoveryEnabled: true },
     });
@@ -104,7 +119,7 @@ export class SharedResources extends Construct {
 
     this.userPool = new cognito.UserPool(this, 'GCCUserPool', {
       userPoolName: 'GCC-VolunteerPool',
-      selfSignUpEnabled: true,
+      selfSignUpEnabled: false,
       signInAliases: { email: true },
       autoVerify: { email: true },
       standardAttributes: {
@@ -147,19 +162,6 @@ export class SharedResources extends Construct {
     });
 
     // ---------------------------------------------------------------
-    // Secrets Manager
-    // ---------------------------------------------------------------
-
-    this.guardrailsSecret = new secretsmanager.Secret(this, 'GuardrailsSecret', {
-      secretName: `${PREFIX}gcc-system-guardrails`,
-      description: 'System instructions and guardrails for the AI assistant',
-      secretStringValue: cdk.SecretValue.unsafePlainText(JSON.stringify({
-        systemPrompt: 'You are the GCC AI Volunteer Support Assistant. Answer questions using only approved GCC and Scouting America resources. If you are unsure or the question is about safety, youth protection, or emergencies, clearly state your limitations and direct the user to appropriate human contacts.',
-        lastUpdated: new Date().toISOString(),
-      })),
-    });
-
-    // ---------------------------------------------------------------
     // SNS Topic
     // ---------------------------------------------------------------
 
@@ -167,5 +169,8 @@ export class SharedResources extends Construct {
       topicName: CONFIG.STAFF_ALERT_TOPIC,
       displayName: 'GCC Staff Alerts - Escalation Notifications',
     });
+    this.staffAlertTopic.addSubscription(
+      new subscriptions.EmailSubscription(CONFIG.STAFF_EMAIL),
+    );
   }
 }

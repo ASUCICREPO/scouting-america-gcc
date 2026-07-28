@@ -6,18 +6,19 @@ Scout AI is a bilingual English/Spanish support assistant for Scouting America's
 
 ![Grand Canyon Council Scout AI architecture](./docs/media/architecture.png)
 
-The Next.js application is exported as static files and served from a private Amazon S3 bucket through CloudFront. Public chat requests use API Gateway, Lambda, and an Amazon Bedrock Knowledge Base backed by S3 Vectors. Admin routes use a separate Cognito-protected API. Uploaded documents trigger a processing Lambda that copies content to the Bedrock data source and starts ingestion.
+The Next.js application is exported into separate private S3/CloudFront public and admin surfaces. Public chat requests use API Gateway, Lambda, Bedrock Guardrails, and an Amazon Bedrock Knowledge Base backed by S3 Vectors. Admin routes use a separate Cognito-protected API and origin. Uploaded documents enter a bounded SQS worker before Bedrock ingestion.
 
 See the [Architecture Deep Dive](./docs/architectureDeepDive.md) for component, data-flow, security, scaling, and architectural-decision details.
 
 ## Features
 
-- Public retrieval-augmented chat grounded in GCC and Scouting America documents
+- Public retrieval-augmented chat grounded in one consistent set of GCC and Scouting America source chunks
 - English and Spanish interface and response generation
 - Markdown answers, citations, voice input, text-to-speech, feedback, and browser-local chat history
 - Safety-keyword and low-confidence escalation through SNS and SES
 - Cognito-protected admin dashboard with usage, feedback, confidence, and escalation metrics
-- Multi-file and folder-preserving document upload, download, deletion, and ingestion status
+- Size-enforced multi-file and folder-preserving document upload, download, deletion, and queued ingestion status
+- Object-locked chat audit archive plus CloudWatch DLQ alarms and operations dashboard
 - Light/dark themes, text-size controls, responsive layouts, and installable PWA behavior
 - Prefix-aware AWS deployments so demo and other environments can coexist
 
@@ -57,6 +58,7 @@ NEXT_PUBLIC_API_URL=https://example.execute-api.us-east-1.amazonaws.com/prod
 NEXT_PUBLIC_DASHBOARD_API_URL=https://example.execute-api.us-east-1.amazonaws.com/prod
 NEXT_PUBLIC_USER_POOL_ID=us-east-1_example
 NEXT_PUBLIC_CLIENT_ID=exampleclientid
+NEXT_PUBLIC_AWS_REGION=us-east-1
 ```
 
 For backend validation:
@@ -68,7 +70,7 @@ npm test
 npx cdk synth
 python3.13 -m venv /tmp/gcc-python-tests
 source /tmp/gcc-python-tests/bin/activate
-python -m pip install boto3
+python -m pip install boto3 -r lambda/python-dependencies/requirements.txt
 python -m unittest discover -s test -p 'test_*.py'
 ```
 
@@ -76,7 +78,7 @@ See the [Development Guide](./docs/developmentGuide.md) for the complete workflo
 
 ## Deployment
 
-The deployment script installs dependencies, deploys the `ScoutingAmericaChatbot` CDK stack, writes the frontend environment, builds the static export, syncs it to S3, and invalidates CloudFront.
+The deployment script installs dependencies, deploys the `ScoutingAmericaChatbot` CDK stack, writes the frontend environment, builds the static export, publishes isolated public/admin S3 origins, and invalidates both CloudFront distributions.
 
 ```bash
 RESOURCE_PREFIX=demo ./deploy.sh

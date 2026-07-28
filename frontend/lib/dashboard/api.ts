@@ -25,6 +25,7 @@ async function fetchApi(path: string, params?: Record<string, string>, options?:
   if (res.status === 401 || res.status === 403) {
     // Token expired or unauthorized — redirect to login
     if (typeof window !== 'undefined') {
+      sessionStorage.removeItem('gcc_admin_tokens');
       localStorage.removeItem('gcc_admin_tokens');
       window.location.href = '/login';
     }
@@ -76,8 +77,8 @@ export interface DocumentItem {
   status?: DocumentStatus;
 }
 
-export async function getSummary(): Promise<SummaryData> {
-  return fetchApi('/dashboard/summary');
+export async function getSummary(days: number = 90): Promise<SummaryData> {
+  return fetchApi('/dashboard/summary', { days: String(days) });
 }
 
 export async function getConversations(period: string = 'day'): Promise<{ data: ConversationPoint[]; total: number }> {
@@ -109,13 +110,16 @@ export async function deleteDocument(key: string): Promise<{ status: string }> {
 }
 
 /**
- * Request a presigned PUT URL for a document upload.
+ * Request a size-enforced presigned POST policy for a document upload.
  *
  * `relativePath` carries the folder structure (e.g. "folderA/sub/report.pdf")
  * so the backend mirrors the dropped layout under uploads/ in S3. It also
  * doubles as the flat filename for single-file uploads.
  */
-export async function getUploadUrl(relativePath: string, contentType: string): Promise<{ url: string; key: string }> {
+export async function getUploadUrl(
+  relativePath: string,
+  contentType: string,
+): Promise<{ url: string; fields: Record<string, string>; key: string; maxSizeBytes: number }> {
   return fetchApi('/dashboard/documents/upload', undefined, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

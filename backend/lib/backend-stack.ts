@@ -10,6 +10,10 @@ import { ChatHandler } from './constructs/chat-handler';
 import { DocProcessor } from './constructs/doc-processor';
 import { DashboardApi } from './constructs/dashboard-api';
 import { FrontendHosting } from './constructs/frontend-hosting';
+import { AiSafety } from './constructs/ai-safety';
+import { PythonDependencies } from './constructs/python-dependencies';
+import { ChatArchive } from './constructs/chat-archive';
+import { Observability } from './constructs/observability';
 
 export class ScoutingAmericaChatbot extends cdk.Stack {
   constructor(scope: Construct, id: string, props?: cdk.StackProps) {
@@ -20,10 +24,16 @@ export class ScoutingAmericaChatbot extends cdk.Stack {
     // Alternative: Aspects.of(app) in bin/backend.ts (rejected - doesn't travel with stack)
     Aspects.of(this).add(new AwsSolutionsChecks({ verbose: true }));
 
+    const frontendHosting = new FrontendHosting(this, 'FrontendHosting');
+    const publicOrigin = `https://${frontendHosting.publicDistribution.distributionDomainName}`;
+    const adminOrigin = `https://${frontendHosting.adminDistribution.distributionDomainName}`;
+
     // ---------------------------------------------------------------
-    // Shared Resources (S3, DynamoDB, Cognito, SNS, Secrets Manager)
+    // Shared Resources (S3, DynamoDB, Cognito, SNS)
     // ---------------------------------------------------------------
-    const sharedResources = new SharedResources(this, 'SharedResources');
+    const sharedResources = new SharedResources(this, 'SharedResources', {
+      adminOrigin,
+    });
 
     // ---------------------------------------------------------------
     // Knowledge Base (Bedrock KB + S3 data source + Titan embeddings)
@@ -31,6 +41,9 @@ export class ScoutingAmericaChatbot extends cdk.Stack {
     const knowledgeBase = new KnowledgeBase(this, 'KnowledgeBase', {
       knowledgeBaseBucket: sharedResources.knowledgeBaseBucket,
     });
+
+    const pythonDependencies = new PythonDependencies(this, 'PythonDependencies');
+    const aiSafety = new AiSafety(this, 'AiSafety');
 
     // ---------------------------------------------------------------
     // Escalation Router (alerts staff when safety/low-confidence detected)
@@ -44,15 +57,20 @@ export class ScoutingAmericaChatbot extends cdk.Stack {
     // API Gateway (REST API with Cognito auth — the front door)
     // ---------------------------------------------------------------
     const apiGateway = new ApiGateway(this, 'ApiGateway', {
-      userPool: sharedResources.userPool,
+      allowedOrigin: publicOrigin,
     });
 
     // ---------------------------------------------------------------
     // Chat Handler (processes volunteer questions via Bedrock KB)
     // ---------------------------------------------------------------
-    new ChatHandler(this, 'ChatHandler', {
+    const chatHandler = new ChatHandler(this, 'ChatHandler', {
       chatLogsTable: sharedResources.chatLogsTable,
-      guardrailsSecret: sharedResources.guardrailsSecret,
+      dependenciesLayer: pythonDependencies.layer,
+      guardrailId: aiSafety.guardrailId,
+      guardrailVersion: aiSafety.guardrailVersion,
+      promptId: aiSafety.promptId,
+      promptVersion: aiSafety.promptVersion,
+      allowedOrigin: publicOrigin,
       chatResource: apiGateway.chatResource,
       chatHistoryResource: apiGateway.chatHistoryResource,
       chatFeedbackResource: apiGateway.chatFeedbackResource,
@@ -71,12 +89,18 @@ export class ScoutingAmericaChatbot extends cdk.Stack {
       dataSourceId: knowledgeBase.dataSourceId,
     });
 
-    // Add S3 event notification to trigger Doc Processor on uploads
+    // Buffer uploads in SQS; the worker consumes one at a time so document
+    // processing cannot exhaust account Lambda concurrency.
     sharedResources.documentStoreBucket.addEventNotification(
       cdk.aws_s3.EventType.OBJECT_CREATED,
-      new cdk.aws_s3_notifications.LambdaDestination(docProcessor.function),
+      new cdk.aws_s3_notifications.SqsDestination(docProcessor.processingQueue),
       { prefix: 'uploads/' },
     );
+
+    const chatArchive = new ChatArchive(this, 'ChatArchive', {
+      chatLogsTable: sharedResources.chatLogsTable,
+      archiveBucket: sharedResources.chatArchiveBucket,
+    });
 
     // ---------------------------------------------------------------
     // Admin Dashboard API (metrics + document management, Cognito-authed)
@@ -91,13 +115,26 @@ export class ScoutingAmericaChatbot extends cdk.Stack {
       userPool: sharedResources.userPool,
       knowledgeBaseId: knowledgeBase.knowledgeBaseId,
       dataSourceId: knowledgeBase.dataSourceId,
+      allowedOrigin: adminOrigin,
+      dependenciesLayer: pythonDependencies.layer,
     });
 
-    // ---------------------------------------------------------------
-    // Frontend hosting (CloudFront + private S3) — deploy.sh syncs the
-    // static export here and invalidates the distribution.
-    // ---------------------------------------------------------------
-    const frontendHosting = new FrontendHosting(this, 'FrontendHosting');
+    const observability = new Observability(this, 'Observability', {
+      alertTopic: sharedResources.staffAlertTopic,
+      functions: [
+        chatHandler.function,
+        dashboardApi.function,
+        docProcessor.function,
+        escalationRouter.function,
+        chatArchive.function,
+      ],
+      deadLetterQueues: [
+        docProcessor.deadLetterQueue,
+        escalationRouter.deadLetterQueue,
+        chatArchive.deadLetterQueue,
+      ],
+      documentQueue: docProcessor.processingQueue,
+    });
 
     // ---------------------------------------------------------------
     // Stack Outputs
@@ -132,19 +169,44 @@ export class ScoutingAmericaChatbot extends cdk.Stack {
       description: 'S3 Bucket for KB processed chunks',
     });
 
-    new cdk.CfnOutput(this, 'FrontendBucket', {
-      value: frontendHosting.siteBucket.bucketName,
-      description: 'S3 bucket the exported frontend is synced to',
+    new cdk.CfnOutput(this, 'ChatArchiveBucket', {
+      value: sharedResources.chatArchiveBucket.bucketName,
+      description: 'Object-locked S3 archive of delivered chat turns',
     });
 
-    new cdk.CfnOutput(this, 'FrontendDistributionId', {
-      value: frontendHosting.distribution.distributionId,
-      description: 'CloudFront distribution ID for the frontend',
+    new cdk.CfnOutput(this, 'PublicFrontendBucket', {
+      value: frontendHosting.publicBucket.bucketName,
+      description: 'S3 bucket for public chat static assets',
     });
 
-    new cdk.CfnOutput(this, 'FrontendUrl', {
-      value: `https://${frontendHosting.distribution.distributionDomainName}`,
-      description: 'Public URL of the frontend (share with the client)',
+    new cdk.CfnOutput(this, 'PublicFrontendDistributionId', {
+      value: frontendHosting.publicDistribution.distributionId,
+      description: 'CloudFront distribution ID for the public chat',
+    });
+
+    new cdk.CfnOutput(this, 'PublicFrontendUrl', {
+      value: publicOrigin,
+      description: 'Public chat URL (use as domain.com)',
+    });
+
+    new cdk.CfnOutput(this, 'AdminFrontendBucket', {
+      value: frontendHosting.adminBucket.bucketName,
+      description: 'S3 bucket for admin dashboard static assets',
+    });
+
+    new cdk.CfnOutput(this, 'AdminFrontendDistributionId', {
+      value: frontendHosting.adminDistribution.distributionId,
+      description: 'CloudFront distribution ID for the admin dashboard',
+    });
+
+    new cdk.CfnOutput(this, 'AdminFrontendUrl', {
+      value: adminOrigin,
+      description: 'Admin dashboard URL (use as admin.domain.com)',
+    });
+
+    new cdk.CfnOutput(this, 'OperationsDashboardName', {
+      value: observability.dashboard.dashboardName,
+      description: 'CloudWatch dashboard for Lambda, ingestion queue, and DLQ health',
     });
 
     // ---------------------------------------------------------------
@@ -178,10 +240,6 @@ export class ScoutingAmericaChatbot extends cdk.Stack {
       {
         id: 'AwsSolutions-SNS3',
         reason: 'ADR: SNS SSL enforcement deferred | Rationale: POC phase, subscribers are AWS services | Alternative: Require SSL (will add for production)',
-      },
-      {
-        id: 'AwsSolutions-SMG4',
-        reason: 'ADR: Secret rotation deferred | Rationale: Guardrails are app config, not credentials | Alternative: Enable rotation (not applicable for config data)',
       },
       {
         id: 'AwsSolutions-IAM4',

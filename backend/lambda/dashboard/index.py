@@ -9,9 +9,11 @@ import os
 import re
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
+from enum import IntEnum
 
 import boto3
 from boto3.dynamodb.conditions import Key
+from pydantic import BaseModel, ConfigDict, Field
 
 ddb = boto3.resource("dynamodb")
 s3 = boto3.client("s3")
@@ -23,6 +25,7 @@ DOCUMENT_BUCKET = os.environ["DOCUMENT_BUCKET"]
 KB_BUCKET = os.environ["KB_BUCKET"]
 KNOWLEDGE_BASE_ID = os.environ["KNOWLEDGE_BASE_ID"]
 DATA_SOURCE_ID = os.environ["DATA_SOURCE_ID"]
+ALLOWED_ORIGIN = os.environ["ALLOWED_ORIGIN"]
 
 chat_table = ddb.Table(CHAT_LOGS_TABLE)
 analytics_table = ddb.Table(ANALYTICS_LOGS_TABLE)
@@ -43,10 +46,29 @@ ALLOWED_CONTENT_TYPES = [
     "image/png",
     "image/jpeg",
 ]
-MAX_FILE_SIZE_BYTES = 25 * 1024 * 1024  # advisory hint returned to the client
+MAX_FILE_SIZE_BYTES = 25 * 1024 * 1024
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
+
+class HttpStatus(IntEnum):
+    OK = 200
+    NO_CONTENT = 204
+    BAD_REQUEST = 400
+    UNAUTHORIZED = 401
+    FORBIDDEN = 403
+    NOT_FOUND = 404
+    METHOD_NOT_ALLOWED = 405
+    INTERNAL_SERVER_ERROR = 500
+
+
+class ProxyResponse(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    status_code: int = Field(alias="statusCode")
+    headers: dict[str, str]
+    body: str
+
 
 def _json_default(o):
     if isinstance(o, Decimal):
@@ -54,17 +76,18 @@ def _json_default(o):
     raise TypeError(f"Not serializable: {type(o)}")
 
 
-def respond(status_code: int, body):
-    return {
-        "statusCode": status_code,
-        "headers": {
+def respond(status_code: HttpStatus, body):
+    return ProxyResponse(
+        statusCode=int(status_code),
+        headers={
             "Content-Type": "application/json",
-            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Origin": ALLOWED_ORIGIN,
+            "Vary": "Origin",
             "Access-Control-Allow-Headers": "Content-Type,Authorization",
             "Access-Control-Allow-Methods": "GET,POST,DELETE,OPTIONS",
         },
-        "body": json.dumps(body, default=_json_default),
-    }
+        body=json.dumps(body, default=_json_default),
+    ).model_dump(by_alias=True)
 
 
 def _num(x):
@@ -111,11 +134,11 @@ def validate_admin(event):
     authz = (event.get("requestContext") or {}).get("authorizer") or {}
     claims = authz.get("claims")
     if not claims:
-        return respond(401, {"message": "Unauthorized: No authentication claims found"})
+        return respond(HttpStatus.UNAUTHORIZED, {"message": "Unauthorized: No authentication claims found"})
     groups = claims.get("cognito:groups") or ""
     group_list = groups if isinstance(groups, list) else [g.strip() for g in groups.split(",")]
     if "admin" not in group_list:
-        return respond(403, {"message": "Forbidden: Admin group membership required"})
+        return respond(HttpStatus.FORBIDDEN, {"message": "Forbidden: Admin group membership required"})
     return None
 
 
@@ -191,9 +214,17 @@ def scan_with_time_filter(table, days_back=None):
     return items
 
 
-def query_by_event_type(event_type: str):
+def query_by_event_type(event_type: str, days_back: int | None = None):
     items = []
-    kwargs = {"KeyConditionExpression": Key("eventType").eq(event_type)}
+    key_expr = Key("eventType").eq(event_type)
+    if days_back:
+        cutoff = (
+            (datetime.now(timezone.utc) - timedelta(days=days_back))
+            .isoformat(timespec="milliseconds")
+            .replace("+00:00", "Z")
+        )
+        key_expr = key_expr & Key("timestamp").gte(cutoff)
+    kwargs = {"KeyConditionExpression": key_expr}
     while True:
         resp = analytics_table.query(**kwargs)
         items.extend(resp.get("Items", []))
@@ -240,9 +271,12 @@ def aggregate_faq(chat_items):
 # ── Route handlers ─────────────────────────────────────────────────────────
 
 def get_summary(event):
-    chat_items = scan_with_time_filter(chat_table, 90)
-    escalation_items = query_by_event_type("escalation")
-    doc_items = query_by_event_type("document_processing")
+    days = int(_qs(event, "days", "90"))
+    if days not in (1, 7, 30, 90):
+        days = 90
+    chat_items = scan_with_time_filter(chat_table, days)
+    escalation_items = query_by_event_type("escalation", days)
+    doc_items = query_by_event_type("document_processing", days)
 
     total_chats = len(chat_items)
     unique_sessions = len({i.get("sessionId") for i in chat_items})
@@ -292,7 +326,7 @@ def get_summary(event):
     }
     if not with_fb:
         body["feedbackNote"] = "Feedback tracking pending chatbot integration"
-    return respond(200, body)
+    return respond(HttpStatus.OK, body)
 
 
 def get_conversations(event):
@@ -306,14 +340,14 @@ def get_conversations(event):
         key = _date_key(ts, period)
         counts[key] = counts.get(key, 0) + 1
     data = [{"date": d, "count": c} for d, c in sorted(counts.items())]
-    return respond(200, {"period": period, "data": data, "total": len(chat_items)})
+    return respond(HttpStatus.OK, {"period": period, "data": data, "total": len(chat_items)})
 
 
 def get_faq(event):
     limit = min(int(_qs(event, "limit", "5")), 100)
     chat_items = scan_with_time_filter(chat_table, 30)
     all_faq = aggregate_faq(chat_items)
-    return respond(200, {"faq": all_faq[:limit], "totalUnique": len(all_faq)})
+    return respond(HttpStatus.OK, {"faq": all_faq[:limit], "totalUnique": len(all_faq)})
 
 
 def get_faq_all(event):
@@ -321,7 +355,7 @@ def get_faq_all(event):
     offset = int(_qs(event, "offset", "0"))
     chat_items = scan_with_time_filter(chat_table, 90)
     all_faq = aggregate_faq(chat_items)
-    return respond(200, {"faq": all_faq[offset:offset + limit], "total": len(all_faq), "offset": offset, "limit": limit})
+    return respond(HttpStatus.OK, {"faq": all_faq[offset:offset + limit], "total": len(all_faq), "offset": offset, "limit": limit})
 
 
 def get_confidence(event):
@@ -359,7 +393,7 @@ def get_confidence(event):
 
     all_vals = sorted(_num(i.get("confidence")) for i in valid)
     avg = sum(all_vals) / len(all_vals) if all_vals else 0
-    return respond(200, {
+    return respond(HttpStatus.OK, {
         "distribution": distribution,
         "trend": trend_data,
         "stats": {
@@ -395,7 +429,7 @@ def get_escalations(event):
         for reason, g in grouped.items()
     ]
     escalations.sort(key=lambda x: x["count"], reverse=True)
-    return respond(200, {"escalations": escalations, "total": len(items)})
+    return respond(HttpStatus.OK, {"escalations": escalations, "total": len(items)})
 
 
 def get_negative_feedback(event):
@@ -430,7 +464,7 @@ def get_negative_feedback(event):
     }
     if total == 0:
         body["note"] = "Feedback tracking pending chatbot integration — no feedback data exists yet"
-    return respond(200, body)
+    return respond(HttpStatus.OK, body)
 
 
 def get_feedback(event):
@@ -480,7 +514,7 @@ def get_feedback(event):
     body = {"total": total, "offset": offset, "limit": limit, "filter": filter_val, "conversations": conversations}
     if total == 0:
         body["note"] = "No feedback has been submitted yet"
-    return respond(200, body)
+    return respond(HttpStatus.OK, body)
 
 
 def get_session(event):
@@ -489,7 +523,7 @@ def get_session(event):
     """
     session_id = _qs(event, "sessionId")
     if not session_id:
-        return respond(400, {"message": "sessionId parameter is required"})
+        return respond(HttpStatus.BAD_REQUEST, {"message": "sessionId parameter is required"})
 
     result = chat_table.query(
         KeyConditionExpression=Key("sessionId").eq(session_id),
@@ -509,7 +543,7 @@ def get_session(event):
         }
         for item in result.get("Items", [])
     ]
-    return respond(200, {"sessionId": session_id, "turns": turns, "total": len(turns)})
+    return respond(HttpStatus.OK, {"sessionId": session_id, "turns": turns, "total": len(turns)})
 
 
 def get_ingestion_state():
@@ -586,7 +620,7 @@ def get_documents(event):
             "status": doc_ingestion_status(last_modified, state),
         })
     documents.sort(key=lambda d: d["lastModified"], reverse=True)
-    return respond(200, {
+    return respond(HttpStatus.OK, {
         "documents": documents,
         "total": len(documents),
         "indexing": bool(state and state.get("active")),
@@ -596,21 +630,21 @@ def get_documents(event):
 def get_document_download_url(event):
     key = _qs(event, "key")
     if not key:
-        return respond(400, {"message": "key parameter is required"})
+        return respond(HttpStatus.BAD_REQUEST, {"message": "key parameter is required"})
     if not validate_s3_key(key, "uploads/"):
-        return respond(403, {"message": "Invalid document key"})
+        return respond(HttpStatus.FORBIDDEN, {"message": "Invalid document key"})
     url = s3.generate_presigned_url(
         "get_object", Params={"Bucket": DOCUMENT_BUCKET, "Key": key}, ExpiresIn=300
     )
-    return respond(200, {"url": url, "key": key})
+    return respond(HttpStatus.OK, {"url": url, "key": key})
 
 
 def delete_document(event):
     key = _qs(event, "key")
     if not key:
-        return respond(400, {"message": "key parameter is required"})
+        return respond(HttpStatus.BAD_REQUEST, {"message": "key parameter is required"})
     if not validate_s3_key(key, "uploads/"):
-        return respond(403, {"message": "Invalid document key"})
+        return respond(HttpStatus.FORBIDDEN, {"message": "Invalid document key"})
 
     s3.delete_object(Bucket=DOCUMENT_BUCKET, Key=key)
 
@@ -623,37 +657,47 @@ def delete_document(event):
 
     # Re-sync so the deleted document's vectors are removed
     sync_knowledge_base()
-    return respond(200, {"status": "deleted", "key": key})
+    return respond(HttpStatus.OK, {"status": "deleted", "key": key})
 
 
 def get_upload_url(event):
     try:
         body = json.loads(event.get("body") or "{}")
     except json.JSONDecodeError:
-        return respond(400, {"message": "Request body must be valid JSON"})
+        return respond(HttpStatus.BAD_REQUEST, {"message": "Request body must be valid JSON"})
 
     # Prefer a folder-qualified relativePath (mirrors dropped folder structure);
     # fall back to a flat fileName for single-file uploads / older clients.
     relative_path = body.get("relativePath") or body.get("fileName")
     content_type = body.get("contentType")
     if not relative_path:
-        return respond(400, {"message": "relativePath or fileName is required"})
+        return respond(HttpStatus.BAD_REQUEST, {"message": "relativePath or fileName is required"})
 
     safe_path = sanitize_relative_path(relative_path)
     if not safe_path:
-        return respond(400, {"message": "Invalid file path"})
+        return respond(HttpStatus.BAD_REQUEST, {"message": "Invalid file path"})
 
     ct = content_type or "application/pdf"
     if ct not in ALLOWED_CONTENT_TYPES:
-        return respond(400, {"message": f"Content type not allowed. Allowed: {', '.join(ALLOWED_CONTENT_TYPES)}"})
+        return respond(HttpStatus.BAD_REQUEST, {"message": f"Content type not allowed. Allowed: {', '.join(ALLOWED_CONTENT_TYPES)}"})
 
     key = f"uploads/{safe_path}"
-    url = s3.generate_presigned_url(
-        "put_object",
-        Params={"Bucket": DOCUMENT_BUCKET, "Key": key, "ContentType": ct},
+    upload = s3.generate_presigned_post(
+        Bucket=DOCUMENT_BUCKET,
+        Key=key,
+        Fields={"Content-Type": ct},
+        Conditions=[
+            {"Content-Type": ct},
+            ["content-length-range", 1, MAX_FILE_SIZE_BYTES],
+        ],
         ExpiresIn=300,
     )
-    return respond(200, {"url": url, "key": key, "maxSizeBytes": MAX_FILE_SIZE_BYTES})
+    return respond(HttpStatus.OK, {
+        "url": upload["url"],
+        "fields": upload["fields"],
+        "key": key,
+        "maxSizeBytes": MAX_FILE_SIZE_BYTES,
+    })
 
 
 # ── Route map + entrypoint ───────────────────────────────────────────────────
@@ -687,7 +731,7 @@ def handler(event, context):
     print(f"Dashboard API: {method} {path}")
 
     if method == "OPTIONS":
-        return respond(204, "")
+        return respond(HttpStatus.NO_CONTENT, "")
 
     auth_error = validate_admin(event)
     if auth_error:
@@ -695,14 +739,14 @@ def handler(event, context):
 
     method_routes = ROUTES.get(method)
     if not method_routes:
-        return respond(405, {"message": f"Method not allowed: {method}"})
+        return respond(HttpStatus.METHOD_NOT_ALLOWED, {"message": f"Method not allowed: {method}"})
 
     route_handler = method_routes.get(path)
     if not route_handler:
-        return respond(404, {"message": f"Route not found: {method} {path}"})
+        return respond(HttpStatus.NOT_FOUND, {"message": f"Route not found: {method} {path}"})
 
     try:
         return route_handler(event)
     except Exception as error:  # noqa: BLE001
         print(f"Dashboard API error: {error}")
-        return respond(500, {"message": "Internal server error"})
+        return respond(HttpStatus.INTERNAL_SERVER_ERROR, {"message": "Internal server error"})

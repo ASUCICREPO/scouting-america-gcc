@@ -119,18 +119,24 @@ export default function DocumentsPage() {
   // (fetch can't report upload progress), reported via onProgress.
   function uploadOne(item: CollectedFile, onProgress: (loaded: number) => void): Promise<void> {
     const ct = contentTypeFor(item.file);
-    return getUploadUrl(item.relativePath, ct).then(({ url }) =>
+    return getUploadUrl(item.relativePath, ct).then(({ url, fields, maxSizeBytes }) =>
       new Promise<void>((resolve, reject) => {
+        if (item.file.size > maxSizeBytes) {
+          reject(new Error(`File exceeds ${maxSizeBytes} bytes: ${item.relativePath}`));
+          return;
+        }
+        const form = new FormData();
+        Object.entries(fields).forEach(([name, value]) => form.append(name, value));
+        form.append('file', item.file);
         const xhr = new XMLHttpRequest();
-        xhr.open('PUT', url);
-        xhr.setRequestHeader('Content-Type', ct);
+        xhr.open('POST', url);
         xhr.upload.onprogress = (e) => { if (e.lengthComputable) onProgress(e.loaded); };
         xhr.onload = () => {
           if (xhr.status >= 200 && xhr.status < 300) resolve();
-          else reject(new Error(`PUT failed (${xhr.status}) for ${item.relativePath}`));
+          else reject(new Error(`POST failed (${xhr.status}) for ${item.relativePath}`));
         };
         xhr.onerror = () => reject(new Error(`Network error uploading ${item.relativePath}`));
-        xhr.send(item.file);
+        xhr.send(form);
       }),
     );
   }

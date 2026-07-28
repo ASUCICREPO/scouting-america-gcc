@@ -105,9 +105,12 @@ USER_POOL_ID="$(get_output UserPoolId)"
 CLIENT_ID="$(get_output UserPoolClientId)"
 DOCUMENT_BUCKET="$(get_output DocumentStoreBucket)"
 KB_BUCKET="$(get_output KnowledgeBaseBucket)"
-FRONTEND_BUCKET="$(get_output FrontendBucket)"
-FRONTEND_DIST_ID="$(get_output FrontendDistributionId)"
-FRONTEND_URL="$(get_output FrontendUrl)"
+PUBLIC_FRONTEND_BUCKET="$(get_output PublicFrontendBucket)"
+PUBLIC_FRONTEND_DIST_ID="$(get_output PublicFrontendDistributionId)"
+PUBLIC_FRONTEND_URL="$(get_output PublicFrontendUrl)"
+ADMIN_FRONTEND_BUCKET="$(get_output AdminFrontendBucket)"
+ADMIN_FRONTEND_DIST_ID="$(get_output AdminFrontendDistributionId)"
+ADMIN_FRONTEND_URL="$(get_output AdminFrontendUrl)"
 
 [[ -n "$CHAT_API_URL" && "$CHAT_API_URL" != "None" ]] || die "Could not read ChatApiUrl output"
 
@@ -122,8 +125,10 @@ ok "User Pool ID:      $USER_POOL_ID"
 ok "User Pool Client:  $CLIENT_ID"
 ok "Document bucket:   $DOCUMENT_BUCKET"
 ok "KB bucket:         $KB_BUCKET"
-ok "Frontend bucket:   $FRONTEND_BUCKET"
-ok "Frontend URL:      $FRONTEND_URL"
+ok "Public bucket:     $PUBLIC_FRONTEND_BUCKET"
+ok "Public URL:        $PUBLIC_FRONTEND_URL"
+ok "Admin bucket:      $ADMIN_FRONTEND_BUCKET"
+ok "Admin URL:         $ADMIN_FRONTEND_URL"
 echo
 
 # ── Write frontend/.env.local ────────────────────────────────────────────────
@@ -139,6 +144,7 @@ NEXT_PUBLIC_API_URL=$CHAT_API_URL
 NEXT_PUBLIC_DASHBOARD_API_URL=$DASHBOARD_API_URL
 NEXT_PUBLIC_USER_POOL_ID=$USER_POOL_ID
 NEXT_PUBLIC_CLIENT_ID=$CLIENT_ID
+NEXT_PUBLIC_AWS_REGION=$REGION
 EOF
   ok "Frontend environment written"
 fi
@@ -178,27 +184,45 @@ fi
 # ── Build & publish frontend to CloudFront/S3 ────────────────────────────────
 # Requires frontend/.env.local (written above unless --skip-frontend-env), since
 # NEXT_PUBLIC_* values are baked in at build time for the static export.
-if [[ -n "$FRONTEND_BUCKET" && "$FRONTEND_BUCKET" != "None" ]]; then
+if [[ -n "$PUBLIC_FRONTEND_BUCKET" && "$PUBLIC_FRONTEND_BUCKET" != "None" && \
+      -n "$ADMIN_FRONTEND_BUCKET" && "$ADMIN_FRONTEND_BUCKET" != "None" ]]; then
   info "Building frontend (Next.js static export)"
   ( cd "$SCRIPT_DIR/frontend" && ( npm ci --silent || npm install --silent ) && npm run build )
   [[ -d "$SCRIPT_DIR/frontend/out" ]] || die "Frontend build did not produce frontend/out (is output:'export' set?)"
 
-  info "Syncing frontend/out → s3://$FRONTEND_BUCKET"
-  aws s3 sync "$SCRIPT_DIR/frontend/out" "s3://$FRONTEND_BUCKET" --delete "${AWS_ARGS[@]}"
+  info "Publishing public chat → s3://$PUBLIC_FRONTEND_BUCKET"
+  aws s3 sync "$SCRIPT_DIR/frontend/out" "s3://$PUBLIC_FRONTEND_BUCKET" \
+    --delete --exclude "dashboard/*" --exclude "login/*" "${AWS_ARGS[@]}"
+  # Defense in depth for a bucket that may have existed before the surfaces
+  # were split. These exact prefixes must never be present on the public origin.
+  aws s3 rm "s3://$PUBLIC_FRONTEND_BUCKET/dashboard/" --recursive "${AWS_ARGS[@]}"
+  aws s3 rm "s3://$PUBLIC_FRONTEND_BUCKET/login/" --recursive "${AWS_ARGS[@]}"
 
-  if [[ -n "$FRONTEND_DIST_ID" && "$FRONTEND_DIST_ID" != "None" ]]; then
-    info "Invalidating CloudFront distribution $FRONTEND_DIST_ID"
+  info "Publishing admin dashboard → s3://$ADMIN_FRONTEND_BUCKET"
+  aws s3 sync "$SCRIPT_DIR/frontend/out" "s3://$ADMIN_FRONTEND_BUCKET" \
+    --delete "${AWS_ARGS[@]}"
+
+  if [[ -n "$PUBLIC_FRONTEND_DIST_ID" && "$PUBLIC_FRONTEND_DIST_ID" != "None" ]]; then
+    info "Invalidating public CloudFront distribution $PUBLIC_FRONTEND_DIST_ID"
     aws cloudfront create-invalidation \
-      --distribution-id "$FRONTEND_DIST_ID" --paths "/*" "${AWS_ARGS[@]}" >/dev/null
+      --distribution-id "$PUBLIC_FRONTEND_DIST_ID" --paths "/*" "${AWS_ARGS[@]}" >/dev/null
   fi
-  ok "Frontend published"
+  if [[ -n "$ADMIN_FRONTEND_DIST_ID" && "$ADMIN_FRONTEND_DIST_ID" != "None" ]]; then
+    info "Invalidating admin CloudFront distribution $ADMIN_FRONTEND_DIST_ID"
+    aws cloudfront create-invalidation \
+      --distribution-id "$ADMIN_FRONTEND_DIST_ID" --paths "/*" "${AWS_ARGS[@]}" >/dev/null
+  fi
+  ok "Public and admin frontends published to isolated origins"
 else
-  warn "No FrontendBucket output — skipping frontend publish"
+  warn "Missing frontend bucket output — skipping frontend publish"
 fi
 
 echo
 ok "Deploy complete."
-if [[ -n "$FRONTEND_URL" && "$FRONTEND_URL" != "None" ]]; then
-  echo "Frontend (share with client): ${GREEN}$FRONTEND_URL${NC}"
+if [[ -n "$PUBLIC_FRONTEND_URL" && "$PUBLIC_FRONTEND_URL" != "None" ]]; then
+  echo "Public chat: ${GREEN}$PUBLIC_FRONTEND_URL${NC}"
+fi
+if [[ -n "$ADMIN_FRONTEND_URL" && "$ADMIN_FRONTEND_URL" != "None" ]]; then
+  echo "Admin dashboard: ${GREEN}$ADMIN_FRONTEND_URL${NC}"
 fi
 echo "Local dev: cd frontend && npm install && npm run dev"

@@ -1,3 +1,5 @@
+import { COGNITO_CONFIG } from '../config';
+
 /**
  * Admin Dashboard Authentication — uses Cognito User Pool (shared with chatbot).
  *
@@ -10,13 +12,6 @@
  * Admin users must be manually created in Cognito and added to the 'admin' group.
  * There is no signup — this is intentional for an admin-only dashboard.
  */
-
-const COGNITO_CONFIG = {
-  userPoolId: process.env.NEXT_PUBLIC_USER_POOL_ID || 'REPLACE_AFTER_CDK_DEPLOY',
-  clientId: process.env.NEXT_PUBLIC_CLIENT_ID || 'REPLACE_AFTER_CDK_DEPLOY',
-  region: 'us-east-1',
-};
-
 const TOKEN_KEY = 'gcc_admin_tokens';
 
 interface AuthTokens {
@@ -61,7 +56,7 @@ export async function login(email: string, password: string): Promise<{ success:
         accessToken: data.AuthenticationResult.AccessToken,
         refreshToken: data.AuthenticationResult.RefreshToken || '',
       };
-      localStorage.setItem(TOKEN_KEY, JSON.stringify(tokens));
+      sessionStorage.setItem(TOKEN_KEY, JSON.stringify(tokens));
 
       // Verify admin group membership
       const user = getUser();
@@ -93,7 +88,7 @@ export async function login(email: string, password: string): Promise<{ success:
 
 export function getStoredTokens(): AuthTokens | null {
   if (typeof window === 'undefined') return null;
-  const stored = localStorage.getItem(TOKEN_KEY);
+  const stored = sessionStorage.getItem(TOKEN_KEY);
   if (!stored) return null;
   try {
     return JSON.parse(stored);
@@ -142,6 +137,8 @@ export function isAuthenticated(): boolean {
 }
 
 function clearTokens(): void {
+  sessionStorage.removeItem(TOKEN_KEY);
+  // Remove tokens written by pre-hardening builds.
   localStorage.removeItem(TOKEN_KEY);
 }
 

@@ -10,7 +10,7 @@ import SettingsView from "@/components/SettingsView";
 import ChatDrawer from "@/components/ChatDrawer";
 import PwaInstallBanner from "@/components/PwaInstallBanner";
 import LanguageConfirmModal from "@/components/LanguageConfirmModal";
-import { sendMessage, sendFeedback, getChatHistory, saveSession, ChatMessage, ChatResponse, Feedback } from "@/lib/api";
+import { sendMessage, sendFeedback, getChatHistory, saveSession, getSessionToken, ChatMessage, ChatResponse, Feedback } from "@/lib/api";
 import { useLanguage } from "@/context/LanguageContext";
 import { Language } from "@/lib/i18n";
 
@@ -21,6 +21,7 @@ export default function Home() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [sessionId, setSessionId] = useState<string | undefined>();
+  const [sessionToken, setSessionToken] = useState<string | undefined>();
   const [showWelcome, setShowWelcome] = useState(true);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [currentView, setCurrentView] = useState<View>("chat");
@@ -74,14 +75,20 @@ export default function Home() {
     const requestId = ++activeRequestRef.current;
 
     try {
-      const response: ChatResponse = await sendMessage(text, sessionId, language);
+      const response: ChatResponse = await sendMessage(
+        text,
+        sessionId,
+        sessionToken,
+        language,
+      );
       if (requestId !== activeRequestRef.current) return;
 
-      if (response.sessionId) {
+      if (response.sessionId && response.sessionToken) {
         setSessionId(response.sessionId);
+        setSessionToken(response.sessionToken);
         // Save session to history on first message
         if (!sessionId) {
-          saveSession(response.sessionId, text, language);
+          saveSession(response.sessionId, response.sessionToken, text, language);
         }
       }
 
@@ -115,7 +122,7 @@ export default function Home() {
 
   const handleFeedback = async (index: number, feedback: Feedback) => {
     const msg = messages[index];
-    if (!msg || msg.role !== "assistant" || !msg.messageId || !sessionId) return;
+    if (!msg || msg.role !== "assistant" || !msg.messageId || !sessionId || !sessionToken) return;
     // Already rated this way — no-op (avoids the UI clearing a rating the
     // backend still holds). Switching between up/down is allowed and persisted.
     if (msg.feedback === feedback) return;
@@ -125,7 +132,7 @@ export default function Home() {
       prev.map((m, i) => (i === index ? { ...m, feedback } : m))
     );
     try {
-      await sendFeedback(sessionId, msg.messageId, feedback);
+      await sendFeedback(sessionId, sessionToken, msg.messageId, feedback);
     } catch (err) {
       console.error("Feedback error:", err);
       // Revert on failure.
@@ -140,6 +147,7 @@ export default function Home() {
     setIsLoading(false);
     setMessages([]);
     setSessionId(undefined);
+    setSessionToken(undefined);
     setShowWelcome(true);
   };
 
@@ -161,6 +169,7 @@ export default function Home() {
 
   const handleNewChat = () => {
     handleEndChat();
+    setCurrentView("chat");
     setIsDrawerOpen(false);
   };
 
@@ -168,10 +177,13 @@ export default function Home() {
     activeRequestRef.current += 1;
     setIsLoading(false);
     try {
-      const history = await getChatHistory(sid);
+      const token = getSessionToken(sid);
+      if (!token) throw new Error("Session credentials are unavailable");
+      const history = await getChatHistory(sid, token);
       setMessages(history.messages);
       setLanguage(history.language);
       setSessionId(sid);
+      setSessionToken(token);
       setShowWelcome(false);
       setCurrentView("chat");
     } catch (err) {

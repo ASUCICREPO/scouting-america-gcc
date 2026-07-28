@@ -246,6 +246,17 @@ body {
   background: #fff;
 }
 
+[data-theme="dark"] .welcome-quick-actions button {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.2);
+  color: #6baaed;
+}
+
+[data-theme="dark"] .welcome-quick-actions button:hover {
+  background: rgba(255, 255, 255, 0.15);
+  border-color: var(--link-orange);
+}
+
 /* Shared confirmation dialog used by public chat and admin workflows. */
 .confirm-dialog-overlay {
   position: fixed;

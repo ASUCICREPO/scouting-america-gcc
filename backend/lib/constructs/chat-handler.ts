@@ -1,7 +1,6 @@
 import * as cdk from 'aws-cdk-lib';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
 import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
-import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as apigateway from 'aws-cdk-lib/aws-apigateway';
 import * as logs from 'aws-cdk-lib/aws-logs';
@@ -12,8 +11,12 @@ import * as path from 'path';
 export interface ChatHandlerProps {
   // DynamoDB table where we store conversations
   chatLogsTable: dynamodb.ITable;
-  // Secrets Manager secret with system guardrails
-  guardrailsSecret: secretsmanager.ISecret;
+  dependenciesLayer: lambda.ILayerVersion;
+  guardrailId: string;
+  guardrailVersion: string;
+  promptId: string;
+  promptVersion: string;
+  allowedOrigin: string;
   // API Gateway resources to attach routes to
   chatResource: apigateway.Resource;
   chatHistoryResource: apigateway.Resource;
@@ -31,7 +34,7 @@ export class ChatHandler extends Construct {
     super(scope, id);
 
     // The Lambda function that handles volunteer chat requests
-    // (Python 3.13, boto3 in the runtime — no bundling).
+    // (Python 3.13; boto3 comes from the runtime, app dependencies from a layer).
     this.function = new lambda.Function(this, 'ChatHandlerFn', {
       functionName: `${PREFIX}GCC-ChatHandler`,
       runtime: lambda.Runtime.PYTHON_3_13,
@@ -39,11 +42,16 @@ export class ChatHandler extends Construct {
       code: lambda.Code.fromAsset(path.join(__dirname, '../../lambda/chat-handler')),
       timeout: cdk.Duration.seconds(30), // Bedrock calls can take a few seconds
       memorySize: 512,
+      layers: [props.dependenciesLayer],
       environment: {
         KB_ID: props.knowledgeBaseId,
         MODEL_ARN: `arn:aws:bedrock:${cdk.Aws.REGION}:${cdk.Aws.ACCOUNT_ID}:inference-profile/${CONFIG.MODEL_ID}`,
         CHAT_LOGS_TABLE: props.chatLogsTable.tableName,
-        SECRETS_ARN: props.guardrailsSecret.secretArn,
+        GUARDRAIL_ID: props.guardrailId,
+        GUARDRAIL_VERSION: props.guardrailVersion,
+        PROMPT_ID: props.promptId,
+        PROMPT_VERSION: props.promptVersion,
+        ALLOWED_ORIGIN: props.allowedOrigin,
         ESCALATION_FUNCTION_ARN: props.escalationFunctionArn || '',
         CONFIDENCE_THRESHOLD: CONFIG.CONFIDENCE_THRESHOLD.toString(),
         SAFETY_KEYWORDS: JSON.stringify(CONFIG.SAFETY_KEYWORDS),
@@ -59,16 +67,15 @@ export class ChatHandler extends Construct {
     // Grant permissions: read/write to ChatLogs table
     props.chatLogsTable.grantReadWriteData(this.function);
 
-    // Grant permissions: read guardrails from Secrets Manager
-    props.guardrailsSecret.grantRead(this.function);
-
-    // Grant permissions: call Bedrock KB RetrieveAndGenerate
+    // Grant permissions: retrieve once from the KB, generate from those exact
+    // sources, and read the immutable Prompt Management version.
     this.function.addToRolePolicy(new iam.PolicyStatement({
       actions: [
-        'bedrock:RetrieveAndGenerate',
         'bedrock:Retrieve',
         'bedrock:InvokeModel',
+        'bedrock:ApplyGuardrail',
         'bedrock:GetInferenceProfile',
+        'bedrock:GetPrompt',
       ],
       resources: ['*'], // KB resources are account-wide
     }));

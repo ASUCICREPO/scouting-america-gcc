@@ -6,5 +6,5 @@ export const COGNITO_CONFIG = {
   userPoolId: process.env.NEXT_PUBLIC_USER_POOL_ID || "REPLACE_AFTER_CDK_DEPLOY",
   clientId:
     process.env.NEXT_PUBLIC_CLIENT_ID || "REPLACE_AFTER_CDK_DEPLOY",
-  region: "us-east-1",
+  region: process.env.NEXT_PUBLIC_AWS_REGION || "us-east-1",
 };

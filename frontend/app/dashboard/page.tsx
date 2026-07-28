@@ -34,17 +34,27 @@ export default function OverviewPage() {
   const [sessionLoading, setSessionLoading] = useState(false);
   const [highlightId, setHighlightId] = useState<string | null>(null);
 
+  const [showDateDropdown, setShowDateDropdown] = useState(false);
+  const [dateRange, setDateRange] = useState<'7d' | '30d' | '90d' | 'today'>('7d');
+
+  const dateRangeToDays: Record<string, number> = {
+    'today': 1,
+    '7d': 7,
+    '30d': 30,
+    '90d': 90,
+  };
+
   useEffect(() => {
     loadData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [period]);
+  }, [period, dateRange]);
 
   async function loadData() {
     setLoading(true);
     setError('');
     try {
       const [summaryData, convData, faqData] = await Promise.all([
-        getSummary(),
+        getSummary(dateRangeToDays[dateRange] || 90),
         getConversations(period),
         getFaq(5),
       ]);
@@ -97,9 +107,6 @@ export default function OverviewPage() {
     setSessionTurns([]);
   }
 
-  const [showDateDropdown, setShowDateDropdown] = useState(false);
-  const [dateRange, setDateRange] = useState<'7d' | '30d' | '90d' | 'today'>('7d');
-
   const dateRangeLabels: Record<string, string> = {
     'today': t.dashboard.today,
     '7d': t.dashboard.last7Days,
@@ -110,8 +117,6 @@ export default function OverviewPage() {
   function handleDateChange(range: '7d' | '30d' | '90d' | 'today') {
     setDateRange(range);
     setShowDateDropdown(false);
-    // Reload data — period stays the same but summary uses time window
-    loadData();
   }
 
   function generateReport() {
@@ -149,8 +154,10 @@ export default function OverviewPage() {
   const WINDOW_SIZES: Record<string, number> = { day: 7, week: 4, month: 6 };
   const windowSize = WINDOW_SIZES[period] || 7;
 
-  // Reset page when period changes
-  useEffect(() => { setChartPage(0); }, [period]);
+  function handlePeriodChange(nextPeriod: 'day' | 'week' | 'month') {
+    setPeriod(nextPeriod);
+    setChartPage(0);
+  }
 
   // Calculate windowed chart data
   // chartPage 0 = latest data (rightmost), negative = older
@@ -218,7 +225,7 @@ export default function OverviewPage() {
         <MetricCard
           label={t.dashboard.totalConversations}
           value={summary?.totalSessions?.toLocaleString() || '0'}
-          change={formatText(t.dashboard.todayChats, { count: summary?.totalChats || 0 })}
+          change={`${summary?.totalChats || 0} chats`}
           icon={<Copy size={13} />}
           positive
         />
@@ -253,9 +260,9 @@ export default function OverviewPage() {
             <p className="card-subtitle">{t.dashboard.volumeSubtitle}</p>
           </div>
           <div className="toggle-group">
-            <button className={`toggle-btn ${period === 'day' ? 'active' : ''}`} onClick={() => setPeriod('day')}>{t.dashboard.daily}</button>
-            <button className={`toggle-btn ${period === 'week' ? 'active' : ''}`} onClick={() => setPeriod('week')}>{t.dashboard.weekly}</button>
-            <button className={`toggle-btn ${period === 'month' ? 'active' : ''}`} onClick={() => setPeriod('month')}>{t.dashboard.monthly}</button>
+            <button className={`toggle-btn ${period === 'day' ? 'active' : ''}`} onClick={() => handlePeriodChange('day')}>{t.dashboard.daily}</button>
+            <button className={`toggle-btn ${period === 'week' ? 'active' : ''}`} onClick={() => handlePeriodChange('week')}>{t.dashboard.weekly}</button>
+            <button className={`toggle-btn ${period === 'month' ? 'active' : ''}`} onClick={() => handlePeriodChange('month')}>{t.dashboard.monthly}</button>
           </div>
         </div>
         <div className="chart-with-arrows">
