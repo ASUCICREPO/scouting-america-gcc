@@ -25,13 +25,12 @@ phases:
         npx cdk bootstrap
         "aws://${CDK_DEFAULT_ACCOUNT}/${AWS_REGION}"
         --bootstrap-kms-key-id AWS_MANAGED_KEY
-        --require-approval never
 
   build:
     commands:
-      - echo "Deploying the ScoutingAmericaChatbot CDK stack"
+      - echo "Deploying the $STACK_NAME CDK stack"
       - cd "$CODEBUILD_SRC_DIR/backend"
-      - npx cdk deploy ScoutingAmericaChatbot --require-approval never
+      - npx cdk deploy "$STACK_NAME" --require-approval never
       - |
         set -euo pipefail
 

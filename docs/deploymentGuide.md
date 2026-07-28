@@ -4,7 +4,7 @@ This guide describes reviewed deployments of Grand Canyon Council Scout AI to AW
 
 ## Deployment Model
 
-The repository deploys one CDK stack named `ScoutingAmericaChatbot`. The stack contains the backend, data stores, authentication, knowledge base, and static frontend hosting.
+The repository normally deploys one CDK stack named `ScoutingAmericaChatbot`. The stack contains the backend, data stores, authentication, knowledge base, and static frontend hosting. The isolated mock mode uses a separately named stack.
 
 `deploy.sh` is a thin deployment orchestrator. It packages the reviewed Git commit, creates or updates the GCC deployment-support IAM resources and private source bucket, then starts one AWS CodeBuild job.
 
@@ -33,7 +33,7 @@ Node.js 20, Python 3.13, npm, pip, and the repository-local CDK CLI run inside C
 
 ### AWS Region And Services
 
-The default region is `us-east-1`. The target account must support and authorize:
+The default region is `us-west-2`. The target account must support and authorize:
 
 - CloudFormation and IAM
 - Lambda, API Gateway, CloudWatch Logs, and SQS
@@ -95,7 +95,24 @@ Rules:
 
 **Always reuse the same prefix when updating an existing environment.** Changing or omitting it changes physical resource names and can cause replacements, empty dashboards, missing chat history, bucket-name collisions, or retained duplicate data resources.
 
-The prefix does not change the CloudFormation stack name. This repository manages one `ScoutingAmericaChatbot` stack per account/region unless the stack naming code is changed.
+The prefix does not normally change the CloudFormation stack name. This repository manages one `ScoutingAmericaChatbot` stack per account/region. Use the dedicated mock mode below when an isolated test stack is required.
+
+### Isolated Mock Deployment
+
+For a disposable deployment that must coexist with an existing GCC stack, use:
+
+```bash
+./deploy.sh --mock-deploy
+```
+
+This single option sets both of the namespaces required for isolation:
+
+- CloudFormation stack: `mock-deploy-ScoutingAmericaChatbot`
+- Explicit AWS resource prefix: `mock-deploy-`
+- CodeBuild project and deployment role prefix: `mock-deploy-`
+- Resource tag: `Deployment=mock-deploy` where the AWS resource supports tags
+
+Both are necessary. The resource prefix isolates explicitly named buckets, tables, functions, queues, roles, and Bedrock resources. The distinct stack name also isolates CDK-generated account-global CloudFront names. AWS-generated identifiers such as distribution IDs cannot be prefixed, but they remain owned by and traceable to the mock stack.
 
 ### Public And Admin Origins
 
@@ -117,6 +134,7 @@ Optional flags:
 --prefix PREFIX
 --admin-email EMAIL
 --admin-password PASSWORD
+--mock-deploy
 --skip-admin
 --yes
 ```
@@ -126,7 +144,7 @@ Optional flags:
 ### Deploy With A Named Profile
 
 ```bash
-./deploy.sh --profile my-profile --region us-east-1 --prefix demo
+./deploy.sh --profile my-profile --region us-west-2 --prefix demo
 ```
 
 ### Create Or Update An Admin User
@@ -183,7 +201,7 @@ Read them without changing the stack:
 ```bash
 aws cloudformation describe-stacks \
   --stack-name ScoutingAmericaChatbot \
-  --region us-east-1 \
+  --region us-west-2 \
   --query 'Stacks[0].Outputs' \
   --output table
 ```
@@ -195,7 +213,7 @@ aws cloudformation describe-stacks \
 ```bash
 aws cloudformation describe-stacks \
   --stack-name ScoutingAmericaChatbot \
-  --region us-east-1 \
+  --region us-west-2 \
   --query 'Stacks[0].StackStatus' \
   --output text
 ```
@@ -209,7 +227,7 @@ Expected status after an update: `UPDATE_COMPLETE`. A first deployment ends at `
 ```bash
 PUBLIC_DIST_ID=$(aws cloudformation describe-stacks \
   --stack-name ScoutingAmericaChatbot \
-  --region us-east-1 \
+  --region us-west-2 \
   --query "Stacks[0].Outputs[?OutputKey=='PublicFrontendDistributionId'].OutputValue" \
   --output text)
 
@@ -229,7 +247,7 @@ Open `PublicFrontendUrl` and verify `/` works while `/login` and `/dashboard` re
 ```bash
 CHAT_API=$(aws cloudformation describe-stacks \
   --stack-name ScoutingAmericaChatbot \
-  --region us-east-1 \
+  --region us-west-2 \
   --query "Stacks[0].Outputs[?OutputKey=='ChatApiUrl'].OutputValue" \
   --output text)
 
@@ -255,16 +273,16 @@ Sign in with an authorized admin account and verify:
 Check recent Lambda errors:
 
 ```bash
-aws logs tail /aws/lambda/demo-GCC-ChatHandler --since 15m --region us-east-1
-aws logs tail /aws/lambda/demo-GCC-AdminDashboard --since 15m --region us-east-1
-aws logs tail /aws/lambda/demo-GCC-EscalationRouter --since 15m --region us-east-1
+aws logs tail /aws/lambda/demo-GCC-ChatHandler --since 15m --region us-west-2
+aws logs tail /aws/lambda/demo-GCC-AdminDashboard --since 15m --region us-west-2
+aws logs tail /aws/lambda/demo-GCC-EscalationRouter --since 15m --region us-west-2
 ```
 
 CDK-generated document-processor function names include a stack/logical-ID suffix. Locate it before tailing:
 
 ```bash
 aws lambda list-functions \
-  --region us-east-1 \
+  --region us-west-2 \
   --query "Functions[?contains(FunctionName, 'DocProcessor')].FunctionName" \
   --output text
 ```
@@ -342,7 +360,7 @@ Preview the target first:
 
 ```bash
 aws sts get-caller-identity
-aws cloudformation describe-stacks --stack-name ScoutingAmericaChatbot --region us-east-1
+aws cloudformation describe-stacks --stack-name ScoutingAmericaChatbot --region us-west-2
 ```
 
 The CDK destroy command is:
@@ -350,6 +368,15 @@ The CDK destroy command is:
 ```bash
 cd backend
 RESOURCE_PREFIX=demo npx cdk destroy ScoutingAmericaChatbot
+```
+
+For the isolated mock environment:
+
+```bash
+cd backend
+STACK_NAME=mock-deploy-ScoutingAmericaChatbot \
+  RESOURCE_PREFIX=mock-deploy \
+  npx cdk destroy mock-deploy-ScoutingAmericaChatbot
 ```
 
 The document buckets, chat and analytics tables, and Cognito User Pool use `RETAIN`, so stack destruction does not constitute a full data deletion. The static frontend bucket is auto-deleted. Inventory and back up retained data before any separately approved manual cleanup.
