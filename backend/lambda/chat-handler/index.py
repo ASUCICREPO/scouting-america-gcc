@@ -315,18 +315,45 @@ def retrieve_chunks(question: str) -> list[RetrievedChunk]:
     return chunks
 
 
+MAX_HISTORY_TURNS = 10
+
+
+def _load_conversation_history(session_id: str) -> list[dict[str, Any]]:
+    """Load recent turns from DynamoDB and format as Bedrock converse messages."""
+    try:
+        result = chat_table.query(
+            KeyConditionExpression=Key("sessionId").eq(session_id),
+            ScanIndexForward=False,
+            Limit=MAX_HISTORY_TURNS,
+        )
+        items = list(reversed(result.get("Items", [])))
+        messages = []
+        for item in items:
+            q = item.get("question", "")
+            a = item.get("answer", "")
+            if q and a:
+                messages.append({"role": "user", "content": [{"text": q}]})
+                messages.append({"role": "assistant", "content": [{"text": a}]})
+        return messages
+    except Exception as error:  # noqa: BLE001 - history is best-effort
+        print(f"Failed to load conversation history: {error}")
+        return []
+
+
 def generate_answer(
     question: str,
     language: Literal["en", "es"],
     chunks: list[RetrievedChunk],
+    session_id: str | None = None,
 ) -> tuple[str, str]:
     """Generate from the same chunks used for confidence and citations."""
+    history = _load_conversation_history(session_id) if session_id else []
+    current_message = {"role": "user", "content": [{"text": render_prompt(question, language, chunks)}]}
+    messages = history + [current_message]
+
     result = bedrock_runtime.converse(
         modelId=MODEL_ARN,
-        messages=[{
-            "role": "user",
-            "content": [{"text": render_prompt(question, language, chunks)}],
-        }],
+        messages=messages,
         inferenceConfig={
             "maxTokens": 2000,
             "temperature": 0.1,
@@ -400,7 +427,7 @@ def handle_chat(event: dict[str, Any]) -> dict[str, Any]:
     timestamp = _now()
 
     chunks = retrieve_chunks(request.question)
-    answer, stop_reason = generate_answer(request.question, request.language, chunks)
+    answer, stop_reason = generate_answer(request.question, request.language, chunks, request.session_id)
 
     sources = list(dict.fromkeys(chunk.source for chunk in chunks if chunk.source != "unknown"))
     chunk_scores = [
