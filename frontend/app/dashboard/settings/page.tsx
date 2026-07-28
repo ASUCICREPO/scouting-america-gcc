@@ -104,7 +104,7 @@ export default function SettingsPage() {
 
   return (
     <div className="settings-page">
-      <h1 className="settings-title">› {t.adminSettings.title}</h1>
+      <h1 className="settings-title">{t.adminSettings.title}</h1>
       <div className="settings-layout">
         <div className="settings-tabs">
           {tabs.map(tab => (
@@ -185,14 +185,6 @@ export default function SettingsPage() {
                   <div className="lang-options">
                     <button className={`lang-btn ${settings.language === 'english' ? 'active' : ''}`} onClick={() => updateSettings({ language: 'english' })} aria-pressed={settings.language === 'english'}><Globe size={13} /> {t.common.english}</button>
                     <button className={`lang-btn ${settings.language === 'espanol' ? 'active' : ''}`} onClick={() => updateSettings({ language: 'espanol' })} aria-pressed={settings.language === 'espanol'}><Globe size={13} /> {t.common.spanish}</button>
-                  </div>
-                </div>
-                <div className="appearance-row">
-                  <div><h3 className="appearance-label">{t.adminSettings.textSize}</h3><p className="appearance-desc">{t.adminSettings.textSizeDescription}</p></div>
-                  <div className="text-size-options">
-                    <button className={`size-btn ${draftTextSize === 'small' ? 'active' : ''}`} onClick={() => setDraftTextSize('small')}><span className="size-label">Aa</span><span>{t.adminSettings.small}</span></button>
-                    <button className={`size-btn ${draftTextSize === 'medium' ? 'active' : ''}`} onClick={() => setDraftTextSize('medium')}><span className="size-label">Aa</span><span>{t.adminSettings.medium}</span></button>
-                    <button className={`size-btn ${draftTextSize === 'large' ? 'active' : ''}`} onClick={() => setDraftTextSize('large')}><span className="size-label">Aa</span><span>{t.adminSettings.large}</span></button>
                   </div>
                 </div>
               </div>
