@@ -1,14 +1,8 @@
 version: 0.2
 
-# CodeBuild spec for the Scouting America GCC Chatbot backend.
-# Builds + tests the CDK app, then deploys the ScoutingAmericaChatbot stack.
-# Lambda handlers are Python 3.13 (boto3 in the runtime). CDK bundles the
-# shared Pydantic/Jinja layer during synthesis; the CDK app runs on Node.
-
-env:
-  variables:
-    STACK_NAME: "ScoutingAmericaChatbot"
-    AWS_REGION: "us-east-1"
+# Unified CodeBuild deployment for the Scouting America GCC chatbot.
+# deploy.sh uploads the reviewed Git commit as an S3 source archive, creates or
+# updates the CodeBuild project, and supplies the environment variables below.
 
 phases:
   install:
@@ -17,30 +11,105 @@ phases:
       python: 3.13
     commands:
       - echo "Installing backend dependencies"
-      - cd backend
+      - cd "$CODEBUILD_SRC_DIR/backend"
       - npm ci
 
   pre_build:
     commands:
-      - echo "Running unit tests"
-      - npx jest --ci
-      - echo "Synthesizing CloudFormation template (cdk-nag runs here)"
-      - npx cdk synth
+      - echo "Running backend unit tests"
+      - CDK_TEST_SKIP_PYTHON_BUNDLING=true npm test -- --runInBand
+      - echo "Bootstrapping the target account and Region"
+      - >-
+        npx cdk bootstrap
+        "aws://${CDK_DEFAULT_ACCOUNT}/${AWS_REGION}"
+        --bootstrap-kms-key-id AWS_MANAGED_KEY
+        --require-approval never
 
   build:
     commands:
-      - echo "Deploying $STACK_NAME to $AWS_REGION"
-      - npx cdk deploy --require-approval never
+      - echo "Deploying the ScoutingAmericaChatbot CDK stack"
+      - cd "$CODEBUILD_SRC_DIR/backend"
+      - npx cdk deploy ScoutingAmericaChatbot --require-approval never
+      - |
+        set -euo pipefail
+
+        stack_output() {
+          aws cloudformation describe-stacks \
+            --stack-name "$STACK_NAME" \
+            --region "$AWS_REGION" \
+            --query "Stacks[0].Outputs[?OutputKey=='$1'].OutputValue" \
+            --output text
+        }
+
+        CHAT_API_URL="$(stack_output ChatApiUrl)"
+        DASHBOARD_API_URL="$(stack_output DashboardApiUrl)"
+        USER_POOL_ID="$(stack_output UserPoolId)"
+        CLIENT_ID="$(stack_output UserPoolClientId)"
+        PUBLIC_FRONTEND_BUCKET="$(stack_output PublicFrontendBucket)"
+        PUBLIC_FRONTEND_DIST_ID="$(stack_output PublicFrontendDistributionId)"
+        PUBLIC_FRONTEND_URL="$(stack_output PublicFrontendUrl)"
+        ADMIN_FRONTEND_BUCKET="$(stack_output AdminFrontendBucket)"
+        ADMIN_FRONTEND_DIST_ID="$(stack_output AdminFrontendDistributionId)"
+        ADMIN_FRONTEND_URL="$(stack_output AdminFrontendUrl)"
+
+        test -n "$CHAT_API_URL"
+        test "$CHAT_API_URL" != "None"
+        test -n "$PUBLIC_FRONTEND_BUCKET"
+        test "$PUBLIC_FRONTEND_BUCKET" != "None"
+        test -n "$ADMIN_FRONTEND_BUCKET"
+        test "$ADMIN_FRONTEND_BUCKET" != "None"
+
+        CHAT_API_URL="${CHAT_API_URL%/}"
+        DASHBOARD_API_URL="${DASHBOARD_API_URL%/}"
+
+        echo "Building the Next.js static export"
+        cd "$CODEBUILD_SRC_DIR/frontend"
+        npm ci
+        cat > .env.local <<EOF
+        NEXT_PUBLIC_API_URL=$CHAT_API_URL
+        NEXT_PUBLIC_DASHBOARD_API_URL=$DASHBOARD_API_URL
+        NEXT_PUBLIC_USER_POOL_ID=$USER_POOL_ID
+        NEXT_PUBLIC_CLIENT_ID=$CLIENT_ID
+        NEXT_PUBLIC_AWS_REGION=$AWS_REGION
+        EOF
+        npm run build
+        test -d out
+
+        echo "Publishing the public chat to its private S3 origin"
+        aws s3 sync out "s3://$PUBLIC_FRONTEND_BUCKET" \
+          --delete \
+          --exclude "dashboard/*" \
+          --exclude "login/*" \
+          --region "$AWS_REGION"
+        aws s3 rm "s3://$PUBLIC_FRONTEND_BUCKET/dashboard/" \
+          --recursive \
+          --region "$AWS_REGION"
+        aws s3 rm "s3://$PUBLIC_FRONTEND_BUCKET/login/" \
+          --recursive \
+          --region "$AWS_REGION"
+
+        echo "Publishing the admin application to its private S3 origin"
+        aws s3 sync out "s3://$ADMIN_FRONTEND_BUCKET" \
+          --delete \
+          --region "$AWS_REGION"
+
+        aws cloudfront create-invalidation \
+          --distribution-id "$PUBLIC_FRONTEND_DIST_ID" \
+          --paths "/*" \
+          --region "$AWS_REGION" >/dev/null
+        aws cloudfront create-invalidation \
+          --distribution-id "$ADMIN_FRONTEND_DIST_ID" \
+          --paths "/*" \
+          --region "$AWS_REGION" >/dev/null
+
+        echo "GCC deployment complete"
+        echo "Public chat: $PUBLIC_FRONTEND_URL"
+        echo "Admin dashboard: $ADMIN_FRONTEND_URL"
 
   post_build:
     commands:
-      - echo "Capturing stack outputs"
-      - |
-        aws cloudformation describe-stacks \
-          --stack-name "$STACK_NAME" --region "$AWS_REGION" \
-          --query "Stacks[0].Outputs" --output table
+      - echo "CodeBuild deployment finished with status $CODEBUILD_BUILD_SUCCEEDING"
 
 artifacts:
-  base-directory: backend
   files:
-    - cdk.out/**/*
+    - backend/cdk.out/**/*

@@ -1,34 +1,33 @@
 #!/usr/bin/env bash
 #
-# deploy.sh — one-step deploy for the Scouting America GCC Chatbot.
+# deploy.sh — one-command AWS sandbox deployment for the Scouting America GCC chatbot.
 #
-# Deploys the CDK backend (ScoutingAmericaChatbot stack), captures the stack
-# outputs, wires them into frontend/.env.local, and optionally seeds an admin
-# Cognito user. Mirrors the one-step deploy pattern of the Cincinnati project.
+# The caller packages the reviewed Git commit and starts one AWS CodeBuild job.
+# CodeBuild bootstraps CDK, deploys GCC's backend, builds the frontend, publishes
+# the isolated public/admin S3 origins, and invalidates both CloudFront distributions.
+# The caller then creates the first Cognito administrator.
 #
 # Usage:
-#   ./deploy.sh [--region us-east-1] [--profile default] [--prefix dev]
-#               [--admin-email you@example.com] [--admin-password 'Pass@123']
-#               [--skip-frontend-env] [--ingest ./ingest]
+#   ./deploy.sh [--region us-east-1] [--profile gcc-sandbox] [--prefix demo]
+#               [--admin-email you@example.org] [--admin-password 'Pass@123']
+#               [--skip-admin] [--yes]
 #
-# Prereqs: aws cli v2, node + npm, cdk (npx), a bootstrapped account/region.
+# Prerequisites: AWS CLI v2, Bash, Git, jq, and an administrator-capable AWS
+# CLI session in an approved sandbox account. This is not a production installer.
 set -euo pipefail
 
-# ── Defaults ─────────────────────────────────────────────────────────────────
 STACK_NAME="ScoutingAmericaChatbot"
 REGION="${AWS_REGION:-us-east-1}"
 PROFILE=""
 RESOURCE_PREFIX="${RESOURCE_PREFIX:-}"
 ADMIN_EMAIL=""
-ADMIN_PASSWORD=""
-SKIP_FRONTEND_ENV="false"
-INGEST_DIR=""
+ADMIN_PASSWORD="${GCC_ADMIN_PASSWORD:-}"
+SKIP_ADMIN="false"
+ASSUME_YES="false"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-BACKEND_DIR="$SCRIPT_DIR/backend"
-FRONTEND_ENV="$SCRIPT_DIR/frontend/.env.local"
+TEMP_DIR=""
 
-# ── Colors ───────────────────────────────────────────────────────────────────
 if [[ -t 1 ]]; then
   RED=$'\033[0;31m'; GREEN=$'\033[0;32m'; YELLOW=$'\033[0;33m'; BLUE=$'\033[0;34m'; NC=$'\033[0m'
 else
@@ -39,64 +38,311 @@ ok()    { echo "${GREEN}✓${NC} $*"; }
 warn()  { echo "${YELLOW}!${NC} $*"; }
 die()   { echo "${RED}✗ $*${NC}" >&2; exit 1; }
 
-# ── Args ─────────────────────────────────────────────────────────────────────
+cleanup() {
+  if [[ -n "$TEMP_DIR" && -d "$TEMP_DIR" ]]; then
+    rm -rf -- "$TEMP_DIR"
+  fi
+}
+trap cleanup EXIT
+
+require_value() {
+  [[ $# -ge 2 && -n "${2:-}" ]] || die "$1 requires a value"
+}
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --region)          REGION="$2"; shift 2;;
-    --profile)         PROFILE="$2"; shift 2;;
-    --prefix)          RESOURCE_PREFIX="$2"; shift 2;;
-    --admin-email)     ADMIN_EMAIL="$2"; shift 2;;
-    --admin-password)  ADMIN_PASSWORD="$2"; shift 2;;
-    --skip-frontend-env) SKIP_FRONTEND_ENV="true"; shift;;
-    --ingest)          INGEST_DIR="$2"; shift 2;;
-    -h|--help)         grep '^#' "$0" | sed 's/^# \{0,1\}//'; exit 0;;
-    *) die "Unknown argument: $1";;
+    --region)
+      require_value "$1" "${2:-}"; REGION="$2"; shift 2;;
+    --profile)
+      require_value "$1" "${2:-}"; PROFILE="$2"; shift 2;;
+    --prefix)
+      require_value "$1" "${2:-}"; RESOURCE_PREFIX="$2"; shift 2;;
+    --admin-email)
+      require_value "$1" "${2:-}"; ADMIN_EMAIL="$2"; shift 2;;
+    --admin-password)
+      require_value "$1" "${2:-}"; ADMIN_PASSWORD="$2"; shift 2;;
+    --skip-admin)
+      SKIP_ADMIN="true"; shift;;
+    -y|--yes)
+      ASSUME_YES="true"; shift;;
+    -h|--help)
+      sed -n '2,18s/^# \{0,1\}//p' "$0"; exit 0;;
+    *)
+      die "Unknown argument: $1";;
   esac
 done
 
 if [[ -n "$RESOURCE_PREFIX" ]]; then
   [[ "$RESOURCE_PREFIX" =~ ^[a-z0-9]([a-z0-9-]*[a-z0-9])?$ ]] \
     || die "Prefix must contain only lowercase letters, numbers, and internal hyphens"
-  [[ ${#RESOURCE_PREFIX} -le 39 ]] \
-    || die "Prefix must be 39 characters or fewer to keep generated S3 bucket names valid"
+  [[ ${#RESOURCE_PREFIX} -le 30 ]] \
+    || die "Prefix must be 30 characters or fewer for IAM and CodeBuild names"
+fi
+[[ "$REGION" =~ ^[a-z0-9-]+$ ]] || die "Invalid AWS Region: $REGION"
+
+command -v aws >/dev/null || die "AWS CLI not found"
+command -v git >/dev/null || die "Git not found"
+command -v jq >/dev/null || die "jq not found"
+git -C "$SCRIPT_DIR" rev-parse --is-inside-work-tree >/dev/null 2>&1 \
+  || die "deploy.sh must be run from a Git checkout"
+
+AWS_ARGS=(--region "$REGION" --no-cli-pager)
+[[ -n "$PROFILE" ]] && AWS_ARGS+=(--profile "$PROFILE")
+aws_cli() { aws "$@" "${AWS_ARGS[@]}"; }
+
+info "Validating AWS identity and reviewed source"
+CALLER_JSON="$(aws_cli sts get-caller-identity --output json)" \
+  || die "AWS credentials are not configured for $REGION"
+ACCOUNT_ID="$(jq -r '.Account' <<<"$CALLER_JSON")"
+CALLER_ARN="$(jq -r '.Arn' <<<"$CALLER_JSON")"
+[[ "$ACCOUNT_ID" =~ ^[0-9]{12}$ ]] || die "Could not determine the AWS account ID"
+
+if ! git -C "$SCRIPT_DIR" diff --quiet --ignore-submodules -- || \
+   ! git -C "$SCRIPT_DIR" diff --cached --quiet --ignore-submodules --; then
+  die "Tracked changes are present. Commit or discard them before deploying a reviewed build."
 fi
 
-# CDK inherits RESOURCE_PREFIX at synth time. Keep its deployment environment
-# aligned with the region used for CloudFormation output reads and S3 publishing.
-export RESOURCE_PREFIX
-export AWS_REGION="$REGION"
-export AWS_DEFAULT_REGION="$REGION"
-export CDK_DEFAULT_REGION="$REGION"
+DEPLOY_COMMIT="$(git -C "$SCRIPT_DIR" rev-parse HEAD)"
+NAME_PREFIX="${RESOURCE_PREFIX:+${RESOURCE_PREFIX}-}"
+PROJECT_NAME="${NAME_PREFIX}gcc-chatbot-deployment"
+ROLE_NAME="${NAME_PREFIX}gcc-codebuild-deployment-role"
+SOURCE_BUCKET="gcc-chatbot-deploy-${ACCOUNT_ID}-${REGION}"
+SOURCE_KEY="${NAME_PREFIX}releases/$(date -u +%Y%m%dT%H%M%SZ)-${DEPLOY_COMMIT:0:12}.zip"
+LOG_GROUP="/aws/codebuild/${PROJECT_NAME}"
+ADMIN_POLICY_ARN="arn:aws:iam::aws:policy/AdministratorAccess"
 
-AWS_ARGS=(--region "$REGION")
-[[ -n "$PROFILE" ]] && AWS_ARGS+=(--profile "$PROFILE")
+echo
+echo "AWS sandbox deployment target"
+echo "  Caller:   $CALLER_ARN"
+echo "  Account:  $ACCOUNT_ID"
+echo "  Region:   $REGION"
+echo "  Commit:   $DEPLOY_COMMIT"
+echo "  Prefix:   ${RESOURCE_PREFIX:-<none>}"
+echo
+warn "This sandbox installer gives the CodeBuild deployment role AdministratorAccess."
 
-# ── Prereqs ──────────────────────────────────────────────────────────────────
-info "Checking prerequisites"
-command -v aws  >/dev/null || die "aws CLI not found"
-command -v node >/dev/null || die "node not found"
-command -v npm  >/dev/null || die "npm not found"
-aws sts get-caller-identity "${AWS_ARGS[@]}" >/dev/null 2>&1 \
-  || die "AWS credentials not configured (region=$REGION${PROFILE:+, profile=$PROFILE})"
-ok "Prerequisites present"
-ok "Resource prefix: ${RESOURCE_PREFIX:-<none>}"
+if [[ "$ASSUME_YES" != "true" ]]; then
+  [[ -t 0 ]] || die "Use --yes for a non-interactive deployment"
+  read -r -p "Deploy this reviewed commit to the account above? [y/N] " CONFIRM
+  [[ "$CONFIRM" =~ ^[Yy]$ ]] || die "Deployment cancelled"
+fi
 
-# ── Deploy ───────────────────────────────────────────────────────────────────
-info "Installing backend dependencies"
-( cd "$BACKEND_DIR" && npm ci --silent || npm install --silent )
+if [[ "$SKIP_ADMIN" != "true" ]]; then
+  if [[ -z "$ADMIN_EMAIL" ]]; then
+    if [[ -t 0 ]]; then
+      read -r -p "Initial administrator email: " ADMIN_EMAIL
+    else
+      die "Use --admin-email or --skip-admin for a non-interactive deployment"
+    fi
+  fi
+  [[ "$ADMIN_EMAIL" == *@*.* ]] || die "Enter a valid initial administrator email"
 
-info "Deploying CDK stack: $STACK_NAME (region=$REGION)"
-CDK_ARGS=(--require-approval never)
-[[ -n "$PROFILE" ]] && CDK_ARGS+=(--profile "$PROFILE")
-( cd "$BACKEND_DIR" && npx cdk deploy "$STACK_NAME" "${CDK_ARGS[@]}" )
-ok "Stack deployed"
+  if [[ -z "$ADMIN_PASSWORD" ]]; then
+    if [[ -t 0 ]]; then
+      read -r -s -p "Initial administrator password: " ADMIN_PASSWORD
+      echo
+    else
+      die "Set GCC_ADMIN_PASSWORD or use --admin-password for a non-interactive deployment"
+    fi
+  fi
+  [[ ${#ADMIN_PASSWORD} -ge 8 ]] || die "The administrator password must be at least eight characters"
+fi
 
-# ── Capture outputs ──────────────────────────────────────────────────────────
-info "Reading stack outputs"
+TEMP_DIR="$(mktemp -d)"
+TRUST_POLICY_FILE="$TEMP_DIR/codebuild-trust.json"
+PROJECT_FILE="$TEMP_DIR/codebuild-project.json"
+SOURCE_ARCHIVE="$TEMP_DIR/gcc-source.zip"
+LIFECYCLE_FILE="$TEMP_DIR/source-lifecycle.json"
+
+cat > "$TRUST_POLICY_FILE" <<'JSON'
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Principal": { "Service": "codebuild.amazonaws.com" },
+      "Action": "sts:AssumeRole"
+    }
+  ]
+}
+JSON
+
+info "Creating or updating the administrator-capable CodeBuild service role"
+if aws_cli iam get-role --role-name "$ROLE_NAME" >/dev/null 2>&1; then
+  aws_cli iam update-assume-role-policy \
+    --role-name "$ROLE_NAME" \
+    --policy-document "file://$TRUST_POLICY_FILE"
+  aws_cli iam tag-role \
+    --role-name "$ROLE_NAME" \
+    --tags Key=Project,Value=ScoutingAmericaGCC Key=ManagedBy,Value=deploy.sh
+else
+  aws_cli iam create-role \
+    --role-name "$ROLE_NAME" \
+    --description "Sandbox deployment role for the GCC chatbot" \
+    --assume-role-policy-document "file://$TRUST_POLICY_FILE" \
+    --tags Key=Project,Value=ScoutingAmericaGCC Key=ManagedBy,Value=deploy.sh >/dev/null
+fi
+aws_cli iam attach-role-policy \
+  --role-name "$ROLE_NAME" \
+  --policy-arn "$ADMIN_POLICY_ARN"
+ROLE_ARN="$(aws_cli iam get-role --role-name "$ROLE_NAME" --query 'Role.Arn' --output text)"
+ok "CodeBuild role ready: $ROLE_ARN"
+
+info "Preparing the private CodeBuild source bucket"
+if ! aws_cli s3api head-bucket --bucket "$SOURCE_BUCKET" >/dev/null 2>&1; then
+  if [[ "$REGION" == "us-east-1" ]]; then
+    aws_cli s3api create-bucket --bucket "$SOURCE_BUCKET" >/dev/null
+  else
+    aws_cli s3api create-bucket \
+      --bucket "$SOURCE_BUCKET" \
+      --create-bucket-configuration "LocationConstraint=$REGION" >/dev/null
+  fi
+fi
+aws_cli s3api put-public-access-block \
+  --bucket "$SOURCE_BUCKET" \
+  --public-access-block-configuration \
+    BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true
+aws_cli s3api put-bucket-encryption \
+  --bucket "$SOURCE_BUCKET" \
+  --server-side-encryption-configuration \
+    'Rules=[{ApplyServerSideEncryptionByDefault={SSEAlgorithm=AES256},BucketKeyEnabled=true}]'
+aws_cli s3api put-bucket-versioning \
+  --bucket "$SOURCE_BUCKET" \
+  --versioning-configuration Status=Enabled
+cat > "$LIFECYCLE_FILE" <<'JSON'
+{
+  "Rules": [
+    {
+      "ID": "ExpireDeploymentArchives",
+      "Status": "Enabled",
+      "Filter": { "Prefix": "" },
+      "Expiration": { "Days": 30 },
+      "NoncurrentVersionExpiration": { "NoncurrentDays": 7 }
+    }
+  ]
+}
+JSON
+aws_cli s3api put-bucket-lifecycle-configuration \
+  --bucket "$SOURCE_BUCKET" \
+  --lifecycle-configuration "file://$LIFECYCLE_FILE"
+
+git -C "$SCRIPT_DIR" archive --format=zip --output "$SOURCE_ARCHIVE" HEAD
+aws_cli s3 cp "$SOURCE_ARCHIVE" "s3://$SOURCE_BUCKET/$SOURCE_KEY" --only-show-errors
+ok "Uploaded reviewed source: s3://$SOURCE_BUCKET/$SOURCE_KEY"
+
+cat > "$PROJECT_FILE" <<JSON
+{
+  "name": "${PROJECT_NAME}",
+  "description": "Unified sandbox deployment for the Scouting America GCC chatbot",
+  "source": {
+    "type": "S3",
+    "location": "${SOURCE_BUCKET}/${SOURCE_KEY}",
+    "buildspec": "buildspec.yml"
+  },
+  "artifacts": { "type": "NO_ARTIFACTS" },
+  "environment": {
+    "type": "LINUX_CONTAINER",
+    "image": "aws/codebuild/standard:7.0",
+    "computeType": "BUILD_GENERAL1_LARGE",
+    "privilegedMode": false,
+    "imagePullCredentialsType": "CODEBUILD",
+    "environmentVariables": [
+      { "name": "AWS_REGION", "value": "${REGION}", "type": "PLAINTEXT" },
+      { "name": "AWS_DEFAULT_REGION", "value": "${REGION}", "type": "PLAINTEXT" },
+      { "name": "CDK_DEFAULT_REGION", "value": "${REGION}", "type": "PLAINTEXT" },
+      { "name": "CDK_DEFAULT_ACCOUNT", "value": "${ACCOUNT_ID}", "type": "PLAINTEXT" },
+      { "name": "RESOURCE_PREFIX", "value": "${RESOURCE_PREFIX}", "type": "PLAINTEXT" },
+      { "name": "STACK_NAME", "value": "${STACK_NAME}", "type": "PLAINTEXT" }
+    ]
+  },
+  "serviceRole": "${ROLE_ARN}",
+  "timeoutInMinutes": 60,
+  "queuedTimeoutInMinutes": 60,
+  "logsConfig": {
+    "cloudWatchLogs": {
+      "status": "ENABLED",
+      "groupName": "${LOG_GROUP}"
+    }
+  },
+  "tags": [
+    { "key": "Project", "value": "ScoutingAmericaGCC" },
+    { "key": "ManagedBy", "value": "deploy.sh" }
+  ]
+}
+JSON
+
+info "Creating or updating CodeBuild project: $PROJECT_NAME"
+if [[ "$(aws_cli codebuild batch-get-projects \
+  --names "$PROJECT_NAME" \
+  --query 'projects[0].name' \
+  --output text 2>/dev/null || true)" == "$PROJECT_NAME" ]]; then
+  aws_cli codebuild update-project --cli-input-json "file://$PROJECT_FILE" >/dev/null
+else
+  # New IAM roles can take a few seconds to become assumable by CodeBuild.
+  sleep 10
+  aws_cli codebuild create-project --cli-input-json "file://$PROJECT_FILE" >/dev/null
+fi
+ok "CodeBuild project ready"
+
+info "Starting the unified GCC deployment"
+BUILD_ID="$(aws_cli codebuild start-build \
+  --project-name "$PROJECT_NAME" \
+  --query 'build.id' \
+  --output text)"
+[[ -n "$BUILD_ID" && "$BUILD_ID" != "None" ]] || die "CodeBuild did not return a build ID"
+LOG_STREAM="${BUILD_ID#*:}"
+ok "Build started: $BUILD_ID"
+echo "AWS console: https://${REGION}.console.aws.amazon.com/codesuite/codebuild/${ACCOUNT_ID}/projects/${PROJECT_NAME}/build/${BUILD_ID}/log?region=${REGION}"
+echo
+
+BUILD_STATUS="IN_PROGRESS"
+LAST_TOKEN=""
+while [[ "$BUILD_STATUS" == "IN_PROGRESS" ]]; do
+  if [[ -z "$LAST_TOKEN" ]]; then
+    LOG_JSON="$(aws_cli logs get-log-events \
+      --log-group-name "$LOG_GROUP" \
+      --log-stream-name "$LOG_STREAM" \
+      --start-from-head \
+      --output json 2>/dev/null || true)"
+  else
+    LOG_JSON="$(aws_cli logs get-log-events \
+      --log-group-name "$LOG_GROUP" \
+      --log-stream-name "$LOG_STREAM" \
+      --next-token "$LAST_TOKEN" \
+      --output json 2>/dev/null || true)"
+  fi
+
+  if [[ -n "$LOG_JSON" ]]; then
+    jq -r '.events[]?.message' <<<"$LOG_JSON"
+    NEXT_TOKEN="$(jq -r '.nextForwardToken // empty' <<<"$LOG_JSON")"
+    [[ -n "$NEXT_TOKEN" ]] && LAST_TOKEN="$NEXT_TOKEN"
+  fi
+
+  BUILD_STATUS="$(aws_cli codebuild batch-get-builds \
+    --ids "$BUILD_ID" \
+    --query 'builds[0].buildStatus' \
+    --output text)"
+  [[ "$BUILD_STATUS" == "IN_PROGRESS" ]] && sleep 5
+done
+
+if [[ -n "$LAST_TOKEN" ]]; then
+  FINAL_LOG_JSON="$(aws_cli logs get-log-events \
+    --log-group-name "$LOG_GROUP" \
+    --log-stream-name "$LOG_STREAM" \
+    --next-token "$LAST_TOKEN" \
+    --output json 2>/dev/null || true)"
+  [[ -n "$FINAL_LOG_JSON" ]] && jq -r '.events[]?.message' <<<"$FINAL_LOG_JSON"
+fi
+
+[[ "$BUILD_STATUS" == "SUCCEEDED" ]] \
+  || die "CodeBuild deployment ended with status $BUILD_STATUS. Review $LOG_GROUP / $LOG_STREAM."
+ok "CodeBuild deployment succeeded"
+
 get_output() {
-  aws cloudformation describe-stacks \
-    --stack-name "$STACK_NAME" "${AWS_ARGS[@]}" \
-    --query "Stacks[0].Outputs[?OutputKey=='$1'].OutputValue" --output text
+  aws_cli cloudformation describe-stacks \
+    --stack-name "$STACK_NAME" \
+    --query "Stacks[0].Outputs[?OutputKey=='$1'].OutputValue" \
+    --output text
 }
 
 CHAT_API_URL="$(get_output ChatApiUrl)"
@@ -105,124 +351,38 @@ USER_POOL_ID="$(get_output UserPoolId)"
 CLIENT_ID="$(get_output UserPoolClientId)"
 DOCUMENT_BUCKET="$(get_output DocumentStoreBucket)"
 KB_BUCKET="$(get_output KnowledgeBaseBucket)"
-PUBLIC_FRONTEND_BUCKET="$(get_output PublicFrontendBucket)"
-PUBLIC_FRONTEND_DIST_ID="$(get_output PublicFrontendDistributionId)"
 PUBLIC_FRONTEND_URL="$(get_output PublicFrontendUrl)"
-ADMIN_FRONTEND_BUCKET="$(get_output AdminFrontendBucket)"
-ADMIN_FRONTEND_DIST_ID="$(get_output AdminFrontendDistributionId)"
 ADMIN_FRONTEND_URL="$(get_output AdminFrontendUrl)"
+OPERATIONS_DASHBOARD="$(get_output OperationsDashboardName)"
 
-[[ -n "$CHAT_API_URL" && "$CHAT_API_URL" != "None" ]] || die "Could not read ChatApiUrl output"
-
-# API Gateway URLs already end with a trailing slash; strip it for cleanliness.
-CHAT_API_URL="${CHAT_API_URL%/}"
-DASHBOARD_API_URL="${DASHBOARD_API_URL%/}"
-
-echo
-ok "Chat API URL:      $CHAT_API_URL"
-ok "Dashboard API URL: $DASHBOARD_API_URL"
-ok "User Pool ID:      $USER_POOL_ID"
-ok "User Pool Client:  $CLIENT_ID"
-ok "Document bucket:   $DOCUMENT_BUCKET"
-ok "KB bucket:         $KB_BUCKET"
-ok "Public bucket:     $PUBLIC_FRONTEND_BUCKET"
-ok "Public URL:        $PUBLIC_FRONTEND_URL"
-ok "Admin bucket:      $ADMIN_FRONTEND_BUCKET"
-ok "Admin URL:         $ADMIN_FRONTEND_URL"
-echo
-
-# ── Write frontend/.env.local ────────────────────────────────────────────────
-if [[ "$SKIP_FRONTEND_ENV" == "true" ]]; then
-  warn "Skipping frontend/.env.local (--skip-frontend-env)"
-else
-  info "Writing $FRONTEND_ENV"
-  cat > "$FRONTEND_ENV" <<EOF
-# Generated by deploy.sh — points the frontend at the deployed
-# $STACK_NAME stack ($REGION, prefix=${RESOURCE_PREFIX:-none}).
-# Regenerate by re-running ./deploy.sh with the same deployment options.
-NEXT_PUBLIC_API_URL=$CHAT_API_URL
-NEXT_PUBLIC_DASHBOARD_API_URL=$DASHBOARD_API_URL
-NEXT_PUBLIC_USER_POOL_ID=$USER_POOL_ID
-NEXT_PUBLIC_CLIENT_ID=$CLIENT_ID
-NEXT_PUBLIC_AWS_REGION=$REGION
-EOF
-  ok "Frontend environment written"
-fi
-
-# ── Seed admin user (optional) ───────────────────────────────────────────────
-if [[ -n "$ADMIN_EMAIL" && -n "$ADMIN_PASSWORD" ]]; then
-  info "Seeding admin user: $ADMIN_EMAIL"
-  aws cognito-idp admin-create-user \
+if [[ "$SKIP_ADMIN" != "true" ]]; then
+  info "Creating or updating initial administrator: $ADMIN_EMAIL"
+  aws_cli cognito-idp admin-create-user \
     --user-pool-id "$USER_POOL_ID" \
     --username "$ADMIN_EMAIL" \
     --user-attributes Name=email,Value="$ADMIN_EMAIL" Name=email_verified,Value=true \
-    --message-action SUPPRESS "${AWS_ARGS[@]}" >/dev/null 2>&1 \
-    || warn "User may already exist — continuing"
-  aws cognito-idp admin-set-user-password \
+    --message-action SUPPRESS >/dev/null 2>&1 \
+    || warn "The Cognito user may already exist; setting its password and group"
+  aws_cli cognito-idp admin-set-user-password \
     --user-pool-id "$USER_POOL_ID" \
     --username "$ADMIN_EMAIL" \
     --password "$ADMIN_PASSWORD" \
-    --permanent "${AWS_ARGS[@]}"
-  # Ensure the 'admin' group exists, then add the user to it.
-  aws cognito-idp create-group \
-    --user-pool-id "$USER_POOL_ID" --group-name admin "${AWS_ARGS[@]}" >/dev/null 2>&1 || true
-  aws cognito-idp admin-add-user-to-group \
-    --user-pool-id "$USER_POOL_ID" --username "$ADMIN_EMAIL" --group-name admin "${AWS_ARGS[@]}"
-  ok "Admin user ready (group: admin)"
-else
-  warn "No admin user seeded (pass --admin-email and --admin-password to seed one)"
-fi
-
-# ── Ingest documents (optional) ──────────────────────────────────────────────
-if [[ -n "$INGEST_DIR" ]]; then
-  [[ -d "$INGEST_DIR" ]] || die "Ingest directory not found: $INGEST_DIR"
-  info "Syncing documents from $INGEST_DIR to s3://$DOCUMENT_BUCKET/uploads/"
-  aws s3 sync "$INGEST_DIR" "s3://$DOCUMENT_BUCKET/uploads/" "${AWS_ARGS[@]}"
-  ok "Documents uploaded (S3 event triggers doc-processor → KB ingestion)"
-fi
-
-# ── Build & publish frontend to CloudFront/S3 ────────────────────────────────
-# Requires frontend/.env.local (written above unless --skip-frontend-env), since
-# NEXT_PUBLIC_* values are baked in at build time for the static export.
-if [[ -n "$PUBLIC_FRONTEND_BUCKET" && "$PUBLIC_FRONTEND_BUCKET" != "None" && \
-      -n "$ADMIN_FRONTEND_BUCKET" && "$ADMIN_FRONTEND_BUCKET" != "None" ]]; then
-  info "Building frontend (Next.js static export)"
-  ( cd "$SCRIPT_DIR/frontend" && ( npm ci --silent || npm install --silent ) && npm run build )
-  [[ -d "$SCRIPT_DIR/frontend/out" ]] || die "Frontend build did not produce frontend/out (is output:'export' set?)"
-
-  info "Publishing public chat → s3://$PUBLIC_FRONTEND_BUCKET"
-  aws s3 sync "$SCRIPT_DIR/frontend/out" "s3://$PUBLIC_FRONTEND_BUCKET" \
-    --delete --exclude "dashboard/*" --exclude "login/*" "${AWS_ARGS[@]}"
-  # Defense in depth for a bucket that may have existed before the surfaces
-  # were split. These exact prefixes must never be present on the public origin.
-  aws s3 rm "s3://$PUBLIC_FRONTEND_BUCKET/dashboard/" --recursive "${AWS_ARGS[@]}"
-  aws s3 rm "s3://$PUBLIC_FRONTEND_BUCKET/login/" --recursive "${AWS_ARGS[@]}"
-
-  info "Publishing admin dashboard → s3://$ADMIN_FRONTEND_BUCKET"
-  aws s3 sync "$SCRIPT_DIR/frontend/out" "s3://$ADMIN_FRONTEND_BUCKET" \
-    --delete "${AWS_ARGS[@]}"
-
-  if [[ -n "$PUBLIC_FRONTEND_DIST_ID" && "$PUBLIC_FRONTEND_DIST_ID" != "None" ]]; then
-    info "Invalidating public CloudFront distribution $PUBLIC_FRONTEND_DIST_ID"
-    aws cloudfront create-invalidation \
-      --distribution-id "$PUBLIC_FRONTEND_DIST_ID" --paths "/*" "${AWS_ARGS[@]}" >/dev/null
-  fi
-  if [[ -n "$ADMIN_FRONTEND_DIST_ID" && "$ADMIN_FRONTEND_DIST_ID" != "None" ]]; then
-    info "Invalidating admin CloudFront distribution $ADMIN_FRONTEND_DIST_ID"
-    aws cloudfront create-invalidation \
-      --distribution-id "$ADMIN_FRONTEND_DIST_ID" --paths "/*" "${AWS_ARGS[@]}" >/dev/null
-  fi
-  ok "Public and admin frontends published to isolated origins"
-else
-  warn "Missing frontend bucket output — skipping frontend publish"
+    --permanent
+  aws_cli cognito-idp admin-add-user-to-group \
+    --user-pool-id "$USER_POOL_ID" \
+    --username "$ADMIN_EMAIL" \
+    --group-name admin
+  ok "Administrator is ready"
 fi
 
 echo
-ok "Deploy complete."
-if [[ -n "$PUBLIC_FRONTEND_URL" && "$PUBLIC_FRONTEND_URL" != "None" ]]; then
-  echo "Public chat: ${GREEN}$PUBLIC_FRONTEND_URL${NC}"
-fi
-if [[ -n "$ADMIN_FRONTEND_URL" && "$ADMIN_FRONTEND_URL" != "None" ]]; then
-  echo "Admin dashboard: ${GREEN}$ADMIN_FRONTEND_URL${NC}"
-fi
-echo "Local dev: cd frontend && npm install && npm run dev"
+ok "Complete GCC sandbox deployment finished"
+echo "Public chat:          ${GREEN}$PUBLIC_FRONTEND_URL${NC}"
+echo "Admin dashboard:      ${GREEN}$ADMIN_FRONTEND_URL${NC}"
+echo "Chat API:             $CHAT_API_URL"
+echo "Dashboard API:        $DASHBOARD_API_URL"
+echo "Cognito user pool:    $USER_POOL_ID"
+echo "Cognito client:       $CLIENT_ID"
+echo "Document bucket:      $DOCUMENT_BUCKET"
+echo "Knowledge-base data:  $KB_BUCKET"
+echo "Operations dashboard: $OPERATIONS_DASHBOARD"

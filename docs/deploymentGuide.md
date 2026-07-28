@@ -6,18 +6,19 @@ This guide describes reviewed deployments of Grand Canyon Council Scout AI to AW
 
 The repository deploys one CDK stack named `ScoutingAmericaChatbot`. The stack contains the backend, data stores, authentication, knowledge base, and static frontend hosting.
 
-`deploy.sh` performs the supported end-to-end workflow:
+`deploy.sh` is a thin deployment orchestrator. It packages the reviewed Git commit, creates or updates the GCC deployment-support IAM resources and private source bucket, then starts one AWS CodeBuild job.
 
-1. Validates local tools and AWS credentials.
-2. Installs backend dependencies.
-3. Deploys the CDK stack.
-4. Reads CloudFormation outputs.
-5. Writes `frontend/.env.local` with API and Cognito settings.
-6. Optionally creates an admin user.
-7. Optionally uploads a local document tree.
-8. Builds the Next.js static export.
-9. Publishes public and admin assets to separate private S3 origins.
-10. Invalidates both CloudFront distributions.
+CodeBuild performs the supported end-to-end workflow:
+
+1. Installs locked backend dependencies and runs the backend tests.
+2. Bootstraps or updates the target account/Region for CDK.
+3. Deploys the CDK stack through the sandbox CDK bootstrap roles.
+4. Reads the stack outputs and generates the build-time frontend environment.
+5. Builds the Next.js static export.
+6. Publishes public and admin assets to separate private S3 origins.
+7. Invalidates both CloudFront distributions.
+
+After CodeBuild succeeds, `deploy.sh` optionally creates the first Cognito administrator and prints all application URLs. Knowledge-base documents are uploaded later through the authenticated admin dashboard.
 
 ## Requirements
 
@@ -25,11 +26,10 @@ The repository deploys one CDK stack named `ScoutingAmericaChatbot`. The stack c
 
 - Bash
 - AWS CLI v2
-- Node.js 20 or newer
-- npm 9 or newer
 - Git
+- jq
 
-The script uses the repository-local CDK CLI through `npx`; a global CDK installation is not required.
+Node.js 20, Python 3.13, npm, pip, and the repository-local CDK CLI run inside CodeBuild. They are not required on the deployment caller's workstation or in CloudShell.
 
 ### AWS Region And Services
 
@@ -45,7 +45,7 @@ Confirm that Claude Haiku 4.5 through the configured inference profile and Titan
 
 ### AWS Permissions
 
-The deploying identity needs permission to bootstrap and deploy CDK assets and create/update every service above. For a controlled environment, use a dedicated deployment role rather than long-lived administrator credentials.
+This convenience installer requires an administrator-capable AWS CLI identity in an approved sandbox. It creates a CodeBuild service role and attaches the AWS-managed `AdministratorAccess` policy so that CDK bootstrap and first deployment do not require iterative IAM additions. This permission model is intentionally sandbox-only and must be replaced with reviewed least-privilege roles before production use.
 
 ## Pre-Deployment Review
 
@@ -58,7 +58,7 @@ git status --short --branch
 git log -1 --oneline
 ```
 
-Do not deploy with unresolved tracked changes. Untracked ingestion documents and local environment files should not be committed.
+Do not deploy with unresolved tracked changes. Local document sets and environment files should not be committed.
 
 ### Confirm AWS Identity And Region
 
@@ -73,17 +73,9 @@ For a named profile:
 aws sts get-caller-identity --profile my-profile
 ```
 
-### Bootstrap CDK
+### CDK Bootstrap
 
-Bootstrap each account/region once from `backend/`:
-
-```bash
-cd backend
-npx cdk bootstrap aws://ACCOUNT_ID/us-east-1
-cd ..
-```
-
-Replace `ACCOUNT_ID` with the verified account number.
+No separate caller-side bootstrap command is required. CodeBuild runs `cdk bootstrap` on every deployment; the operation is idempotent and creates or updates `CDKToolkit` in the selected account and Region.
 
 ### Choose A Resource Prefix
 
@@ -98,7 +90,7 @@ Rules:
 
 - Lowercase letters and numbers are allowed.
 - Hyphens are allowed only inside the prefix.
-- Maximum length is 39 characters.
+- Maximum length is 30 characters.
 - An empty prefix preserves legacy unprefixed names.
 
 **Always reuse the same prefix when updating an existing environment.** Changing or omitting it changes physical resource names and can cause replacements, empty dashboards, missing chat history, bucket-name collisions, or retained duplicate data resources.
@@ -125,8 +117,8 @@ Optional flags:
 --prefix PREFIX
 --admin-email EMAIL
 --admin-password PASSWORD
---skip-frontend-env
---ingest DIRECTORY
+--skip-admin
+--yes
 ```
 
 `RESOURCE_PREFIX=demo ./deploy.sh` and `./deploy.sh --prefix demo` are equivalent.
@@ -142,23 +134,18 @@ Optional flags:
 ```bash
 ./deploy.sh \
   --prefix demo \
-  --admin-email admin@example.org \
-  --admin-password 'Use-A-Strong-Reviewed-Password1!'
+  --admin-email admin@example.org
 ```
 
-The script creates the user if necessary, sets a permanent password, ensures the `admin` group exists, and adds the user to it. Avoid shell history exposure for real credentials; use an approved secret-handling workflow or create the user separately in Cognito.
+The script prompts privately for the password, creates the user if necessary, sets a permanent password, and adds the user to the CDK-created `admin` group. For approved non-interactive use, set `GCC_ADMIN_PASSWORD` temporarily and unset it immediately afterward. Avoid `--admin-password` in interactive shells because it exposes the value in shell history.
 
-### Deploy And Ingest A Document Directory
+### Add Knowledge-Base Documents
 
-```bash
-./deploy.sh --prefix demo --ingest ./ingest
-```
+`deploy.sh` does not package or upload a local document directory. After deployment, sign in to the protected admin dashboard and upload approved files from the Documents page. Each upload enters the bounded document-processing queue, retries transient failures, and moves exhausted messages to the monitored DLQ.
 
-The script syncs the directory to `uploads/` in the document-store bucket. Each new S3 object enters the document-processing queue. The Lambda event source caps worker concurrency, retries transient failures, and moves exhausted messages to the monitored DLQ.
+## What The Build Writes
 
-## What The Script Writes
-
-After the CDK deployment, `frontend/.env.local` contains:
+Inside the disposable CodeBuild workspace, `frontend/.env.local` contains:
 
 ```dotenv
 NEXT_PUBLIC_API_URL=...
@@ -168,9 +155,7 @@ NEXT_PUBLIC_CLIENT_ID=...
 NEXT_PUBLIC_AWS_REGION=...
 ```
 
-These values are embedded into the static frontend during `npm run build`. Do not copy one environment's built `frontend/out/` into another environment.
-
-`--skip-frontend-env` skips regeneration but still builds and publishes the frontend using the existing environment file. Use it only when that file is known to point to the intended stack.
+These values are embedded into the static frontend during `npm run build`. The file is not written back to the caller's checkout or uploaded as a build artifact. Do not copy one environment's built `frontend/out/` into another environment.
 
 ## CloudFormation Outputs
 
@@ -302,9 +287,9 @@ Set `RESOURCE_PREFIX` on synthesis and deployment. A backend-only deployment doe
 
 ## CodeBuild
 
-`buildspec.yml` installs backend dependencies, runs Jest, synthesizes CDK, deploys the stack, and reports outputs. It does **not** build or publish `frontend/out`.
+`deploy.sh` creates or updates a stable project named `<PREFIX>gcc-chatbot-deployment`. Its S3 source is an archive of the exact reviewed Git `HEAD`, not the caller's uncommitted working tree and not a long-lived GitHub credential.
 
-Configure `RESOURCE_PREFIX` explicitly in the CodeBuild environment if the project should target a prefixed stack. Review build-role permissions and deployment approval controls before enabling automatic builds.
+`buildspec.yml` runs backend tests, bootstraps CDK, deploys the stack, builds `frontend/out`, publishes both isolated frontend origins, and invalidates both CloudFront distributions. The script streams the project's CloudWatch logs until CodeBuild reaches a terminal state.
 
 ## Troubleshooting
 
@@ -322,9 +307,9 @@ Configure `RESOURCE_PREFIX` explicitly in the CodeBuild environment if the proje
 
 ### Frontend Uses The Wrong API
 
-**Cause:** `frontend/.env.local` was generated from another stack/prefix or `--skip-frontend-env` preserved stale values.
+**Cause:** The wrong prefix was supplied to CodeBuild, an older build was published, or a CloudFront invalidation is still in progress.
 
-**Action:** Run the approved deployment with the correct prefix or rewrite the environment file from the intended stack outputs, then rebuild and republish.
+**Action:** Re-run the approved deployment from the intended commit with the correct prefix, confirm the CodeBuild environment values, and wait for both invalidations to complete.
 
 ### Chat Returns 500
 
