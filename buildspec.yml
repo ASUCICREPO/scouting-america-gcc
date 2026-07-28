@@ -32,7 +32,7 @@ phases:
       - cd "$CODEBUILD_SRC_DIR/backend"
       - npx cdk deploy "$STACK_NAME" --require-approval never
       - |
-        set -euo pipefail
+        set -eu
 
         stack_output() {
           aws cloudformation describe-stacks \
