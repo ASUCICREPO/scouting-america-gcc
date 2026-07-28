@@ -120,7 +120,7 @@ Current event types are `escalation` and `document_processing`.
 
 ## Infrastructure As Code
 
-The `ScoutingAmericaChatbot` CDK stack composes these constructs:
+The `GrandCanyonCouncilChatbot` CDK stack composes these constructs:
 
 ```text
 backend/lib/
@@ -141,7 +141,7 @@ backend/lib/
     shared-resources.ts
 ```
 
-`RESOURCE_PREFIX` is read during CDK synthesis. It prefixes named tables, buckets, Lambda functions, queues, roles, secrets, topics, the knowledge base, and data source so multiple environments can coexist. The CloudFormation stack name remains `ScoutingAmericaChatbot`.
+`RESOURCE_PREFIX` is read during CDK synthesis. It prefixes named tables, buckets, Lambda functions, queues, roles, secrets, topics, the knowledge base, and data source so multiple environments can coexist. The CloudFormation stack name remains `GrandCanyonCouncilChatbot`.
 
 `cdk-nag` AWS Solutions checks run during synthesis. Explicit suppressions in `backend-stack.ts` document pilot-phase tradeoffs such as deferred WAF, access logging, and Cognito MFA.
 

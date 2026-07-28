@@ -1,6 +1,6 @@
 # Grand Canyon Council Scout AI APIs
 
-This reference documents the two REST APIs deployed by the `ScoutingAmericaChatbot` CDK stack:
+This reference documents the two REST APIs deployed by the `GrandCanyonCouncilChatbot` CDK stack:
 
 - A public API for chat, history, and response feedback
 - A Cognito-protected API for dashboard analytics and document management

@@ -4,7 +4,7 @@ This guide describes reviewed deployments of Grand Canyon Council Scout AI to AW
 
 ## Deployment Model
 
-The repository deploys one CDK stack named `ScoutingAmericaChatbot`. The stack contains the backend, data stores, authentication, knowledge base, and static frontend hosting.
+The repository deploys one CDK stack named `GrandCanyonCouncilChatbot`. The stack contains the backend, data stores, authentication, knowledge base, and static frontend hosting.
 
 `deploy.sh` is a thin deployment orchestrator. It packages the reviewed Git commit, creates or updates the GCC deployment-support IAM resources and private source bucket, then starts one AWS CodeBuild job.
 
@@ -95,7 +95,7 @@ Rules:
 
 **Always reuse the same prefix when updating an existing environment.** Changing or omitting it changes physical resource names and can cause replacements, empty dashboards, missing chat history, bucket-name collisions, or retained duplicate data resources.
 
-The prefix does not change the CloudFormation stack name. This repository manages one `ScoutingAmericaChatbot` stack per account/region.
+The prefix does not change the CloudFormation stack name. This repository manages one `GrandCanyonCouncilChatbot` stack per account/region.
 
 ### Public And Admin Origins
 
@@ -182,7 +182,7 @@ Read them without changing the stack:
 
 ```bash
 aws cloudformation describe-stacks \
-  --stack-name ScoutingAmericaChatbot \
+  --stack-name GrandCanyonCouncilChatbot \
   --region us-west-2 \
   --query 'Stacks[0].Outputs' \
   --output table
@@ -194,7 +194,7 @@ aws cloudformation describe-stacks \
 
 ```bash
 aws cloudformation describe-stacks \
-  --stack-name ScoutingAmericaChatbot \
+  --stack-name GrandCanyonCouncilChatbot \
   --region us-west-2 \
   --query 'Stacks[0].StackStatus' \
   --output text
@@ -208,7 +208,7 @@ Expected status after an update: `UPDATE_COMPLETE`. A first deployment ends at `
 
 ```bash
 PUBLIC_DIST_ID=$(aws cloudformation describe-stacks \
-  --stack-name ScoutingAmericaChatbot \
+  --stack-name GrandCanyonCouncilChatbot \
   --region us-west-2 \
   --query "Stacks[0].Outputs[?OutputKey=='PublicFrontendDistributionId'].OutputValue" \
   --output text)
@@ -228,7 +228,7 @@ Open `PublicFrontendUrl` and verify `/` works while `/login` and `/dashboard` re
 
 ```bash
 CHAT_API=$(aws cloudformation describe-stacks \
-  --stack-name ScoutingAmericaChatbot \
+  --stack-name GrandCanyonCouncilChatbot \
   --region us-west-2 \
   --query "Stacks[0].Outputs[?OutputKey=='ChatApiUrl'].OutputValue" \
   --output text)
@@ -280,7 +280,7 @@ cd backend
 npm ci
 npm test
 npx cdk synth
-RESOURCE_PREFIX=demo npx cdk deploy ScoutingAmericaChatbot --require-approval never
+RESOURCE_PREFIX=demo npx cdk deploy GrandCanyonCouncilChatbot --require-approval never
 ```
 
 Set `RESOURCE_PREFIX` on synthesis and deployment. A backend-only deployment does not regenerate `frontend/.env.local`, rebuild the static export, sync S3, or invalidate CloudFront.
@@ -342,14 +342,14 @@ Preview the target first:
 
 ```bash
 aws sts get-caller-identity
-aws cloudformation describe-stacks --stack-name ScoutingAmericaChatbot --region us-west-2
+aws cloudformation describe-stacks --stack-name GrandCanyonCouncilChatbot --region us-west-2
 ```
 
 The CDK destroy command is:
 
 ```bash
 cd backend
-RESOURCE_PREFIX=demo npx cdk destroy ScoutingAmericaChatbot
+RESOURCE_PREFIX=demo npx cdk destroy GrandCanyonCouncilChatbot
 ```
 
 The document buckets, chat and analytics tables, and Cognito User Pool use `RETAIN`, so stack destruction does not constitute a full data deletion. The static frontend bucket is auto-deleted. Inventory and back up retained data before any separately approved manual cleanup.

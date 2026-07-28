@@ -1,13 +1,13 @@
 import * as cdk from 'aws-cdk-lib';
 import { Template, Match } from 'aws-cdk-lib/assertions';
-import { ScoutingAmericaChatbot } from '../lib/backend-stack';
+import { GrandCanyonCouncilChatbot } from '../lib/backend-stack';
 
 let template: Template;
 
 beforeAll(() => {
   process.env.CDK_TEST_SKIP_PYTHON_BUNDLING = 'true';
   const app = new cdk.App();
-  const stack = new ScoutingAmericaChatbot(app, 'TestStack', {
+  const stack = new GrandCanyonCouncilChatbot(app, 'TestStack', {
     env: { account: '123456789012', region: 'us-east-1' },
   });
   template = Template.fromStack(stack);

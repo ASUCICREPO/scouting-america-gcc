@@ -15,7 +15,7 @@ import { PythonDependencies } from './constructs/python-dependencies';
 import { ChatArchive } from './constructs/chat-archive';
 import { Observability } from './constructs/observability';
 
-export class ScoutingAmericaChatbot extends cdk.Stack {
+export class GrandCanyonCouncilChatbot extends cdk.Stack {
   constructor(scope: Construct, id: string, props?: cdk.StackProps) {
     super(scope, id, props);
 

@@ -49,13 +49,13 @@ export class FrontendHosting extends Construct {
 
     const publicSite = this.createSurface(
       'Public',
-      'Scouting America GCC public chat',
+      'Grand Canyon Council public chat',
       false,
       securityHeaders,
     );
     const adminSite = this.createSurface(
       'Admin',
-      'Scouting America GCC admin dashboard',
+      'Grand Canyon Council admin dashboard',
       true,
       securityHeaders,
     );

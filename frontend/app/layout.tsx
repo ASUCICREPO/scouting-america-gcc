@@ -3,8 +3,8 @@ import { LanguageProvider } from "@/context/LanguageContext";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Scouting America AI Assistant",
-  description: "AI-powered assistant for Scouting America - Get help with joining, volunteering, events, and more.",
+  title: "Grand Canyon Council Chatbot",
+  description: "AI-powered assistant for Grand Canyon Council - Get help with joining, volunteering, events, and more.",
   manifest: "/manifest.json",
   appleWebApp: {
     capable: true,

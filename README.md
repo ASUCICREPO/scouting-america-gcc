@@ -54,11 +54,11 @@ npm run dev
 The frontend requires these build-time values in `frontend/.env.local` to call deployed services:
 
 ```dotenv
-NEXT_PUBLIC_API_URL=https://example.execute-api.us-east-1.amazonaws.com/prod
-NEXT_PUBLIC_DASHBOARD_API_URL=https://example.execute-api.us-east-1.amazonaws.com/prod
-NEXT_PUBLIC_USER_POOL_ID=us-east-1_example
+NEXT_PUBLIC_API_URL=https://example.execute-api.us-west-2.amazonaws.com/prod
+NEXT_PUBLIC_DASHBOARD_API_URL=https://example.execute-api.us-west-2.amazonaws.com/prod
+NEXT_PUBLIC_USER_POOL_ID=us-west-2_example
 NEXT_PUBLIC_CLIENT_ID=exampleclientid
-NEXT_PUBLIC_AWS_REGION=us-east-1
+NEXT_PUBLIC_AWS_REGION=us-west-2
 ```
 
 For backend validation:
@@ -78,7 +78,7 @@ See the [Development Guide](./docs/developmentGuide.md) for the complete workflo
 
 ## Deployment
 
-The deployment script installs dependencies, deploys the `ScoutingAmericaChatbot` CDK stack, writes the frontend environment, builds the static export, publishes isolated public/admin S3 origins, and invalidates both CloudFront distributions.
+The deployment script installs dependencies, deploys the `GrandCanyonCouncilChatbot` CDK stack, writes the frontend environment, builds the static export, publishes isolated public/admin S3 origins, and invalidates both CloudFront distributions.
 
 ```bash
 RESOURCE_PREFIX=demo ./deploy.sh

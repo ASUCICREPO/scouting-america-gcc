@@ -1,6 +1,6 @@
 version: 0.2
 
-# Unified CodeBuild deployment for the Scouting America GCC chatbot.
+# Unified CodeBuild deployment for the Grand Canyon Council Chatbot.
 # deploy.sh uploads the reviewed Git commit as an S3 source archive, creates or
 # updates the CodeBuild project, and supplies the environment variables below.
 
@@ -28,9 +28,9 @@ phases:
 
   build:
     commands:
-      - echo "Deploying the ScoutingAmericaChatbot CDK stack"
+      - echo "Deploying the GrandCanyonCouncilChatbot CDK stack"
       - cd "$CODEBUILD_SRC_DIR/backend"
-      - npx cdk deploy ScoutingAmericaChatbot --require-approval never
+      - npx cdk deploy GrandCanyonCouncilChatbot --require-approval never
       - |
         set -eu
 

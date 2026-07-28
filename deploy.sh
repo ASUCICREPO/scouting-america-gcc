@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# deploy.sh — one-command AWS sandbox deployment for the Scouting America GCC chatbot.
+# deploy.sh — one-command AWS sandbox deployment for the Grand Canyon Council Chatbot.
 #
 # The caller packages the reviewed Git commit and starts one AWS CodeBuild job.
 # CodeBuild bootstraps CDK, deploys GCC's backend, builds the frontend, publishes
@@ -16,7 +16,7 @@
 # CLI session in an approved sandbox account. This is not a production installer.
 set -euo pipefail
 
-STACK_NAME="ScoutingAmericaChatbot"
+STACK_NAME="GrandCanyonCouncilChatbot"
 REGION="${AWS_REGION:-${AWS_DEFAULT_REGION:-us-west-2}}"
 PROFILE=""
 RESOURCE_PREFIX="${RESOURCE_PREFIX:-}"
@@ -174,13 +174,13 @@ if aws_cli iam get-role --role-name "$ROLE_NAME" >/dev/null 2>&1; then
     --policy-document "file://$TRUST_POLICY_FILE"
   aws_cli iam tag-role \
     --role-name "$ROLE_NAME" \
-    --tags Key=Project,Value=ScoutingAmericaGCC Key=ManagedBy,Value=deploy.sh
+    --tags Key=Project,Value=GrandCanyonCouncilChatbot Key=ManagedBy,Value=deploy.sh
 else
   aws_cli iam create-role \
     --role-name "$ROLE_NAME" \
     --description "Sandbox deployment role for the GCC chatbot" \
     --assume-role-policy-document "file://$TRUST_POLICY_FILE" \
-    --tags Key=Project,Value=ScoutingAmericaGCC Key=ManagedBy,Value=deploy.sh >/dev/null
+    --tags Key=Project,Value=GrandCanyonCouncilChatbot Key=ManagedBy,Value=deploy.sh >/dev/null
 fi
 aws_cli iam attach-role-policy \
   --role-name "$ROLE_NAME" \
@@ -233,7 +233,7 @@ ok "Uploaded reviewed source: s3://$SOURCE_BUCKET/$SOURCE_KEY"
 cat > "$PROJECT_FILE" <<JSON
 {
   "name": "${PROJECT_NAME}",
-  "description": "Unified sandbox deployment for the Scouting America GCC chatbot",
+  "description": "Unified sandbox deployment for the Grand Canyon Council Chatbot",
   "source": {
     "type": "S3",
     "location": "${SOURCE_BUCKET}/${SOURCE_KEY}",
@@ -265,7 +265,7 @@ cat > "$PROJECT_FILE" <<JSON
     }
   },
   "tags": [
-    { "key": "Project", "value": "ScoutingAmericaGCC" },
+    { "key": "Project", "value": "GrandCanyonCouncilChatbot" },
     { "key": "ManagedBy", "value": "deploy.sh" }
   ]
 }

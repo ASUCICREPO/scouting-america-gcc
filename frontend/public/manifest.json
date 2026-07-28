@@ -1,7 +1,7 @@
 {
-  "name": "Scouting America AI Assistant",
+  "name": "Grand Canyon Council Chatbot",
   "short_name": "Scout AI",
-  "description": "AI-powered assistant for Scouting America",
+  "description": "AI-powered assistant for Grand Canyon Council",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#ffffff",
