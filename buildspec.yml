@@ -17,7 +17,9 @@ phases:
   pre_build:
     commands:
       - echo "Running backend unit tests"
-      - CDK_TEST_SKIP_PYTHON_BUNDLING=true npm test -- --runInBand
+      # Unit assertions target the canonical unprefixed template. The actual
+      # deployment keeps the project-supplied RESOURCE_PREFIX below.
+      - RESOURCE_PREFIX='' CDK_TEST_SKIP_PYTHON_BUNDLING=true npm test -- --runInBand
       - echo "Bootstrapping the target account and Region"
       - >-
         npx cdk bootstrap
