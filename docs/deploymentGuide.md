@@ -4,7 +4,7 @@ This guide describes reviewed deployments of Grand Canyon Council Scout AI to AW
 
 ## Deployment Model
 
-The repository normally deploys one CDK stack named `ScoutingAmericaChatbot`. The stack contains the backend, data stores, authentication, knowledge base, and static frontend hosting. The isolated mock mode uses a separately named stack.
+The repository deploys one CDK stack named `ScoutingAmericaChatbot`. The stack contains the backend, data stores, authentication, knowledge base, and static frontend hosting.
 
 `deploy.sh` is a thin deployment orchestrator. It packages the reviewed Git commit, creates or updates the GCC deployment-support IAM resources and private source bucket, then starts one AWS CodeBuild job.
 
@@ -95,24 +95,7 @@ Rules:
 
 **Always reuse the same prefix when updating an existing environment.** Changing or omitting it changes physical resource names and can cause replacements, empty dashboards, missing chat history, bucket-name collisions, or retained duplicate data resources.
 
-The prefix does not normally change the CloudFormation stack name. This repository manages one `ScoutingAmericaChatbot` stack per account/region. Use the dedicated mock mode below when an isolated test stack is required.
-
-### Isolated Mock Deployment
-
-For a disposable deployment that must coexist with an existing GCC stack, use:
-
-```bash
-./deploy.sh --mock-deploy
-```
-
-This single option sets both of the namespaces required for isolation:
-
-- CloudFormation stack: `mock-deploy-ScoutingAmericaChatbot`
-- Explicit AWS resource prefix: `mock-deploy-`
-- CodeBuild project and deployment role prefix: `mock-deploy-`
-- Resource tag: `Deployment=mock-deploy` where the AWS resource supports tags
-
-Both are necessary. The resource prefix isolates explicitly named buckets, tables, functions, queues, roles, and Bedrock resources. The distinct stack name also isolates CDK-generated account-global CloudFront names. AWS-generated identifiers such as distribution IDs cannot be prefixed, but they remain owned by and traceable to the mock stack.
+The prefix does not change the CloudFormation stack name. This repository manages one `ScoutingAmericaChatbot` stack per account/region.
 
 ### Public And Admin Origins
 
@@ -134,7 +117,6 @@ Optional flags:
 --prefix PREFIX
 --admin-email EMAIL
 --admin-password PASSWORD
---mock-deploy
 --skip-admin
 --yes
 ```
@@ -368,15 +350,6 @@ The CDK destroy command is:
 ```bash
 cd backend
 RESOURCE_PREFIX=demo npx cdk destroy ScoutingAmericaChatbot
-```
-
-For the isolated mock environment:
-
-```bash
-cd backend
-STACK_NAME=mock-deploy-ScoutingAmericaChatbot \
-  RESOURCE_PREFIX=mock-deploy \
-  npx cdk destroy mock-deploy-ScoutingAmericaChatbot
 ```
 
 The document buckets, chat and analytics tables, and Cognito User Pool use `RETAIN`, so stack destruction does not constitute a full data deletion. The static frontend bucket is auto-deleted. Inventory and back up retained data before any separately approved manual cleanup.

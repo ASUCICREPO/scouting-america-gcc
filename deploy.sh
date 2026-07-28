@@ -10,7 +10,7 @@
 # Usage:
 #   ./deploy.sh [--region us-west-2] [--profile gcc-sandbox] [--prefix demo]
 #               [--admin-email you@example.org] [--admin-password 'Pass@123']
-#               [--mock-deploy] [--skip-admin] [--yes]
+#               [--skip-admin] [--yes]
 #
 # Prerequisites: AWS CLI v2, Bash, Git, jq, and an administrator-capable AWS
 # CLI session in an approved sandbox account. This is not a production installer.
@@ -24,7 +24,6 @@ ADMIN_EMAIL=""
 ADMIN_PASSWORD="${GCC_ADMIN_PASSWORD:-}"
 SKIP_ADMIN="false"
 ASSUME_YES="false"
-MOCK_DEPLOY="false"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TEMP_DIR=""
@@ -62,8 +61,6 @@ while [[ $# -gt 0 ]]; do
       require_value "$1" "${2:-}"; ADMIN_EMAIL="$2"; shift 2;;
     --admin-password)
       require_value "$1" "${2:-}"; ADMIN_PASSWORD="$2"; shift 2;;
-    --mock-deploy)
-      MOCK_DEPLOY="true"; shift;;
     --skip-admin)
       SKIP_ADMIN="true"; shift;;
     -y|--yes)
@@ -75,14 +72,6 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-if [[ "$MOCK_DEPLOY" == "true" ]]; then
-  if [[ -n "$RESOURCE_PREFIX" && "$RESOURCE_PREFIX" != "mock-deploy" ]]; then
-    die "--mock-deploy cannot be combined with a different --prefix"
-  fi
-  RESOURCE_PREFIX="mock-deploy"
-  STACK_NAME="mock-deploy-ScoutingAmericaChatbot"
-fi
-
 if [[ -n "$RESOURCE_PREFIX" ]]; then
   [[ "$RESOURCE_PREFIX" =~ ^[a-z0-9]([a-z0-9-]*[a-z0-9])?$ ]] \
     || die "Prefix must contain only lowercase letters, numbers, and internal hyphens"
@@ -90,8 +79,6 @@ if [[ -n "$RESOURCE_PREFIX" ]]; then
     || die "Prefix must be 30 characters or fewer for IAM and CodeBuild names"
 fi
 [[ "$REGION" =~ ^[a-z0-9-]+$ ]] || die "Invalid AWS Region: $REGION"
-[[ "$STACK_NAME" =~ ^[A-Za-z][A-Za-z0-9-]{0,127}$ ]] \
-  || die "Invalid CloudFormation stack name: $STACK_NAME"
 
 command -v aws >/dev/null || die "AWS CLI not found"
 command -v git >/dev/null || die "Git not found"
@@ -130,7 +117,6 @@ echo "  Caller:   $CALLER_ARN"
 echo "  Account:  $ACCOUNT_ID"
 echo "  Region:   $REGION"
 echo "  Commit:   $DEPLOY_COMMIT"
-echo "  Stack:    $STACK_NAME"
 echo "  Prefix:   ${RESOURCE_PREFIX:-<none>}"
 echo
 warn "This sandbox installer gives the CodeBuild deployment role AdministratorAccess."
@@ -188,15 +174,13 @@ if aws_cli iam get-role --role-name "$ROLE_NAME" >/dev/null 2>&1; then
     --policy-document "file://$TRUST_POLICY_FILE"
   aws_cli iam tag-role \
     --role-name "$ROLE_NAME" \
-    --tags Key=Project,Value=ScoutingAmericaGCC Key=ManagedBy,Value=deploy.sh \
-      Key=Deployment,Value="${RESOURCE_PREFIX:-default}"
+    --tags Key=Project,Value=ScoutingAmericaGCC Key=ManagedBy,Value=deploy.sh
 else
   aws_cli iam create-role \
     --role-name "$ROLE_NAME" \
     --description "Sandbox deployment role for the GCC chatbot" \
     --assume-role-policy-document "file://$TRUST_POLICY_FILE" \
-    --tags Key=Project,Value=ScoutingAmericaGCC Key=ManagedBy,Value=deploy.sh \
-      Key=Deployment,Value="${RESOURCE_PREFIX:-default}" >/dev/null
+    --tags Key=Project,Value=ScoutingAmericaGCC Key=ManagedBy,Value=deploy.sh >/dev/null
 fi
 aws_cli iam attach-role-policy \
   --role-name "$ROLE_NAME" \
@@ -282,8 +266,7 @@ cat > "$PROJECT_FILE" <<JSON
   },
   "tags": [
     { "key": "Project", "value": "ScoutingAmericaGCC" },
-    { "key": "ManagedBy", "value": "deploy.sh" },
-    { "key": "Deployment", "value": "${RESOURCE_PREFIX:-default}" }
+    { "key": "ManagedBy", "value": "deploy.sh" }
   ]
 }
 JSON
@@ -394,8 +377,6 @@ fi
 
 echo
 ok "Complete GCC sandbox deployment finished"
-echo "CloudFormation stack: $STACK_NAME"
-echo "Resource prefix:      ${RESOURCE_PREFIX:-<none>}"
 echo "Public chat:          ${GREEN}$PUBLIC_FRONTEND_URL${NC}"
 echo "Admin dashboard:      ${GREEN}$ADMIN_FRONTEND_URL${NC}"
 echo "Chat API:             $CHAT_API_URL"

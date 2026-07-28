@@ -28,9 +28,9 @@ phases:
 
   build:
     commands:
-      - echo "Deploying the $STACK_NAME CDK stack"
+      - echo "Deploying the ScoutingAmericaChatbot CDK stack"
       - cd "$CODEBUILD_SRC_DIR/backend"
-      - npx cdk deploy "$STACK_NAME" --require-approval never
+      - npx cdk deploy ScoutingAmericaChatbot --require-approval never
       - |
         set -eu
 
