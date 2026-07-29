@@ -39,7 +39,8 @@ chat_table = ddb.Table(CHAT_LOGS_TABLE)
 analytics_table = ddb.Table(ANALYTICS_LOGS_TABLE)
 document_batches_table = ddb.Table(DOCUMENT_BATCHES_TABLE)
 
-MAX_FILE_SIZE_BYTES = 25 * 1024 * 1024
+# Amazon Bedrock Knowledge Bases accepts source documents up to 50 MB.
+MAX_FILE_SIZE_BYTES = 50_000_000
 MAX_UPLOAD_BATCH_FILES = 500
 UPLOAD_BATCH_TTL_SECONDS = 7 * 24 * 60 * 60
 UPLOAD_BATCH_ID_RE = re.compile(r"^[a-f0-9]{32}$")

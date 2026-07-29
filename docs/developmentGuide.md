@@ -1,6 +1,6 @@
 # Development Guide
 
-This guide covers local setup, repository structure, testing, and the normal contribution workflow for Grand Canyon Council Scout AI. It does not authorize a deployment; use the separate [Deployment Guide](./deploymentGuide.md) only after review and approval.
+This guide covers local setup, repository structure, testing, and the normal contribution workflow for GCC Chat. It does not authorize a deployment; use the separate [Deployment Guide](./deploymentGuide.md) only after review and approval.
 
 ## Technology Baseline
 
@@ -84,11 +84,11 @@ deploy.sh                           Approved one-step deployment workflow
 The browser API settings are build-time variables. Create `frontend/.env.local` for local development against an existing approved backend:
 
 ```dotenv
-NEXT_PUBLIC_API_URL=https://chat-api-id.execute-api.us-east-1.amazonaws.com/prod
-NEXT_PUBLIC_DASHBOARD_API_URL=https://dashboard-api-id.execute-api.us-east-1.amazonaws.com/prod
-NEXT_PUBLIC_USER_POOL_ID=us-east-1_example
+NEXT_PUBLIC_API_URL=https://chat-api-id.execute-api.us-west-2.amazonaws.com/prod
+NEXT_PUBLIC_DASHBOARD_API_URL=https://dashboard-api-id.execute-api.us-west-2.amazonaws.com/prod
+NEXT_PUBLIC_USER_POOL_ID=us-west-2_example
 NEXT_PUBLIC_CLIENT_ID=exampleclientid
-NEXT_PUBLIC_AWS_REGION=us-east-1
+NEXT_PUBLIC_AWS_REGION=us-west-2
 ```
 
 Do not commit `.env.local`. `deploy.sh` regenerates it from CloudFormation outputs during an authorized deployment.

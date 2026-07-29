@@ -1,6 +1,6 @@
 # User Guide
 
-This guide explains how volunteers, families, and Grand Canyon Council administrators use Scout AI.
+This guide explains how volunteers, families, and Grand Canyon Council administrators use GCC Chat.
 
 ## Prerequisites
 
@@ -18,7 +18,7 @@ The application must already be deployed. Operators should use the [Deployment G
 1. Open the frontend URL supplied by GCC.
 2. Select a suggested question or type a question in the message field.
 3. Use the send button or press Enter.
-4. Wait for the structured response. Scout AI can include headings, lists, and source references.
+4. Wait for the structured response. GCC Chat can include headings, lists, and source references.
 5. Ask a follow-up question in the same conversation when more detail is needed.
 
 The chat does not require an account. Do not enter medical records, youth-protection reports, payment data, or other sensitive personal information.
@@ -61,7 +61,7 @@ Voice behavior depends on browser support and device permissions. Typing remains
 
 When the knowledge base returns source documents, the response includes source references. Use sources to identify the approved GCC or Scouting America material behind an answer.
 
-Scout AI can make mistakes. Verify dates, prices, safety requirements, policies, and official procedures against the cited document or with GCC staff before acting.
+GCC Chat can make mistakes. Verify dates, prices, safety requirements, policies, and official procedures against the cited document or with GCC staff before acting.
 
 ### Rate A Response
 
@@ -73,7 +73,7 @@ Ratings help administrators identify useful answers and conversations that requi
 
 1. Open the sidebar or mobile menu.
 2. Choose a saved conversation.
-3. Scout AI retrieves the stored transcript and restores its recorded language.
+3. GCC Chat retrieves the stored transcript and restores its recorded language.
 
 The browser keeps a local list of up to 20 session references. Clearing browser storage removes that local list but does not delete server-side quality logs.
 
@@ -91,9 +91,9 @@ Open **Settings** to change:
 
 Settings are stored in the current browser. The admin dashboard has its own appearance controls for light/dark theme and small/medium/large text, while sharing the same language selection.
 
-### Install Scout AI
+### Install GCC Chat
 
-Supported browsers can show an **Add Scout AI to your home screen** card.
+Supported browsers can show an **Add GCC Chat to your home screen** card.
 
 - Select **Install** to open the browser installation flow.
 - Select the close icon to collapse the card.
@@ -103,7 +103,7 @@ If the browser does not provide an install prompt, use its normal **Add to Home 
 
 ## Safety And Escalation
 
-Scout AI is not monitored as an emergency communications channel. For immediate danger or medical emergencies, call 911. For youth-protection or safeguarding concerns, follow official Scouting America and Grand Canyon Council reporting procedures and contact qualified staff directly.
+GCC Chat is not monitored as an emergency communications channel. For immediate danger or medical emergencies, call 911. For youth-protection or safeguarding concerns, follow official Scouting America and Grand Canyon Council reporting procedures and contact qualified staff directly.
 
 The system can flag safety-related wording or low-confidence answers for administrative review. Automated escalation does not replace contacting emergency services, council leadership, a unit leader, or an authorized reporting channel.
 
@@ -187,7 +187,7 @@ Use **Logout** from the navigation or profile menu. This removes the stored admi
 
 ## Frequently Asked Questions
 
-### Can Scout AI replace official policies or training?
+### Can GCC Chat replace official policies or training?
 
 No. It helps locate and summarize approved information. Official publications, required training, council staff, and qualified leaders remain authoritative.
 

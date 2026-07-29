@@ -1,4 +1,4 @@
-# Grand Canyon Council Scout AI APIs
+# GCC Chat APIs
 
 This reference documents the two REST APIs deployed by the `GrandCanyonCouncilChatbot` CDK stack:
 

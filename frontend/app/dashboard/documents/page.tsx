@@ -23,6 +23,7 @@ import {
   collectFilesFromInput,
   chunkUploadBatch,
   contentTypeFor,
+  partitionBySize,
   partitionByType,
   partitionByUniquePath,
   runWithConcurrency,
@@ -46,6 +47,17 @@ export default function DocumentsPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const folderInputRef = useRef<HTMLInputElement>(null);
   const ITEMS_PER_PAGE = 10;
+
+  function compactSingleFileName(paths: string[]): string | undefined {
+    if (paths.length !== 1) return undefined;
+    const name = paths[0].split('/').pop() || paths[0];
+    return name.length > 64 ? `${name.slice(0, 61)}...` : name;
+  }
+
+  function compactToastOptions(paths: string[]) {
+    const description = compactSingleFileName(paths);
+    return description ? { description } : undefined;
+  }
 
   // While any document is still indexing (or waiting), poll so badges flip to
   // "Ready" on their own without a manual refresh.
@@ -124,7 +136,11 @@ export default function DocumentsPage() {
     setDeleteKeys([]);
 
     if (failed.length > 0) {
-      toast.error(t.documents.deleteFailed, { description: failed.map(key => key.replace('uploads/', '')).join(', ') });
+      const failedPaths = failed.map(key => key.replace('uploads/', ''));
+      toast.error(
+        formatText(t.documents.deleteFailedCount, { count: failed.length }),
+        compactToastOptions(failedPaths),
+      );
     }
   }
 
@@ -167,10 +183,9 @@ export default function DocumentsPage() {
     const { valid, invalid } = partitionByType(collected);
 
     if (invalid.length > 0) {
-      const names = invalid.map((f) => f.relativePath).join(', ');
       toast.error(
         formatText(t.documents.unsupported, { count: invalid.length }),
-        { description: names },
+        compactToastOptions(invalid.map(file => file.relativePath)),
       );
     }
 
@@ -178,13 +193,28 @@ export default function DocumentsPage() {
     if (duplicates.length > 0) {
       toast.error(
         formatText(t.documents.duplicatePaths, { count: duplicates.length }),
-        { description: duplicates.map((file) => file.relativePath).join(', ') },
+        compactToastOptions(duplicates.map(file => file.relativePath)),
       );
     }
 
     if (unique.length === 0) return;
 
-    const orderedFiles = sortByRelativePath(unique);
+    const { valid: validSizes, empty, oversized } = partitionBySize(unique);
+    if (oversized.length > 0) {
+      toast.error(
+        formatText(t.documents.oversized, { count: oversized.length }),
+        compactToastOptions(oversized.map(file => file.relativePath)),
+      );
+    }
+    if (empty.length > 0) {
+      toast.error(
+        formatText(t.documents.emptyFiles, { count: empty.length }),
+        compactToastOptions(empty.map(file => file.relativePath)),
+      );
+    }
+    if (validSizes.length === 0) return;
+
+    const orderedFiles = sortByRelativePath(validSizes);
     const totalBytes = orderedFiles.reduce((sum, f) => sum + (f.file.size || 0), 0) || 1;
     const loadedBytes = new Map<string, number>();
     let completedFiles = 0;
@@ -256,7 +286,7 @@ export default function DocumentsPage() {
     if (failed.length > 0) {
       toast.error(
         formatText(t.documents.uploadFailed, { count: failed.length }),
-        { description: failed.join(', ') },
+        compactToastOptions(failed),
       );
     }
     await loadDocuments();

@@ -1,10 +1,10 @@
 # Architecture Deep Dive
 
-This document describes the deployed architecture of Grand Canyon Council Scout AI. It reflects the CDK constructs and Lambda handlers in this repository as of July 24, 2026.
+This document describes the deployed architecture of GCC Chat. It reflects the CDK constructs and Lambda handlers in this repository as of July 24, 2026.
 
 ## Architecture Diagram
 
-![Grand Canyon Council Scout AI AWS architecture](./media/architecture.png)
+![GCC Chat AWS architecture](./media/architecture.png)
 
 The editable Graphviz source is [architecture.dot](./media/architecture.dot). Regenerate the image with:
 
@@ -14,7 +14,7 @@ dot -Tpng -Gdpi=160 docs/media/architecture.dot -o docs/media/architecture.png
 
 ## System Boundaries
 
-Scout AI has two browser-facing experiences in one Next.js static application published through one private-S3/CloudFront origin:
+GCC Chat has two browser-facing experiences in one Next.js static application published through one private-S3/CloudFront origin:
 
 - **Public chat** at `/`, available without a user account.
 - **Admin application** with sign-in at `/admin` and protected pages under `/dashboard`, backed by Amazon Cognito and an `admin` group check.

@@ -3,13 +3,13 @@ import { LanguageProvider } from "@/context/LanguageContext";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Grand Canyon Council Chatbot",
+  title: "GCC Chat",
   description: "AI-powered assistant for Grand Canyon Council - Get help with joining, volunteering, events, and more.",
   manifest: "/manifest.json",
   appleWebApp: {
     capable: true,
     statusBarStyle: "default",
-    title: "Scout AI",
+    title: "GCC Chat",
   },
 };
 

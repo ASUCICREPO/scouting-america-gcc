@@ -39,6 +39,7 @@ export default function InputBar({ onSend, disabled }: InputBarProps) {
   const [value, setValue] = useState("");
   const [isListening, setIsListening] = useState(false);
   const [transcript, setTranscript] = useState("");
+  const [speechError, setSpeechError] = useState("");
   const [barHeights, setBarHeights] = useState<number[]>(new Array(40).fill(3));
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
@@ -129,9 +130,11 @@ export default function InputBar({ onSend, disabled }: InputBarProps) {
       speechWindow.SpeechRecognition || speechWindow.webkitSpeechRecognition;
 
     if (!SpeechRecognition) {
-      alert(t.chat.speechUnsupported);
+      setSpeechError(t.chat.speechUnsupported);
       return;
     }
+
+    setSpeechError("");
 
     const recognition = new SpeechRecognition();
     recognition.continuous = true;
@@ -255,6 +258,11 @@ export default function InputBar({ onSend, disabled }: InputBarProps) {
           </div>
         </div>
       </div>
+      {speechError && (
+        <p className="input-error-message" role="alert">
+          {speechError}
+        </p>
+      )}
     </div>
   );
 }

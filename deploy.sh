@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# deploy.sh — one-command AWS sandbox deployment for the Grand Canyon Council Chatbot.
+# deploy.sh — one-command AWS sandbox deployment for GCC Chat.
 #
 # The caller packages the reviewed Git commit and starts one AWS CodeBuild job.
 # CodeBuild bootstraps CDK, deploys GCC's backend, builds the frontend, publishes
@@ -180,7 +180,7 @@ if aws_cli iam get-role --role-name "$ROLE_NAME" >/dev/null 2>&1; then
 else
   aws_cli iam create-role \
     --role-name "$ROLE_NAME" \
-    --description "Sandbox deployment role for the GCC chatbot" \
+    --description "Sandbox deployment role for GCC Chat" \
     --assume-role-policy-document "file://$TRUST_POLICY_FILE" \
     --tags Key=Project,Value=GrandCanyonCouncilChatbot Key=ManagedBy,Value=deploy.sh >/dev/null
 fi
@@ -235,7 +235,7 @@ ok "Uploaded reviewed source: s3://$SOURCE_BUCKET/$SOURCE_KEY"
 cat > "$PROJECT_FILE" <<JSON
 {
   "name": "${PROJECT_NAME}",
-  "description": "Unified sandbox deployment for the Grand Canyon Council Chatbot",
+  "description": "Unified sandbox deployment for GCC Chat",
   "source": {
     "type": "S3",
     "location": "${SOURCE_BUCKET}/${SOURCE_KEY}",

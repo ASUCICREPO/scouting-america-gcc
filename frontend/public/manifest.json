@@ -1,6 +1,6 @@
 {
-  "name": "Grand Canyon Council Chatbot",
-  "short_name": "Scout AI",
+  "name": "GCC Chat",
+  "short_name": "GCC Chat",
   "description": "AI-powered assistant for Grand Canyon Council",
   "start_url": "/",
   "display": "standalone",

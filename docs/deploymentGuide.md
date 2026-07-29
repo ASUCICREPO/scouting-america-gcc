@@ -1,6 +1,6 @@
 # Deployment Guide
 
-This guide describes reviewed deployments of Grand Canyon Council Scout AI to AWS. Deployment changes cloud infrastructure and publishes the frontend. Confirm the target account, region, branch, stack, and resource prefix before running any command.
+This guide describes reviewed deployments of GCC Chat to AWS. Deployment changes cloud infrastructure and publishes the frontend. Confirm the target account, region, branch, stack, and resource prefix before running any command.
 
 ## Deployment Model
 

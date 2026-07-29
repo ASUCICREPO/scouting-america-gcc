@@ -2,7 +2,7 @@
 
 # Project Completion Documentation
 
-## Grand Canyon Council Scout AI
+## GCC Chat
 
 ![Grand Canyon Council logo](../frontend/public/gcc-logo.png)
 
@@ -33,7 +33,7 @@ This document records the scope and implementation present in the repository at 
 
 Grand Canyon Council supports thousands of Scouting volunteers, families, and staff across programs, camps, training, advancement, safety, recruitment, and unit operations. Relevant information is distributed across many council and Scouting America documents, making it difficult to find a reliable answer quickly.
 
-The project delivered Scout AI, a responsive bilingual English/Spanish web application grounded in approved GCC and Scouting America content. The public experience lets users ask questions, review structured answers and sources, use voice features, rate responses, and return to saved sessions. The protected admin dashboard gives GCC staff usage and quality metrics, rated-conversation review, and document ingestion management.
+The project delivered GCC Chat, a responsive bilingual English/Spanish web application grounded in approved GCC and Scouting America content. The public experience lets users ask questions, review structured answers and sources, use voice features, rate responses, and return to saved sessions. The protected admin dashboard gives GCC staff usage and quality metrics, rated-conversation review, and document ingestion management.
 
 The solution runs as serverless AWS infrastructure defined in CDK. A static Next.js application is delivered through CloudFront; API Gateway and Python Lambda handlers serve chat and admin requests; Amazon Bedrock provides retrieval-augmented generation; S3 Vectors stores embeddings; S3 and DynamoDB persist content and operational data; Cognito protects admin workflows; and SNS/SES route escalation notifications.
 
@@ -125,7 +125,7 @@ A useful solution needed to:
 
 | Deliverable | Status | Location |
 | --- | --- | --- |
-| Public Scout AI web application | Delivered | `frontend/app/page.tsx`, `frontend/components/` |
+| Public GCC Chat web application | Delivered | `frontend/app/page.tsx`, `frontend/components/` |
 | English/Spanish shared interface | Delivered | `frontend/context/LanguageContext.tsx`, `frontend/lib/i18n.ts` |
 | Protected admin dashboard | Delivered | `frontend/app/dashboard/`, `backend/lambda/dashboard/` |
 | Public and admin APIs | Delivered | `backend/lib/constructs/`, `backend/lambda/` |
@@ -162,7 +162,7 @@ The dashboard provides a dense operational layout with overview metrics, trend a
 
 ### 4.2 System Architecture
 
-![Grand Canyon Council Scout AI architecture](./media/architecture.png)
+![GCC Chat architecture](./media/architecture.png)
 
 The frontend is built once as a static Next.js export and published to a private S3 bucket. CloudFront serves it over HTTPS and rewrites nested application routes. Public chat and protected administration use separate API Gateway REST APIs.
 
@@ -314,7 +314,7 @@ Maintainers should:
 - WAF, MFA, CloudFront/API access logs, tracing, and centralized alarms are deferred.
 - Dashboard analytics perform scans that should be replaced with aggregates at higher volume.
 - Safety keyword regression tests should continue covering both English and Spanish.
-- Supported document uploads cap at 25 MB, and the worker independently validates stored bytes before knowledge-base copy.
+- Supported document uploads cap at 50 MB, and the worker independently validates stored bytes before knowledge-base copy.
 - Profile/logo edits in dashboard settings are browser-local, not shared backend records.
 
 ## 7. Future Scope

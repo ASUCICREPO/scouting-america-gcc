@@ -35,7 +35,8 @@ SYNC_QUEUE_URL = os.environ["SYNC_QUEUE_URL"]
 analytics_table = dynamodb.Table(ANALYTICS_TABLE)
 document_batches_table = dynamodb.Table(DOCUMENT_BATCHES_TABLE)
 
-MAX_FILE_SIZE_BYTES = 25 * 1024 * 1024
+# Keep worker-side validation aligned with Bedrock and the upload signer.
+MAX_FILE_SIZE_BYTES = 50_000_000
 MAX_ARCHIVE_ENTRIES = 5_000
 MAX_UNCOMPRESSED_ARCHIVE_BYTES = 100 * 1024 * 1024
 UPLOAD_BATCH_ID_RE = re.compile(r"^[a-f0-9]{32}$")

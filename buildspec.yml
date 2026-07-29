@@ -1,6 +1,6 @@
 version: 0.2
 
-# Unified CodeBuild deployment for the Grand Canyon Council Chatbot.
+# Unified CodeBuild deployment for GCC Chat.
 # deploy.sh uploads the reviewed Git commit as an S3 source archive, creates or
 # updates the CodeBuild project, and supplies the environment variables below.
 

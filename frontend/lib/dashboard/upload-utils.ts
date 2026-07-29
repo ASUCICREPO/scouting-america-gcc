@@ -25,6 +25,12 @@ export interface UniquePathResult {
   duplicates: CollectedFile[];
 }
 
+export interface FileSizeValidationResult {
+  valid: CollectedFile[];
+  empty: CollectedFile[];
+  oversized: CollectedFile[];
+}
+
 /** Extensions the document manager accepts (matches the backend allow-list). */
 export const ALLOWED_EXTENSIONS = [
   'csv',
@@ -45,6 +51,9 @@ export const EXTENSION_CONTENT_TYPES: Record<string, string> = {
 
 /** Value for the file input `accept` attribute. */
 export const ACCEPT_ATTR = '.csv,.pdf,.txt,.docx,.xlsx';
+
+/** Match the maximum source-document size accepted by Amazon Bedrock. */
+export const MAX_FILE_SIZE_BYTES = 50_000_000;
 
 /** Keep API responses and DynamoDB coordination items comfortably bounded. */
 export const MAX_UPLOAD_BATCH_FILES = 500;
@@ -91,6 +100,24 @@ export function partitionByUniquePath(files: CollectedFile[]): UniquePathResult 
     }
   }
   return { unique, duplicates };
+}
+
+/** Reject empty and oversized files before one bad item can fail an API batch. */
+export function partitionBySize(
+  files: CollectedFile[],
+  maxSizeBytes = MAX_FILE_SIZE_BYTES,
+): FileSizeValidationResult {
+  const valid: CollectedFile[] = [];
+  const empty: CollectedFile[] = [];
+  const oversized: CollectedFile[] = [];
+
+  for (const file of files) {
+    if (file.file.size < 1) empty.push(file);
+    else if (file.file.size > maxSizeBytes) oversized.push(file);
+    else valid.push(file);
+  }
+
+  return { valid, empty, oversized };
 }
 
 /** Return a deterministic path order without changing the source array. */

@@ -6,7 +6,7 @@ digraph GCCArchitecture {
     nodesep="0.45",
     ranksep="0.75",
     fontname="Arial",
-    label="Grand Canyon Council Scout AI - AWS Architecture",
+    label="GCC Chat - AWS Architecture",
     labelloc="t",
     fontsize=24
   ];
