@@ -180,6 +180,7 @@
         "lambda:Create*",
         "lambda:Delete*",
         "lambda:Get*",
+        "lambda:InvokeFunction",
         "lambda:List*",
         "lambda:PublishLayerVersion",
         "lambda:PutFunctionConcurrency",
