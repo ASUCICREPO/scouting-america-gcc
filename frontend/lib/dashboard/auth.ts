@@ -144,5 +144,5 @@ function clearTokens(): void {
 
 export function logout(): void {
   clearTokens();
-  window.location.href = '/login';
+  window.location.href = '/admin';
 }

@@ -15,8 +15,8 @@ CodeBuild performs the supported end-to-end workflow:
 3. Deploys the CDK stack through the sandbox CDK bootstrap roles.
 4. Reads the stack outputs and generates the build-time frontend environment.
 5. Builds the Next.js static export.
-6. Publishes public and admin assets to separate private S3 origins.
-7. Invalidates both CloudFront distributions.
+6. Publishes the complete static application to one private S3 origin.
+7. Invalidates the CloudFront distribution.
 
 After CodeBuild succeeds, `deploy.sh` optionally creates the first Cognito administrator and prints all application URLs. Knowledge-base documents are uploaded later through the authenticated admin dashboard.
 
@@ -97,9 +97,9 @@ Rules:
 
 The prefix does not change the CloudFormation stack name. This repository manages one `GrandCanyonCouncilChatbot` stack per account/region.
 
-### Public And Admin Origins
+### Frontend Origin And Routes
 
-The stack creates separate public and admin S3/CloudFront deployments. CloudFormation passes those generated domains directly into API Gateway, Lambda, and upload-bucket CORS configuration, so a second CORS-tightening deployment is not required. For custom domains, keep the same separation: use the public application at the root domain and the dashboard at an admin subdomain.
+The stack creates one private S3 bucket and one CloudFront distribution. CloudFormation passes that generated domain directly into both API Gateways, their Lambdas, and upload-bucket CORS configuration, so a second CORS-tightening deployment is not required. The public chat is at `/`, the admin login is at `/admin`, and the authenticated application is under `/dashboard`.
 
 ## Recommended Deployment
 
@@ -169,12 +169,9 @@ The stack exports:
 | `UserPoolClientId` | Browser client ID |
 | `DocumentStoreBucket` | Raw document uploads |
 | `KnowledgeBaseBucket` | Bedrock data source documents |
-| `PublicFrontendBucket` | Public chat static-export target; admin paths are excluded |
-| `PublicFrontendDistributionId` | Public CloudFront invalidation target |
-| `PublicFrontendUrl` | Public chat URL |
-| `AdminFrontendBucket` | Admin dashboard static-export target |
-| `AdminFrontendDistributionId` | Admin CloudFront invalidation target |
-| `AdminFrontendUrl` | Admin login/dashboard URL |
+| `FrontendBucket` | Complete static-export target |
+| `FrontendDistributionId` | CloudFront invalidation target |
+| `FrontendUrl` | Shared frontend URL (`/` chat, `/admin` login, `/dashboard` application) |
 | `ChatArchiveBucket` | Object-locked chat audit archive |
 | `OperationsDashboardName` | CloudWatch operations dashboard |
 
@@ -207,22 +204,22 @@ Expected status after an update: `UPDATE_COMPLETE`. A first deployment ends at `
 `deploy.sh` submits an invalidation but does not wait for it to finish. Retrieve the distribution output and inspect the newest invalidation:
 
 ```bash
-PUBLIC_DIST_ID=$(aws cloudformation describe-stacks \
+FRONTEND_DIST_ID=$(aws cloudformation describe-stacks \
   --stack-name GrandCanyonCouncilChatbot \
   --region us-west-2 \
-  --query "Stacks[0].Outputs[?OutputKey=='PublicFrontendDistributionId'].OutputValue" \
+  --query "Stacks[0].Outputs[?OutputKey=='FrontendDistributionId'].OutputValue" \
   --output text)
 
 aws cloudfront list-invalidations \
-  --distribution-id "$PUBLIC_DIST_ID" \
+  --distribution-id "$FRONTEND_DIST_ID" \
   --max-items 1
 ```
 
-Repeat with `AdminFrontendDistributionId`. Wait for status `Completed` before concluding that every edge location has the new files.
+Wait for status `Completed` before concluding that every edge location has the new files.
 
 ### Frontend Routes
 
-Open `PublicFrontendUrl` and verify `/` works while `/login` and `/dashboard` return an error. Open `AdminFrontendUrl`; `/` should resolve to `/login`, and authenticated deep links under `/dashboard` should refresh successfully.
+Open `FrontendUrl` and verify `/` loads the public chat. Open `/admin` and verify it shows the admin sign-in. Open `/dashboard` without a session and verify it redirects to `/admin`; after signing in as a member of the Cognito `admin` group, verify `/dashboard` and its nested routes load successfully.
 
 ### Public Chat Contract
 
@@ -289,7 +286,7 @@ Set `RESOURCE_PREFIX` on synthesis and deployment. A backend-only deployment doe
 
 `deploy.sh` creates or updates a stable project named `<PREFIX>gcc-chatbot-deployment`. Its S3 source is an archive of the exact reviewed Git `HEAD`, not the caller's uncommitted working tree and not a long-lived GitHub credential.
 
-`buildspec.yml` runs backend tests, bootstraps CDK, deploys the stack, builds `frontend/out`, publishes both isolated frontend origins, and invalidates both CloudFront distributions. The script streams the project's CloudWatch logs until CodeBuild reaches a terminal state.
+`buildspec.yml` runs backend tests, bootstraps CDK, deploys the stack, builds `frontend/out`, publishes the complete export to the private frontend origin, and invalidates the CloudFront distribution. The script streams the project's CloudWatch logs until CodeBuild reaches a terminal state.
 
 ## Troubleshooting
 
@@ -301,15 +298,15 @@ Set `RESOURCE_PREFIX` on synthesis and deployment. A backend-only deployment doe
 
 ### Dashboard Opens The Public Home Page
 
-**Cause:** One CloudFront surface is serving an old export or does not have its route-rewrite function associated.
+**Cause:** CloudFront is serving an old export or does not have its route-rewrite function associated.
 
-**Action:** Confirm the current stack includes both CloudFront Functions, rebuild with `trailingSlash: true`, publish with `deploy.sh`, and wait for both invalidations. Do not sync `/login` or `/dashboard` into the public bucket.
+**Action:** Confirm the current stack includes the CloudFront Function, rebuild with `trailingSlash: true`, publish with `deploy.sh`, and wait for the invalidation. Confirm the static export contains `admin/index.html` and `dashboard/index.html`.
 
 ### Frontend Uses The Wrong API
 
-**Cause:** The wrong prefix was supplied to CodeBuild, an older build was published, or a CloudFront invalidation is still in progress.
+**Cause:** The wrong prefix was supplied to CodeBuild, an older build was published, or the CloudFront invalidation is still in progress.
 
-**Action:** Re-run the approved deployment from the intended commit with the correct prefix, confirm the CodeBuild environment values, and wait for both invalidations to complete.
+**Action:** Re-run the approved deployment from the intended commit with the correct prefix, confirm the CodeBuild environment values, and wait for the invalidation to complete.
 
 ### Chat Returns 500
 
@@ -320,7 +317,7 @@ Check the chat-handler log for Bedrock permissions, model availability, knowledg
 - Confirm the dashboard token is valid.
 - Confirm the file type and size are supported.
 - Check the presigned POST policy response and ensure the browser submits all returned fields before the file.
-- Compare the browser origin with `AdminFrontendUrl`.
+- Compare the browser origin with `FrontendUrl`.
 - Check the S3 CORS configuration and dashboard Lambda logs.
 
 ### Document Stays Pending

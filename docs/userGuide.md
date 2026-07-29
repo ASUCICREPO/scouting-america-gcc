@@ -111,7 +111,7 @@ The system can flag safety-related wording or low-confidence answers for adminis
 
 ### Sign In
 
-1. Open `/login` on the same frontend domain.
+1. Open `/admin` on the same frontend domain. Opening `/dashboard` without a current admin session redirects here automatically.
 2. Enter the email address and permanent password for a Cognito admin account.
 3. Select **Login**.
 
@@ -183,7 +183,7 @@ Profile and branding edits are local interface preferences; they do not update C
 
 ### Sign Out
 
-Use **Logout** from the navigation or profile menu. This removes the stored admin tokens and returns to `/login`.
+Use **Logout** from the navigation or profile menu. This removes the stored admin tokens and returns to `/admin`.
 
 ## Frequently Asked Questions
 

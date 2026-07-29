@@ -23,11 +23,11 @@ async function fetchApi(path: string, params?: Record<string, string>, options?:
   });
 
   if (res.status === 401 || res.status === 403) {
-    // Token expired or unauthorized — redirect to login
+    // Token expired or unauthorized — redirect to the admin login.
     if (typeof window !== 'undefined') {
       sessionStorage.removeItem('gcc_admin_tokens');
       localStorage.removeItem('gcc_admin_tokens');
-      window.location.href = '/login';
+      window.location.href = '/admin';
     }
     throw new Error('Unauthorized');
   }

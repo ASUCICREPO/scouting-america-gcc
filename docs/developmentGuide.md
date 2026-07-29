@@ -67,7 +67,7 @@ backend/
   test/test_chat_language.py        Bilingual Lambda contract tests
 frontend/
   app/page.tsx                      Public chat state and orchestration
-  app/login/page.tsx                Cognito admin sign-in
+  app/admin/page.tsx                Cognito admin sign-in
   app/dashboard/                    Overview, documents, settings
   components/                       Chat and shared UI components
   context/LanguageContext.tsx       Shared persistent language state
@@ -105,7 +105,7 @@ npm run dev
 Open `http://localhost:3000`. Useful routes are:
 
 - `http://localhost:3000/`
-- `http://localhost:3000/login`
+- `http://localhost:3000/admin`
 - `http://localhost:3000/dashboard`
 - `http://localhost:3000/dashboard/documents`
 - `http://localhost:3000/dashboard/settings`
@@ -215,7 +215,7 @@ For changes affecting the UI, verify desktop and mobile widths:
 - Public chat starts, follows up, gives feedback, and reloads history.
 - Settings applies dark mode, text size, and English/Spanish copy.
 - A language change during an active chat requires confirmation and resets the session.
-- `/login` authenticates an admin and rejects a non-admin.
+- `/admin` authenticates an admin and rejects a non-admin.
 - Dashboard overview loads real metrics and opens rated conversations.
 - Document upload reports progress and reaches a valid ingestion state.
 - Nested URLs survive a direct browser refresh in the deployed CloudFront environment.

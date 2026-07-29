@@ -14,10 +14,10 @@ dot -Tpng -Gdpi=160 docs/media/architecture.dot -o docs/media/architecture.png
 
 ## System Boundaries
 
-Scout AI has two browser-facing experiences built from one Next.js application but published to isolated origins:
+Scout AI has two browser-facing experiences in one Next.js static application published through one private-S3/CloudFront origin:
 
-- **Public chat** on the public CloudFront distribution, available without a user account.
-- **Admin dashboard** on a separate admin CloudFront distribution, protected by Amazon Cognito and an `admin` group check.
+- **Public chat** at `/`, available without a user account.
+- **Admin application** with sign-in at `/admin` and protected pages under `/dashboard`, backed by Amazon Cognito and an `admin` group check.
 
 The frontend is a static export. Display preferences and the anonymous chat-session credential are stored in browser `localStorage`; admin JWTs use `sessionStorage`. Chat turns, feedback, confidence values, and escalation state are stored server-side in DynamoDB.
 
@@ -25,7 +25,7 @@ The frontend is a static export. Display preferences and the anonymous chat-sess
 
 ### Public Chat Flow
 
-1. The browser downloads the public static export through its CloudFront distribution. The public edge rejects `/login` and `/dashboard`.
+1. The browser downloads the static export through CloudFront and opens the public chat at `/`.
 2. The frontend sends `POST /chat` with `question` and `language`. Existing sessions also send `sessionId` plus the server-issued `X-Session-Token`.
 3. API Gateway invokes the Python 3.13 chat-handler Lambda.
 4. The Lambda validates the typed request and, for existing sessions, compares the bearer-token hash with the stored session hash.
@@ -58,7 +58,7 @@ Deleting a document removes both the raw upload and its knowledge-base copy, the
 
 ### Admin Analytics Flow
 
-1. An administrator signs in through the frontend with Cognito `USER_PASSWORD_AUTH`.
+1. An administrator opens `/admin` (or is redirected there from `/dashboard`) and signs in with Cognito `USER_PASSWORD_AUTH`.
 2. The frontend stores Cognito tokens in tab-scoped `sessionStorage` and sends the ID token in the `Authorization` header.
 3. API Gateway validates the token with a Cognito authorizer.
 4. The dashboard Lambda independently verifies that `cognito:groups` contains `admin`.
@@ -68,7 +68,7 @@ Deleting a document removes both the raw upload and its knowledge-base copy, the
 
 | Component | Implementation | Responsibility |
 | --- | --- | --- |
-| Frontend hosting | `FrontendHosting` CDK construct | Separate private S3/CloudFront origins for public and admin surfaces, route rewriting, and security headers |
+| Frontend hosting | `FrontendHosting` CDK construct | One private S3 origin and CloudFront distribution for `/`, `/admin`, and `/dashboard`, with route rewriting and security headers |
 | Public API | `ApiGateway` CDK construct | Public chat, history, and feedback routes; 100 requests/second with burst 200 |
 | Chat handler | `GCC-ChatHandler` Lambda | Validation, Bedrock orchestration, confidence, escalation, persistence |
 | Dashboard API | `DashboardApi` CDK construct | Cognito-protected analytics and document routes; 50 requests/second with burst 100 |
@@ -116,7 +116,7 @@ Current event types are `escalation` and `document_processing`.
 - `${RESOURCE_PREFIX}gcc-document-store`: versioned source uploads under `uploads/`; retained when the stack is destroyed.
 - `${RESOURCE_PREFIX}gcc-knowledge-base-data`: Bedrock source documents under `documents/`; retained when the stack is destroyed.
 - `${RESOURCE_PREFIX}gcc-chat-audit-archive`: versioned audit JSON with a one-year S3 Object Lock retention period.
-- Public and admin CloudFront site buckets: generated names, auto-deleted with the stack because they contain only rebuildable static output.
+- CloudFront site bucket: generated name, auto-deleted with the stack because it contains only rebuildable static output.
 
 ## Infrastructure As Code
 
@@ -152,7 +152,7 @@ backend/lib/
 - CloudFront redirects HTTP to HTTPS and enforces TLS 1.2 (2021 policy).
 - Frontend, document, knowledge-base, and audit buckets block public access and enforce SSL.
 - CloudFront uses origin access control to read the private site bucket.
-- Public and admin assets use separate CloudFront distributions and distinct CORS origins; public edge code rejects admin routes.
+- Public and admin assets share one CloudFront distribution; both APIs and the upload bucket allow only that generated browser origin through CORS.
 - Dashboard routes require a Cognito token and membership in the `admin` group.
 - The dashboard Lambda repeats the group check rather than trusting only the gateway.
 - IAM grants are scoped to the application tables, buckets, secret, and Lambda where resource ARNs are available.
@@ -190,11 +190,11 @@ These limitations are intentional pilot tradeoffs, not production security recom
 
 ### Static Next.js Export On S3 And CloudFront
 
-**Decision:** Use `output: "export"` and publish filtered public assets and admin assets to separate private S3 origins behind separate CloudFront distributions.
+**Decision:** Use `output: "export"` and publish the complete application to one private S3 origin behind one CloudFront distribution. Serve chat at `/`, admin sign-in at `/admin`, and authenticated pages below `/dashboard`.
 
-**Rationale:** The application does not require server-side rendering. Origin separation prevents the public domain from serving the admin surface and gives each API a single trusted CORS origin.
+**Rationale:** The application does not require server-side rendering, and one origin matches the intended customer URL structure. The generated CloudFront domain remains the only allowed CORS origin; Cognito authorization and the Lambda's independent `admin` group check protect administrative data and actions.
 
-**Tradeoff:** Every `NEXT_PUBLIC_*` setting is baked in at build time, nested routes require explicit CloudFront rewriting, and deployment must publish/invalidate two surfaces.
+**Tradeoff:** Every `NEXT_PUBLIC_*` setting is baked in at build time, nested routes require explicit CloudFront rewriting, and static admin assets are publicly retrievable even though protected admin data and operations are not. Hiding the static shell itself would require edge authentication or a server-rendered backend-for-frontend.
 
 ### Separate Public And Admin APIs
 

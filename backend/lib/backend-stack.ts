@@ -25,14 +25,13 @@ export class GrandCanyonCouncilChatbot extends cdk.Stack {
     Aspects.of(this).add(new AwsSolutionsChecks({ verbose: true }));
 
     const frontendHosting = new FrontendHosting(this, 'FrontendHosting');
-    const publicOrigin = `https://${frontendHosting.publicDistribution.distributionDomainName}`;
-    const adminOrigin = `https://${frontendHosting.adminDistribution.distributionDomainName}`;
+    const frontendOrigin = `https://${frontendHosting.distribution.distributionDomainName}`;
 
     // ---------------------------------------------------------------
     // Shared Resources (S3, DynamoDB, Cognito, SNS)
     // ---------------------------------------------------------------
     const sharedResources = new SharedResources(this, 'SharedResources', {
-      adminOrigin,
+      allowedOrigin: frontendOrigin,
     });
 
     // ---------------------------------------------------------------
@@ -57,7 +56,7 @@ export class GrandCanyonCouncilChatbot extends cdk.Stack {
     // API Gateway (REST API with Cognito auth — the front door)
     // ---------------------------------------------------------------
     const apiGateway = new ApiGateway(this, 'ApiGateway', {
-      allowedOrigin: publicOrigin,
+      allowedOrigin: frontendOrigin,
     });
 
     // ---------------------------------------------------------------
@@ -70,7 +69,7 @@ export class GrandCanyonCouncilChatbot extends cdk.Stack {
       guardrailVersion: aiSafety.guardrailVersion,
       promptId: aiSafety.promptId,
       promptVersion: aiSafety.promptVersion,
-      allowedOrigin: publicOrigin,
+      allowedOrigin: frontendOrigin,
       chatResource: apiGateway.chatResource,
       chatHistoryResource: apiGateway.chatHistoryResource,
       chatFeedbackResource: apiGateway.chatFeedbackResource,
@@ -115,7 +114,7 @@ export class GrandCanyonCouncilChatbot extends cdk.Stack {
       userPool: sharedResources.userPool,
       knowledgeBaseId: knowledgeBase.knowledgeBaseId,
       dataSourceId: knowledgeBase.dataSourceId,
-      allowedOrigin: adminOrigin,
+      allowedOrigin: frontendOrigin,
       dependenciesLayer: pythonDependencies.layer,
     });
 
@@ -174,34 +173,19 @@ export class GrandCanyonCouncilChatbot extends cdk.Stack {
       description: 'Object-locked S3 archive of delivered chat turns',
     });
 
-    new cdk.CfnOutput(this, 'PublicFrontendBucket', {
-      value: frontendHosting.publicBucket.bucketName,
-      description: 'S3 bucket for public chat static assets',
+    new cdk.CfnOutput(this, 'FrontendBucket', {
+      value: frontendHosting.siteBucket.bucketName,
+      description: 'S3 bucket for the complete frontend static export',
     });
 
-    new cdk.CfnOutput(this, 'PublicFrontendDistributionId', {
-      value: frontendHosting.publicDistribution.distributionId,
-      description: 'CloudFront distribution ID for the public chat',
+    new cdk.CfnOutput(this, 'FrontendDistributionId', {
+      value: frontendHosting.distribution.distributionId,
+      description: 'CloudFront distribution ID for the frontend',
     });
 
-    new cdk.CfnOutput(this, 'PublicFrontendUrl', {
-      value: publicOrigin,
-      description: 'Public chat URL (use as domain.com)',
-    });
-
-    new cdk.CfnOutput(this, 'AdminFrontendBucket', {
-      value: frontendHosting.adminBucket.bucketName,
-      description: 'S3 bucket for admin dashboard static assets',
-    });
-
-    new cdk.CfnOutput(this, 'AdminFrontendDistributionId', {
-      value: frontendHosting.adminDistribution.distributionId,
-      description: 'CloudFront distribution ID for the admin dashboard',
-    });
-
-    new cdk.CfnOutput(this, 'AdminFrontendUrl', {
-      value: adminOrigin,
-      description: 'Admin dashboard URL (use as admin.domain.com)',
+    new cdk.CfnOutput(this, 'FrontendUrl', {
+      value: frontendOrigin,
+      description: 'Frontend URL (public chat at /, admin login at /admin)',
     });
 
     new cdk.CfnOutput(this, 'OperationsDashboardName', {

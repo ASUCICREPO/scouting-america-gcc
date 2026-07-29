@@ -4,7 +4,7 @@
 #
 # The caller packages the reviewed Git commit and starts one AWS CodeBuild job.
 # CodeBuild bootstraps CDK, deploys GCC's backend, builds the frontend, publishes
-# the isolated public/admin S3 origins, and invalidates both CloudFront distributions.
+# the shared private S3 origin, and invalidates its CloudFront distribution.
 # The caller then creates the first Cognito administrator.
 #
 # Usage:
@@ -351,8 +351,7 @@ USER_POOL_ID="$(get_output UserPoolId)"
 CLIENT_ID="$(get_output UserPoolClientId)"
 DOCUMENT_BUCKET="$(get_output DocumentStoreBucket)"
 KB_BUCKET="$(get_output KnowledgeBaseBucket)"
-PUBLIC_FRONTEND_URL="$(get_output PublicFrontendUrl)"
-ADMIN_FRONTEND_URL="$(get_output AdminFrontendUrl)"
+FRONTEND_URL="$(get_output FrontendUrl)"
 OPERATIONS_DASHBOARD="$(get_output OperationsDashboardName)"
 
 if [[ "$SKIP_ADMIN" != "true" ]]; then
@@ -377,8 +376,9 @@ fi
 
 echo
 ok "Complete GCC sandbox deployment finished"
-echo "Public chat:          ${GREEN}$PUBLIC_FRONTEND_URL${NC}"
-echo "Admin dashboard:      ${GREEN}$ADMIN_FRONTEND_URL${NC}"
+echo "Public chat:          ${GREEN}$FRONTEND_URL${NC}"
+echo "Admin login:          ${GREEN}${FRONTEND_URL%/}/admin${NC}"
+echo "Admin dashboard:      ${GREEN}${FRONTEND_URL%/}/dashboard${NC}"
 echo "Chat API:             $CHAT_API_URL"
 echo "Dashboard API:        $DASHBOARD_API_URL"
 echo "Cognito user pool:    $USER_POOL_ID"
