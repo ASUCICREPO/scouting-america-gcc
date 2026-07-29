@@ -168,7 +168,7 @@ The frontend is built once as a static Next.js export and published to a private
 
 The chat handler retrieves grounded context and generates answers through a Bedrock Knowledge Base. The knowledge base uses Titan Text Embeddings v2 and S3 Vectors. Chat turns and feedback are persisted in DynamoDB. Escalations are routed asynchronously to SNS, optionally SES for high-severity safety matches, and the analytics table.
 
-Administrators upload directly to S3 with short-lived presigned POST policies. An S3 event enters the bounded document queue; the worker copies the object into the Bedrock data source, starts ingestion, and records processing analytics.
+Administrators upload directly to S3 with short-lived, batch-bound presigned POST policies. S3 events enter a bounded validation/copy queue; accepted objects preserve their nested paths, rejected objects move to a private seven-day quarantine, and a separate FIFO queue serializes Bedrock ingestion.
 
 See the [Architecture Deep Dive](./architectureDeepDive.md) for exact services, data models, controls, decisions, and limitations.
 
@@ -217,7 +217,7 @@ The Lambda checks the combined question and answer for configured safety keyword
 
 #### Document Operations
 
-The dashboard requests five-minute presigned POST policies so file bytes bypass API Gateway/Lambda. Folder paths are sanitized and preserved, and the signed S3 policy enforces content type and a 25 MB maximum. S3 events enter a bounded SQS worker pool before ingestion; status is inferred from recent Bedrock job timestamps.
+The dashboard requests a server-side manifest and five-minute presigned POST policies so file bytes bypass API Gateway/Lambda. Folder paths are validated and preserved; each signed policy binds the exact key, MIME type, byte size, and batch ID. The browser uses four transfer workers, S3 events enter a two-worker validation/copy pool, and a FIFO queue starts one incremental Bedrock sync only after a batch is ready. Status is inferred from recent Bedrock job timestamps.
 
 #### Environment Isolation
 
@@ -269,7 +269,7 @@ The repository includes:
 
 **Challenge:** Large multi-file/folder uploads through Lambda would add payload limits and cost; direct S3 uploads require careful CORS and key handling.
 
-**Resolution:** The dashboard uses size-enforced presigned S3 POST policies, mirrored relative paths, type validation, progress reporting, short expiration, and `uploads/` key validation. Upload CORS trusts only the deployed CloudFront frontend origin.
+**Resolution:** The dashboard uses manifest-bound presigned S3 POST policies, mirrored relative paths, bounded parallel transfers, strict extension/MIME/size validation, binary and Office-container inspection, progress reporting, short expiration, quarantine, and `uploads/` key validation. Upload CORS trusts only the deployed CloudFront frontend origin.
 
 ### Deployment Environment Collisions
 
@@ -314,7 +314,7 @@ Maintainers should:
 - WAF, MFA, CloudFront/API access logs, tracing, and centralized alarms are deferred.
 - Dashboard analytics perform scans that should be replaced with aggregates at higher volume.
 - Safety keyword regression tests should continue covering both English and Spanish.
-- The frontend and S3 signed policy both enforce the current 25 MB upload maximum.
+- Supported document uploads cap at 25 MB, and the worker independently validates stored bytes before knowledge-base copy.
 - Profile/logo edits in dashboard settings are browser-local, not shared backend records.
 
 ## 7. Future Scope

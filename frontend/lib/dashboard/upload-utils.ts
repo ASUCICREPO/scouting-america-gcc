@@ -20,17 +20,18 @@ export interface ValidationResult {
   invalid: CollectedFile[];
 }
 
+export interface UniquePathResult {
+  unique: CollectedFile[];
+  duplicates: CollectedFile[];
+}
+
 /** Extensions the document manager accepts (matches the backend allow-list). */
 export const ALLOWED_EXTENSIONS = [
   'csv',
   'pdf',
   'txt',
   'docx',
-  'pptx',
-  'svg',
-  'png',
-  'jpeg',
-  'jpg',
+  'xlsx',
 ] as const;
 
 /** Maps an extension to the Content-Type the backend expects/whitelists. */
@@ -39,15 +40,17 @@ export const EXTENSION_CONTENT_TYPES: Record<string, string> = {
   pdf: 'application/pdf',
   txt: 'text/plain',
   docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-  pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-  svg: 'image/svg+xml',
-  png: 'image/png',
-  jpeg: 'image/jpeg',
-  jpg: 'image/jpeg',
+  xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
 };
 
 /** Value for the file input `accept` attribute. */
-export const ACCEPT_ATTR = '.csv,.pdf,.txt,.docx,.pptx,.svg,.png,.jpeg,.jpg';
+export const ACCEPT_ATTR = '.csv,.pdf,.txt,.docx,.xlsx';
+
+/** Keep API responses and DynamoDB coordination items comfortably bounded. */
+export const MAX_UPLOAD_BATCH_FILES = 500;
+
+/** Limit simultaneous browser-to-S3 transfers on slower client networks. */
+export const UPLOAD_CONCURRENCY = 4;
 
 export function getExtension(name: string): string {
   const idx = name.lastIndexOf('.');
@@ -73,6 +76,67 @@ export function partitionByType(files: CollectedFile[]): ValidationResult {
     else invalid.push(f);
   }
   return { valid, invalid };
+}
+
+/** Keep one file per exact S3-relative path across the entire selection. */
+export function partitionByUniquePath(files: CollectedFile[]): UniquePathResult {
+  const unique: CollectedFile[] = [];
+  const duplicates: CollectedFile[] = [];
+  const seen = new Set<string>();
+  for (const file of files) {
+    if (seen.has(file.relativePath)) duplicates.push(file);
+    else {
+      seen.add(file.relativePath);
+      unique.push(file);
+    }
+  }
+  return { unique, duplicates };
+}
+
+/** Return a deterministic path order without changing the source array. */
+export function sortByRelativePath(files: CollectedFile[]): CollectedFile[] {
+  return [...files].sort((left, right) => {
+    const caseInsensitiveOrder = left.relativePath.localeCompare(
+      right.relativePath,
+      undefined,
+      { sensitivity: 'base' },
+    );
+    return caseInsensitiveOrder || left.relativePath.localeCompare(right.relativePath);
+  });
+}
+
+/** Split a large folder selection into API-safe upload manifests. */
+export function chunkUploadBatch<T>(items: T[], size = MAX_UPLOAD_BATCH_FILES): T[][] {
+  if (!Number.isInteger(size) || size < 1) throw new Error('Batch size must be a positive integer');
+  const chunks: T[][] = [];
+  for (let index = 0; index < items.length; index += size) {
+    chunks.push(items.slice(index, index + size));
+  }
+  return chunks;
+}
+
+/** Run asynchronous work with a fixed upper concurrency bound. */
+export async function runWithConcurrency<T, R>(
+  items: T[],
+  limit: number,
+  worker: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  if (!Number.isInteger(limit) || limit < 1) throw new Error('Concurrency must be a positive integer');
+  const results = new Array<R>(items.length);
+  let cursor = 0;
+
+  async function runNext() {
+    while (cursor < items.length) {
+      const index = cursor;
+      cursor += 1;
+      results[index] = await worker(items[index], index);
+    }
+  }
+
+  await Promise.all(
+    Array.from({ length: Math.min(limit, items.length) }, () => runNext()),
+  );
+  return results;
 }
 
 // ── Drag-and-drop folder traversal ──────────────────────────────────────────

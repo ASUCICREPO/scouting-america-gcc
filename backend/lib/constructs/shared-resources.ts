@@ -20,6 +20,7 @@ export class SharedResources extends Construct {
   // DynamoDB Tables
   public readonly chatLogsTable: dynamodb.Table;
   public readonly analyticsLogsTable: dynamodb.Table;
+  public readonly documentBatchesTable: dynamodb.Table;
 
   // Cognito
   public readonly userPool: cognito.UserPool;
@@ -43,6 +44,14 @@ export class SharedResources extends Construct {
       blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
       removalPolicy: cdk.RemovalPolicy.RETAIN,
       enforceSSL: true,
+      lifecycleRules: [
+        {
+          id: 'ExpireRejectedUploads',
+          prefix: 'quarantine/',
+          expiration: cdk.Duration.days(7),
+          noncurrentVersionExpiration: cdk.Duration.days(7),
+        },
+      ],
       // Only the deployed CloudFront frontend may use presigned uploads.
       cors: [
         {
@@ -110,6 +119,18 @@ export class SharedResources extends Construct {
       sortKey: { name: 'timestamp', type: dynamodb.AttributeType.STRING },
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
       removalPolicy: cdk.RemovalPolicy.RETAIN,
+      pointInTimeRecoverySpecification: { pointInTimeRecoveryEnabled: true },
+    });
+
+    // Short-lived coordination state for multi-file/folder uploads. Each item
+    // tracks one browser upload batch until every S3 object has either passed
+    // validation or been rejected. TTL keeps operational state bounded.
+    this.documentBatchesTable = new dynamodb.Table(this, 'DocumentBatchesTable', {
+      tableName: CONFIG.DOCUMENT_BATCHES_TABLE,
+      partitionKey: { name: 'batchId', type: dynamodb.AttributeType.STRING },
+      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+      timeToLiveAttribute: 'expiresAt',
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
       pointInTimeRecoverySpecification: { pointInTimeRecoveryEnabled: true },
     });
 

@@ -131,8 +131,8 @@ describe('Grounded response generation controls', () => {
 describe('Bounded ingestion and immutable audit storage', () => {
   test('buffers document uploads in SQS with bounded worker concurrency', () => {
     template.hasResourceProperties('AWS::Lambda::Function', {
-      Description: 'Copies uploaded documents to KB bucket and triggers Bedrock ingestion',
-      ReservedConcurrentExecutions: 2,
+      Description: 'Validates queued document batches and coordinates Bedrock ingestion',
+      ReservedConcurrentExecutions: 3,
     });
     template.hasResourceProperties('AWS::Lambda::EventSourceMapping', {
       BatchSize: 1,
@@ -152,6 +152,18 @@ describe('Bounded ingestion and immutable audit storage', () => {
             },
           }),
         ]),
+      },
+    });
+    template.hasResourceProperties('AWS::SQS::Queue', {
+      FifoQueue: true,
+      QueueName: 'GCC-DocSync-Queue.fifo',
+      RedrivePolicy: Match.objectLike({ maxReceiveCount: 40 }),
+    });
+    template.hasResourceProperties('AWS::DynamoDB::Table', {
+      TableName: 'GCC-DocumentBatches',
+      TimeToLiveSpecification: {
+        AttributeName: 'expiresAt',
+        Enabled: true,
       },
     });
   });
@@ -178,7 +190,7 @@ describe('Bounded ingestion and immutable audit storage', () => {
 
 describe('Failure observability', () => {
   test('alarms on every application dead-letter queue', () => {
-    template.resourceCountIs('AWS::CloudWatch::Alarm', 7);
+    template.resourceCountIs('AWS::CloudWatch::Alarm', 8);
     template.resourceCountIs('AWS::CloudWatch::Dashboard', 1);
     template.hasResourceProperties('AWS::CloudWatch::Alarm', {
       AlarmName: 'EscalationRouterDLQ-MessagesVisible',
@@ -428,7 +440,7 @@ describe('Origin and session hardening', () => {
       )
       .map(([, resource]) => resource.Properties);
 
-    expect(methods).toHaveLength(13);
+    expect(methods).toHaveLength(14);
     for (const method of methods) {
       expect(method.AuthorizationType).toBe('COGNITO_USER_POOLS');
       expect(method.AuthorizerId).toBeDefined();

@@ -90,12 +90,13 @@ export class GrandCanyonCouncilChatbot extends cdk.Stack {
       documentStoreBucket: sharedResources.documentStoreBucket,
       knowledgeBaseBucket: sharedResources.knowledgeBaseBucket,
       analyticsTable: sharedResources.analyticsLogsTable,
+      documentBatchesTable: sharedResources.documentBatchesTable,
       knowledgeBaseId: knowledgeBase.knowledgeBaseId,
       dataSourceId: knowledgeBase.dataSourceId,
     });
 
-    // Buffer uploads in SQS; the worker consumes one at a time so document
-    // processing cannot exhaust account Lambda concurrency.
+    // Buffer uploads in SQS; the processor construct caps object work at two
+    // concurrent invocations so uploads cannot exhaust account concurrency.
     sharedResources.documentStoreBucket.addEventNotification(
       cdk.aws_s3.EventType.OBJECT_CREATED,
       new cdk.aws_s3_notifications.SqsDestination(docProcessor.processingQueue),
@@ -115,11 +116,13 @@ export class GrandCanyonCouncilChatbot extends cdk.Stack {
     const dashboardApi = new DashboardApi(this, 'DashboardApi', {
       chatLogsTable: sharedResources.chatLogsTable,
       analyticsLogsTable: sharedResources.analyticsLogsTable,
+      documentBatchesTable: sharedResources.documentBatchesTable,
       documentStoreBucket: sharedResources.documentStoreBucket,
       knowledgeBaseBucket: sharedResources.knowledgeBaseBucket,
       userPool: sharedResources.userPool,
       knowledgeBaseId: knowledgeBase.knowledgeBaseId,
       dataSourceId: knowledgeBase.dataSourceId,
+      documentSyncQueue: docProcessor.syncQueue,
       allowedOrigin: frontendOrigin,
       dependenciesLayer: pythonDependencies.layer,
     });
@@ -135,6 +138,7 @@ export class GrandCanyonCouncilChatbot extends cdk.Stack {
       ],
       deadLetterQueues: [
         docProcessor.deadLetterQueue,
+        docProcessor.syncDeadLetterQueue,
         escalationRouter.deadLetterQueue,
         chatArchive.deadLetterQueue,
       ],

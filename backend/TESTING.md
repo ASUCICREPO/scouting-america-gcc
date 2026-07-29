@@ -85,13 +85,11 @@ $token = $auth.AuthenticationResult.IdToken
 
 ## Upload Documents
 
-Upload files to the `uploads/` prefix in the document store bucket. The Doc Processor Lambda triggers automatically.
-
-```bash
-aws s3 cp your-document.pdf s3://gcc-document-store/uploads/your-document.pdf
-```
-
-Or use the AWS Console: S3 > gcc-document-store > uploads/ > Upload.
+Sign in at `/admin`, open **Documents**, and upload the file or folder from the
+dashboard. The dashboard creates a server-validated upload manifest and signed
+S3 POST for each file. Direct `aws s3 cp` or console uploads are intentionally
+rejected because they do not contain the signed batch metadata required by the
+document processor.
 
 Wait 1-2 minutes for processing and KB ingestion before querying.
 

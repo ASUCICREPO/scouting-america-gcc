@@ -12,6 +12,7 @@ export const CONFIG = {
   // DynamoDB Tables
   CHAT_LOGS_TABLE: `${PREFIX}GCC-ChatLogs`,
   ANALYTICS_LOGS_TABLE: `${PREFIX}GCC-AnalyticsLogs`,
+  DOCUMENT_BATCHES_TABLE: `${PREFIX}GCC-DocumentBatches`,
 
   // S3 Buckets
   DOCUMENT_STORE_BUCKET: `${PREFIX}gcc-document-store`,

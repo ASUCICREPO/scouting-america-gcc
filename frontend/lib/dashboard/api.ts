@@ -110,8 +110,14 @@ export async function getDocumentDownloadUrl(key: string): Promise<{ url: string
   return fetchApi('/dashboard/documents/download', { key });
 }
 
-export async function deleteDocument(key: string): Promise<{ status: string }> {
-  return fetchApi('/dashboard/documents', { key }, { method: 'DELETE' });
+export async function deleteDocuments(
+  keys: string[],
+): Promise<{ status: string; deletedKeys: string[]; failedKeys: string[] }> {
+  return fetchApi('/dashboard/documents', undefined, {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ keys }),
+  });
 }
 
 /**
@@ -121,14 +127,38 @@ export async function deleteDocument(key: string): Promise<{ status: string }> {
  * so the backend mirrors the dropped layout under uploads/ in S3. It also
  * doubles as the flat filename for single-file uploads.
  */
-export async function getUploadUrl(
-  relativePath: string,
-  contentType: string,
-): Promise<{ url: string; fields: Record<string, string>; key: string; maxSizeBytes: number }> {
+export interface UploadManifestFile {
+  relativePath: string;
+  contentType: string;
+  size: number;
+}
+
+export interface PresignedDocumentUpload {
+  relativePath: string;
+  url: string;
+  fields: Record<string, string>;
+  key: string;
+  maxSizeBytes: number;
+}
+
+export async function createUploadBatch(
+  files: UploadManifestFile[],
+): Promise<{ batchId: string; uploads: PresignedDocumentUpload[]; expiresIn: number }> {
   return fetchApi('/dashboard/documents/upload', undefined, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ relativePath, contentType }),
+    body: JSON.stringify({ files }),
+  });
+}
+
+export async function completeUploadBatch(
+  batchId: string,
+  failedKeys: string[],
+): Promise<{ batchId: string; status: string; failedCount: number }> {
+  return fetchApi('/dashboard/documents/upload/complete', undefined, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ batchId, failedKeys }),
   });
 }
 

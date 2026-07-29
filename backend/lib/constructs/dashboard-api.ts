@@ -3,6 +3,7 @@ import * as lambda from 'aws-cdk-lib/aws-lambda';
 import * as apigateway from 'aws-cdk-lib/aws-apigateway';
 import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
 import * as s3 from 'aws-cdk-lib/aws-s3';
+import * as sqs from 'aws-cdk-lib/aws-sqs';
 import * as cognito from 'aws-cdk-lib/aws-cognito';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as logs from 'aws-cdk-lib/aws-logs';
@@ -15,6 +16,8 @@ export interface DashboardApiProps {
   chatLogsTable: dynamodb.ITable;
   /** AnalyticsLogs table (read-only) — powers escalation/document metrics */
   analyticsLogsTable: dynamodb.ITable;
+  /** Short-lived state for multi-file/folder upload batches */
+  documentBatchesTable: dynamodb.ITable;
   /** Document store bucket — list/download/upload/delete under uploads/ */
   documentStoreBucket: s3.IBucket;
   /** Knowledge base bucket — delete the ingested copy under documents/ */
@@ -24,6 +27,8 @@ export interface DashboardApiProps {
   /** Bedrock KB id + data source id — re-sync ingestion after a delete */
   knowledgeBaseId: string;
   dataSourceId: string;
+  /** FIFO queue that serializes knowledge-base ingestion requests */
+  documentSyncQueue: sqs.IQueue;
   allowedOrigin: string;
   dependenciesLayer: lambda.ILayerVersion;
 }
@@ -54,10 +59,12 @@ export class DashboardApi extends Construct {
       environment: {
         CHAT_LOGS_TABLE: props.chatLogsTable.tableName,
         ANALYTICS_LOGS_TABLE: props.analyticsLogsTable.tableName,
+        DOCUMENT_BATCHES_TABLE: props.documentBatchesTable.tableName,
         DOCUMENT_BUCKET: props.documentStoreBucket.bucketName,
         KB_BUCKET: props.knowledgeBaseBucket.bucketName,
         KNOWLEDGE_BASE_ID: props.knowledgeBaseId,
         DATA_SOURCE_ID: props.dataSourceId,
+        DOCUMENT_SYNC_QUEUE_URL: props.documentSyncQueue.queueUrl,
         ALLOWED_ORIGIN: props.allowedOrigin,
       },
       logGroup: new logs.LogGroup(this, 'DashboardLogs', {
@@ -69,6 +76,8 @@ export class DashboardApi extends Construct {
     // ─── IAM (scoped to shared resources by reference — no hardcoded ARNs) ───
     props.chatLogsTable.grantReadData(this.function);
     props.analyticsLogsTable.grantReadData(this.function);
+    props.documentBatchesTable.grantReadWriteData(this.function);
+    props.documentSyncQueue.grantSendMessages(this.function);
 
     this.function.addToRolePolicy(new iam.PolicyStatement({
       actions: ['s3:ListBucket'],
@@ -83,7 +92,7 @@ export class DashboardApi extends Construct {
       resources: [`${props.knowledgeBaseBucket.bucketArn}/documents/*`],
     }));
     this.function.addToRolePolicy(new iam.PolicyStatement({
-      actions: ['bedrock:StartIngestionJob', 'bedrock:ListIngestionJobs', 'bedrock:GetIngestionJob'],
+      actions: ['bedrock:ListIngestionJobs'],
       resources: [`arn:aws:bedrock:*:*:knowledge-base/${props.knowledgeBaseId}`],
     }));
 
@@ -134,6 +143,8 @@ export class DashboardApi extends Construct {
     documents.addMethod('GET', integration, authMethodOptions);
     documents.addMethod('DELETE', integration, authMethodOptions);
     documents.addResource('download').addMethod('GET', integration, authMethodOptions);
-    documents.addResource('upload').addMethod('POST', integration, authMethodOptions);
+    const upload = documents.addResource('upload');
+    upload.addMethod('POST', integration, authMethodOptions);
+    upload.addResource('complete').addMethod('POST', integration, authMethodOptions);
   }
 }
