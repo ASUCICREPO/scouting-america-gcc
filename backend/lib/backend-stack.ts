@@ -140,6 +140,7 @@ export class GrandCanyonCouncilChatbot extends cdk.Stack {
       ],
       documentQueue: docProcessor.processingQueue,
       escalationQueue: escalationRouter.processingQueue,
+      publicChatFunction: chatHandler.function,
       publicApiBlockedRequests: publicApiProtection.blockedRequestsMetric,
     });
 

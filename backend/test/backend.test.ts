@@ -178,7 +178,7 @@ describe('Bounded ingestion and immutable audit storage', () => {
 
 describe('Failure observability', () => {
   test('alarms on every application dead-letter queue', () => {
-    template.resourceCountIs('AWS::CloudWatch::Alarm', 4);
+    template.resourceCountIs('AWS::CloudWatch::Alarm', 7);
     template.resourceCountIs('AWS::CloudWatch::Dashboard', 1);
     template.hasResourceProperties('AWS::CloudWatch::Alarm', {
       AlarmName: 'EscalationRouterDLQ-MessagesVisible',
@@ -188,6 +188,36 @@ describe('Failure observability', () => {
     template.hasResourceProperties('AWS::CloudWatch::Alarm', {
       AlarmName: 'GCC-Escalation-OldestMessageAge',
       Threshold: 300,
+      AlarmActions: Match.anyValue(),
+    });
+    template.hasResourceProperties('AWS::CloudWatch::Alarm', {
+      AlarmName: 'GCC-PublicApi-WAF-BlockedRequests',
+      Metrics: Match.arrayWith([
+        Match.objectLike({
+          MetricStat: {
+            Metric: Match.objectLike({
+              Namespace: 'AWS/WAFV2',
+              MetricName: 'BlockedRequests',
+            }),
+            Period: 60,
+            Stat: 'Sum',
+          },
+        }),
+      ]),
+      Threshold: 1,
+      AlarmActions: Match.anyValue(),
+    });
+    template.hasResourceProperties('AWS::CloudWatch::Alarm', {
+      AlarmName: 'GCC-PublicChat-LambdaThrottles',
+      MetricName: 'Throttles',
+      Threshold: 1,
+      AlarmActions: Match.anyValue(),
+    });
+    template.hasResourceProperties('AWS::CloudWatch::Alarm', {
+      AlarmName: 'GCC-PublicChat-HighVolume',
+      MetricName: 'Invocations',
+      Period: 300,
+      Threshold: 100,
       AlarmActions: Match.anyValue(),
     });
   });
