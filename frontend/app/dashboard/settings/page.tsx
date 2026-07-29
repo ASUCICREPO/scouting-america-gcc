@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect } from 'react';
 import { Upload, ExternalLink, Globe } from 'lucide-react';
+import { toast } from 'sonner';
 import { getUser } from '@/lib/dashboard/auth';
 import { useSettings } from '@/lib/dashboard/settings-context';
 import { useLanguage } from '@/context/LanguageContext';
@@ -61,7 +62,7 @@ export default function SettingsPage() {
       lastName,
       profileImage: draftProfileImage,
     });
-    alert(t.adminSettings.profileSaved);
+    toast.success(t.adminSettings.profileSaved);
   }
 
   function saveAppearance() {
@@ -70,7 +71,7 @@ export default function SettingsPage() {
       theme: draftTheme,
       textSize: draftTextSize,
     });
-    alert(t.adminSettings.appearanceSaved);
+    toast.success(t.adminSettings.appearanceSaved);
   }
 
   function handleProfileUpload(e: React.ChangeEvent<HTMLInputElement>) {

@@ -198,6 +198,21 @@ class DashboardSecurityTests(unittest.TestCase):
         }])
         self.assertEqual(result["statusCode"], 400)
 
+    def test_accepts_bedrock_size_limit_and_rejects_larger_files(self):
+        accepted = self.create_batch([{
+            "relativePath": "guides/limit.pdf",
+            "contentType": "application/pdf",
+            "size": 50_000_000,
+        }])
+        rejected = self.create_batch([{
+            "relativePath": "guides/too-large.pdf",
+            "contentType": "application/pdf",
+            "size": 50_000_001,
+        }])
+
+        self.assertEqual(accepted["statusCode"], 200)
+        self.assertEqual(rejected["statusCode"], 400)
+
     def test_rejects_duplicate_normalized_paths(self):
         result = self.create_batch([
             {"relativePath": "a/guide.pdf", "contentType": "application/pdf", "size": 10},

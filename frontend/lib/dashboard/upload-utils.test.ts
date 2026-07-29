@@ -3,6 +3,8 @@ import { describe, expect, it } from 'vitest';
 import {
   chunkUploadBatch,
   isAllowedFile,
+  MAX_FILE_SIZE_BYTES,
+  partitionBySize,
   partitionByUniquePath,
   runWithConcurrency,
   sortByRelativePath,
@@ -44,6 +46,27 @@ describe('document upload batching', () => {
     expect(partitionByUniquePath([first, duplicate, other])).toEqual({
       unique: [first, other],
       duplicates: [duplicate],
+    });
+  });
+
+  it('keeps valid files while separating empty and over-50-MB files', () => {
+    const valid = {
+      relativePath: 'Camp/guide.pdf',
+      file: { size: MAX_FILE_SIZE_BYTES } as File,
+    };
+    const empty = {
+      relativePath: 'Camp/empty.pdf',
+      file: { size: 0 } as File,
+    };
+    const oversized = {
+      relativePath: 'Camp/large.pdf',
+      file: { size: MAX_FILE_SIZE_BYTES + 1 } as File,
+    };
+
+    expect(partitionBySize([valid, empty, oversized])).toEqual({
+      valid: [valid],
+      empty: [empty],
+      oversized: [oversized],
     });
   });
 

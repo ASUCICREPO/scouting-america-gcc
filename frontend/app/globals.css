@@ -633,6 +633,14 @@ body {
   padding: 30px 17px 17px;
 }
 
+.input-error-message {
+  margin: 8px 12px 0;
+  color: #b42318;
+  font-size: 12px;
+  line-height: 16px;
+  text-align: center;
+}
+
 .input-row {
   display: flex;
   align-items: center;
@@ -950,6 +958,16 @@ body {
 
 .settings-row.clickable:hover {
   background: var(--bg-input);
+}
+
+.settings-row-link {
+  color: inherit;
+  text-decoration: none;
+}
+
+.settings-row-link:focus-visible {
+  outline: 2px solid var(--primary-blue);
+  outline-offset: -2px;
 }
 
 .settings-row-icon {
@@ -1802,6 +1820,10 @@ body {
 [data-theme="dark"] .input-container {
   background: rgba(42, 42, 42, 0.7);
   border-color: #3a3a3a;
+}
+
+[data-theme="dark"] .input-error-message {
+  color: #fda29b;
 }
 
 [data-theme="dark"] .input-field {

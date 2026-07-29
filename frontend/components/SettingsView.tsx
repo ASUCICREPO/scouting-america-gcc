@@ -5,6 +5,8 @@ import { ChevronLeft, ChevronDown, Globe, Moon, Type } from "lucide-react";
 import { useLanguage } from "@/context/LanguageContext";
 import { Language } from "@/lib/i18n";
 
+const SUPPORT_EMAIL = "GCC.Info@scoutingaz.org";
+
 interface SettingsViewProps {
   onBack: () => void;
   /** When set, opens that policy dropdown on mount (e.g. from the chat's Terms/Privacy links). */
@@ -147,12 +149,12 @@ export default function SettingsView({ onBack, initialSection = null, onLanguage
             </div>
           )}
 
-          <div className="settings-row clickable">
+          <a className="settings-row clickable settings-row-link" href={`mailto:${SUPPORT_EMAIL}`}>
             <span className="settings-row-text">{t.settings.help}</span>
-          </div>
-          <div className="settings-row clickable">
+          </a>
+          <a className="settings-row clickable settings-row-link" href={`mailto:${SUPPORT_EMAIL}`}>
             <span className="settings-row-text">{t.settings.contactUs}</span>
-          </div>
+          </a>
         </div>
       </div>
     </div>
