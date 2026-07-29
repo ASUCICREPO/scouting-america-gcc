@@ -14,6 +14,8 @@ export interface ChatHandlerProps {
   dependenciesLayer: lambda.ILayerVersion;
   guardrailId: string;
   guardrailVersion: string;
+  promptAttackGuardrailId: string;
+  promptAttackGuardrailVersion: string;
   promptId: string;
   promptVersion: string;
   allowedOrigin: string;
@@ -49,6 +51,8 @@ export class ChatHandler extends Construct {
         CHAT_LOGS_TABLE: props.chatLogsTable.tableName,
         GUARDRAIL_ID: props.guardrailId,
         GUARDRAIL_VERSION: props.guardrailVersion,
+        PROMPT_ATTACK_GUARDRAIL_ID: props.promptAttackGuardrailId,
+        PROMPT_ATTACK_GUARDRAIL_VERSION: props.promptAttackGuardrailVersion,
         PROMPT_ID: props.promptId,
         PROMPT_VERSION: props.promptVersion,
         ALLOWED_ORIGIN: props.allowedOrigin,

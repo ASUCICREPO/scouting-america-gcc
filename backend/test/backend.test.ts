@@ -77,8 +77,20 @@ describe('Grounded response generation controls', () => {
   test('provisions immutable Prompt Management and Guardrail versions', () => {
     template.resourceCountIs('AWS::Bedrock::Prompt', 1);
     template.resourceCountIs('AWS::Bedrock::PromptVersion', 1);
-    template.resourceCountIs('AWS::Bedrock::Guardrail', 1);
-    template.resourceCountIs('AWS::Bedrock::GuardrailVersion', 1);
+    template.resourceCountIs('AWS::Bedrock::Guardrail', 2);
+    template.resourceCountIs('AWS::Bedrock::GuardrailVersion', 2);
+    template.hasResourceProperties('AWS::Bedrock::Guardrail', {
+      ContentPolicyConfig: {
+        FiltersConfig: Match.arrayWith([
+          Match.objectLike({
+            Type: 'PROMPT_ATTACK',
+            InputAction: 'BLOCK',
+            InputEnabled: true,
+            OutputEnabled: false,
+          }),
+        ]),
+      },
+    });
   });
 
   test('applies the Guardrail and versioned prompt to the chat Lambda', () => {
@@ -87,19 +99,28 @@ describe('Grounded response generation controls', () => {
       (resource) => resource.Properties?.FunctionName === 'GCC-ChatHandler',
     );
     const variables = chatFunction?.Properties?.Environment?.Variables;
-    const guardrailVersionLogicalId = Object.keys(
-      template.findResources('AWS::Bedrock::GuardrailVersion'),
-    )[0];
+    const guardrailVersions = template.findResources('AWS::Bedrock::GuardrailVersion');
+    const responseGuardrailVersionLogicalId = Object.keys(guardrailVersions).find(
+      (logicalId) => logicalId.includes('ResponseGuardrailVersion'),
+    );
+    const promptAttackGuardrailVersionLogicalId = Object.keys(guardrailVersions).find(
+      (logicalId) => logicalId.includes('PromptAttackGuardrailVersion'),
+    );
 
     expect(variables).toEqual(expect.objectContaining({
       GUARDRAIL_ID: expect.anything(),
       GUARDRAIL_VERSION: {
-        'Fn::GetAtt': [guardrailVersionLogicalId, 'Version'],
+        'Fn::GetAtt': [responseGuardrailVersionLogicalId, 'Version'],
+      },
+      PROMPT_ATTACK_GUARDRAIL_ID: expect.anything(),
+      PROMPT_ATTACK_GUARDRAIL_VERSION: {
+        'Fn::GetAtt': [promptAttackGuardrailVersionLogicalId, 'Version'],
       },
       PROMPT_ID: expect.anything(),
       PROMPT_VERSION: expect.anything(),
     }));
     expect(variables.GUARDRAIL_VERSION).not.toBe('DRAFT');
+    expect(variables.PROMPT_ATTACK_GUARDRAIL_VERSION).not.toBe('DRAFT');
   });
 
   test('does not store system prompts in Secrets Manager', () => {

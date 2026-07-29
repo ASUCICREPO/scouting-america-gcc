@@ -38,6 +38,8 @@ MODEL_ARN = os.environ["MODEL_ARN"]
 CHAT_LOGS_TABLE = os.environ["CHAT_LOGS_TABLE"]
 GUARDRAIL_ID = os.environ["GUARDRAIL_ID"]
 GUARDRAIL_VERSION = os.environ["GUARDRAIL_VERSION"]
+PROMPT_ATTACK_GUARDRAIL_ID = os.environ["PROMPT_ATTACK_GUARDRAIL_ID"]
+PROMPT_ATTACK_GUARDRAIL_VERSION = os.environ["PROMPT_ATTACK_GUARDRAIL_VERSION"]
 PROMPT_ID = os.environ["PROMPT_ID"]
 PROMPT_VERSION = os.environ["PROMPT_VERSION"]
 ESCALATION_FUNCTION_ARN = os.environ.get("ESCALATION_FUNCTION_ARN", "")
@@ -315,6 +317,17 @@ def retrieve_chunks(question: str) -> list[RetrievedChunk]:
     return chunks
 
 
+def prompt_attack_detected(question: str) -> bool:
+    """Screen only untrusted user text, before retrieval or prompt rendering."""
+    result = bedrock_runtime.apply_guardrail(
+        guardrailIdentifier=PROMPT_ATTACK_GUARDRAIL_ID,
+        guardrailVersion=PROMPT_ATTACK_GUARDRAIL_VERSION,
+        source="INPUT",
+        content=[{"text": {"text": question}}],
+    )
+    return result.get("action") == "GUARDRAIL_INTERVENED"
+
+
 MAX_HISTORY_TURNS = 10
 
 
@@ -425,6 +438,16 @@ def handle_chat(event: dict[str, Any]) -> dict[str, Any]:
         session_id = str(uuid.uuid4())
         session_token = secrets.token_urlsafe(32)
     timestamp = _now()
+
+    if prompt_attack_detected(request.question):
+        message = (
+            "No puedo procesar esa solicitud. Por favor, haga una pregunta sobre "
+            "recursos aprobados de GCC o Scouting America."
+            if request.language == "es"
+            else "I cannot process that request. Please ask a question about approved "
+            "GCC or Scouting America resources."
+        )
+        return api_response(HttpStatus.FORBIDDEN, ErrorResponse(error=message))
 
     chunks = retrieve_chunks(request.question)
     answer, stop_reason = generate_answer(request.question, request.language, chunks, request.session_id)

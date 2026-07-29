@@ -67,6 +67,8 @@ export class GrandCanyonCouncilChatbot extends cdk.Stack {
       dependenciesLayer: pythonDependencies.layer,
       guardrailId: aiSafety.guardrailId,
       guardrailVersion: aiSafety.guardrailVersion,
+      promptAttackGuardrailId: aiSafety.promptAttackGuardrailId,
+      promptAttackGuardrailVersion: aiSafety.promptAttackGuardrailVersion,
       promptId: aiSafety.promptId,
       promptVersion: aiSafety.promptVersion,
       allowedOrigin: frontendOrigin,
