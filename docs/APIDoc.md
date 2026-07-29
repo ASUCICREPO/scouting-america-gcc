@@ -475,18 +475,23 @@ Status is one of `ready`, `indexing`, `pending`, or `failed`.
 
 ### POST /dashboard/documents/upload
 
-Create a five-minute presigned S3 POST policy. The API does not receive the file bytes.
+Create one upload batch containing up to 500 files. The response contains a five-minute presigned S3 POST policy for each file; API Gateway and Lambda never receive the file bytes.
 
 #### Request
 
 ```json
 {
-  "relativePath": "Camp Forms/example.pdf",
-  "contentType": "application/pdf"
+  "files": [
+    {
+      "relativePath": "Camp Forms/example.pdf",
+      "contentType": "application/pdf",
+      "size": 245760
+    }
+  ]
 }
 ```
 
-`fileName` is accepted as a legacy alternative to `relativePath`.
+Every relative path is validated without flattening its folder hierarchy. Duplicate paths, traversal/control characters, extension/MIME mismatches, empty files, and files above the type-specific limit are rejected before S3 credentials are issued.
 
 Allowed content types:
 
@@ -494,36 +499,34 @@ Allowed content types:
 application/pdf
 application/vnd.openxmlformats-officedocument.wordprocessingml.document
 application/vnd.openxmlformats-officedocument.spreadsheetml.sheet
-application/vnd.openxmlformats-officedocument.presentationml.presentation
-application/msword
-application/vnd.ms-excel
 text/csv
 text/plain
-image/svg+xml
-image/png
-image/jpeg
 ```
 
 #### Response
 
 ```json
 {
-  "url": "https://presigned-s3-url.example/...",
-  "fields": {
-    "Content-Type": "application/pdf",
-    "key": "uploads/Camp Forms/example.pdf",
-    "policy": "...",
-    "x-amz-algorithm": "...",
-    "x-amz-credential": "...",
-    "x-amz-date": "...",
-    "x-amz-signature": "..."
-  },
-  "key": "uploads/Camp Forms/example.pdf",
-  "maxSizeBytes": 26214400
+  "batchId": "52f4e2222ef54620bdd4432373880d0d",
+  "uploads": [
+    {
+      "relativePath": "Camp Forms/example.pdf",
+      "url": "https://presigned-s3-url.example/...",
+      "fields": {
+        "Content-Type": "application/pdf",
+        "key": "uploads/Camp Forms/example.pdf",
+        "x-amz-meta-upload-batch-id": "52f4e2222ef54620bdd4432373880d0d",
+        "policy": "..."
+      },
+      "key": "uploads/Camp Forms/example.pdf",
+      "maxSizeBytes": 26214400
+    }
+  ],
+  "expiresIn": 300
 }
 ```
 
-Submit every returned field as multipart form data, followed by the file field. The signed policy enforces the exact content type and a file size from 1 byte through 25 MB; S3 rejects uploads outside that range.
+Submit every returned field as multipart form data, followed by the matching file field. Each signed policy binds the exact key, MIME type, declared byte size, and server-created batch ID. The browser uploads at most four files concurrently. A standard SQS worker pool validates file signatures and Office container structure, quarantines rejected objects, and preserves accepted paths under the knowledge-base `documents/` prefix. One FIFO sync request is emitted only after every file in the batch reaches a terminal state.
 
 | Status | Condition |
 | --- | --- |
@@ -531,9 +534,22 @@ Submit every returned field as multipart form data, followed by the file field. 
 | `401/403` | Invalid auth or non-admin |
 | `500` | Internal error |
 
+### POST /dashboard/documents/upload/complete
+
+Finalize browser-side transfer failures so a partially successful batch does not wait indefinitely.
+
+```json
+{
+  "batchId": "52f4e2222ef54620bdd4432373880d0d",
+  "failedKeys": ["uploads/Camp Forms/missing.pdf"]
+}
+```
+
+The API verifies every key against the server-created manifest and checks S3 before accepting the browser's failure report. A completed batch returns `ready`, `failed`, or `uploading` while remaining object notifications drain.
+
 ### GET /dashboard/documents/download
 
-Return a five-minute presigned S3 GET URL.
+Return a five-minute presigned S3 GET URL that forces `Content-Disposition: attachment` and `application/octet-stream`.
 
 | Query | Type | Required | Rule |
 | --- | --- | --- | --- |
@@ -548,20 +564,21 @@ Return a five-minute presigned S3 GET URL.
 
 ### DELETE /dashboard/documents
 
-Delete the raw upload and matching `documents/` knowledge-base object, then request a new Bedrock ingestion job.
+Delete up to 100 raw uploads and their matching `documents/` knowledge-base objects, then enqueue one serialized Bedrock ingestion job.
 
-| Query | Type | Required | Rule |
+| Body field | Type | Required | Rule |
 | --- | --- | --- | --- |
-| `key` | string | Yes | Must begin with `uploads/` and pass path validation |
+| `keys` | string[] | Yes | 1–100 unique keys; every key must begin with `uploads/` and pass path validation |
 
 ```json
 {
   "status": "deleted",
-  "key": "uploads/Camp Forms/example.pdf"
+  "deletedKeys": ["uploads/Camp Forms/example.pdf"],
+  "failedKeys": []
 }
 ```
 
-`400` indicates a missing key; `403` indicates an invalid key.
+`400` indicates an invalid batch; `403` indicates an invalid key. A partial S3 failure returns `status: "partial"` with per-key results.
 
 ## Rate Limits
 

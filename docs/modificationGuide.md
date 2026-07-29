@@ -143,14 +143,15 @@ Every dashboard endpoint must keep both Cognito authorization layers.
 
 Update both:
 
-- Backend `ALLOWED_CONTENT_TYPES` and `MAX_FILE_SIZE_BYTES` in `backend/lambda/dashboard/index.py`
+- Backend `ALLOWED_FILE_TYPES`, size limits, and batch limit in `backend/lambda/dashboard/index.py`
+- Worker `ALLOWED_FILE_TYPES` and signature/container validators in `backend/lambda/doc-processor/index.py`
 - Frontend validation and user-facing copy in `frontend/lib/dashboard/upload-utils.ts` and `frontend/lib/i18n.ts`
 
-The frontend rejects files over 25 MB, and the presigned POST policy independently enforces the 1-byte-to-25-MB range in S3. Update both layers together.
+The dashboard manifest is validated before signing, every presigned POST binds the declared byte size, and the worker independently validates the stored object before copying. Supported files currently cap at 25 MB. The allow-list intentionally follows the formats handled by the configured default Bedrock parser; adding image or presentation formats also requires an appropriate parser configuration. Update all three layers together.
 
 ### Change Folder Handling
 
-`sanitize_relative_path` preserves folder structure but removes traversal markers, leading separators, empty segments, and control characters. Keep object keys below `uploads/`; the S3 event, permissions, download validation, and deletion mapping all depend on that prefix.
+`sanitize_relative_path` preserves valid folder structure and rejects traversal markers, leading separators, empty/ambiguous segments, surrounding whitespace, overlong paths, and control characters. Keep object keys below `uploads/`; the manifest, S3 event, permissions, download validation, and deletion mapping all depend on that prefix.
 
 ## AI And Knowledge Base Changes
 

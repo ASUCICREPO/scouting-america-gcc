@@ -141,7 +141,7 @@ The script prompts privately for the password, creates the user if necessary, se
 
 ### Add Knowledge-Base Documents
 
-`deploy.sh` does not package or upload a local document directory. After deployment, sign in to the protected admin dashboard and upload approved files from the Documents page. Each upload enters the bounded document-processing queue, retries transient failures, and moves exhausted messages to the monitored DLQ.
+`deploy.sh` does not package or upload a local document directory. After deployment, sign in to the protected admin dashboard and upload approved files from the Documents page. The browser uses bounded parallel transfers, while encrypted standard and FIFO queues separately bound object validation/copying and serialize Bedrock syncs. Exhausted failures move to monitored DLQs.
 
 ## What The Build Writes
 
@@ -322,7 +322,7 @@ Check the chat-handler log for Bedrock permissions, model availability, knowledg
 
 ### Document Stays Pending
 
-Check the document-processor logs, its dead-letter queue, the copied object under the KB bucket's `documents/` prefix, and Bedrock ingestion jobs. Multiple simultaneous uploads can cause a start request to fail while another ingestion job is active.
+Check the document-processor logs, document-copy and document-sync DLQs, the upload batch in `${RESOURCE_PREFIX}GCC-DocumentBatches`, the private `quarantine/` prefix, the copied object under the KB bucket's `documents/` prefix, and Bedrock ingestion jobs. A later batch intentionally remains queued while another ingestion job is active.
 
 ### Admin Login Fails
 

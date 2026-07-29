@@ -17,7 +17,7 @@ See the [Architecture Deep Dive](./docs/architectureDeepDive.md) for component, 
 - Markdown answers, citations, voice input, text-to-speech, feedback, and browser-local chat history
 - Safety-keyword and low-confidence escalation through SNS and SES
 - Cognito-protected admin dashboard with usage, feedback, confidence, and escalation metrics
-- Size-enforced multi-file and folder-preserving document upload, download, deletion, and queued ingestion status
+- Size-enforced, bounded-parallel folder upload with server-side content validation, quarantining, serialized ingestion, safe download, and bulk deletion
 - Object-locked chat audit archive plus CloudWatch DLQ alarms and operations dashboard
 - Light/dark themes, text-size controls, responsive layouts, and installable PWA behavior
 - Prefix-aware AWS deployments so demo and other environments can coexist

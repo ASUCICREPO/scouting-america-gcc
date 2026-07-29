@@ -153,21 +153,21 @@ Open **Manage documents** from the dashboard navigation.
 #### Upload Files Or Folders
 
 1. Drag files or a folder onto the upload area, or select the area to browse.
-2. Wait while each file uploads directly to S3.
+2. Wait while a bounded set of files uploads directly to S3 in parallel.
 3. Watch the progress bar and completion notification.
 4. Allow time for the status to move from **Queued** or **Indexing** to **Ready**.
 
-The dashboard file picker supports CSV, PDF, TXT, DOCX, PPTX, SVG, PNG, and JPEG. Folder uploads preserve relative paths under the S3 `uploads/` prefix.
+The dashboard file picker supports CSV, PDF, TXT, DOCX, and XLSX. Presentation, image, SVG, executable, and archive formats are not accepted by the configured parser. Folder uploads preserve relative paths under the S3 `uploads/` prefix.
 
-Uploading means the file reached S3; **Ready** means a completed Bedrock ingestion job covers it. Large batches can take several minutes.
+Uploading means the file reached S3. The service then verifies the declared type, size, binary signature, and Office container structure before copying it into the knowledge-base source bucket. Rejected objects are removed from the upload list and retained in a private seven-day quarantine for operator investigation. **Ready** means the serialized Bedrock ingestion job covers the accepted file. Large batches can take several minutes.
 
 #### Download Documents
 
-Select a document and use **Download**. The dashboard requests a temporary five-minute download URL.
+Select a document and use **Download**. The dashboard requests a temporary five-minute URL that forces the object to download as an attachment instead of rendering active content in the browser.
 
 #### Delete Documents
 
-Select one or more documents, choose **Delete**, and confirm. Deletion removes the raw upload and its knowledge-base copy, then starts a new ingestion job. The answer corpus may take time to reflect the deletion.
+Select one or more documents, choose **Delete**, and confirm. The dashboard deletes up to 100 selected documents together, removes their knowledge-base copies, and queues one serialized ingestion job. The answer corpus may take time to reflect the deletion.
 
 ### Dashboard Settings
 

@@ -46,15 +46,16 @@ The interface does not perform machine translation at render time. English and S
 
 ### Document Ingestion Flow
 
-1. An authenticated administrator requests a five-minute presigned POST policy from `POST /dashboard/documents/upload`.
-2. The browser uploads directly to the document-store bucket under `uploads/`. The signed policy enforces the approved content type and a 1-byte-to-25-MB size range.
-3. An S3 `ObjectCreated` event enters an encrypted SQS queue.
-4. The Lambda copies the object to `documents/` in the knowledge-base data bucket.
-5. The Lambda starts a Bedrock Knowledge Base ingestion job and records a `document_processing` event in the analytics table.
-6. Bedrock parses the document, applies semantic chunking (maximum 800 tokens), creates Titan embeddings, and stores vectors in the S3 Vectors index.
-7. The dashboard derives each document's `ready`, `indexing`, `pending`, or `failed` state from recent ingestion jobs.
+1. An authenticated administrator submits a manifest of up to 500 nested files to `POST /dashboard/documents/upload`.
+2. The dashboard API creates short-lived DynamoDB batch state and returns one five-minute presigned POST policy per file. Every policy binds the exact S3 key, MIME type, byte size, and batch ID.
+3. The browser uploads at most four files concurrently while retaining each relative path below `uploads/`.
+4. At-least-once S3 `ObjectCreated` events enter an encrypted standard SQS queue. Two Lambda workers use S3 version IDs and idempotent batch tokens to tolerate duplicate or out-of-order notifications.
+5. Each worker verifies the server-created manifest, stored metadata, size, binary signature, UTF-8 text, and Office ZIP structure. Invalid objects move to a private seven-day `quarantine/` prefix; accepted objects retain the same relative path below the knowledge-base `documents/` prefix.
+6. When every expected object reaches a terminal state, the worker publishes one message to a FIFO queue. One message group serializes `StartIngestionJob`; a batch waits and retries while the shared data source already has an active job.
+7. Bedrock incrementally processes changed objects, applies semantic chunking (maximum 800 tokens), creates Titan embeddings, and stores vectors in the S3 Vectors index.
+8. The dashboard derives each document's `ready`, `indexing`, `pending`, or `failed` state from recent ingestion jobs.
 
-Deleting a document removes both the raw upload and its knowledge-base copy, then starts another ingestion job so obsolete vectors are removed.
+Bulk deletion removes both raw uploads and their knowledge-base copies, then sends one request through the same FIFO synchronization path so obsolete vectors are removed without competing ingestion jobs.
 
 ### Admin Analytics Flow
 
@@ -73,14 +74,14 @@ Deleting a document removes both the raw upload and its knowledge-base copy, the
 | Chat handler | `GCC-ChatHandler` Lambda | Validation, Bedrock orchestration, confidence, escalation, persistence |
 | Dashboard API | `DashboardApi` CDK construct | Cognito-protected analytics and document routes; 50 requests/second with burst 100 |
 | Dashboard handler | `GCC-AdminDashboard` Lambda | Metrics aggregation, session review, and presigned document operations |
-| Document processor | SQS-triggered Python Lambda | Bounded-concurrency S3 copy, Bedrock ingestion, and processing analytics |
+| Document processor | Standard + FIFO SQS-triggered Python Lambda | Bounded validation/copy workers, quarantine, serialized Bedrock ingestion, and processing analytics |
 | Escalation router | `GCC-EscalationRouter` Lambda with SQS DLQ | SNS notification, high-severity SES email, and escalation analytics |
 | Chat archive | DynamoDB Stream Lambda + object-locked S3 | Append-only audit copy for retention and future Athena/Glue use |
 | Observability | CloudWatch dashboard and alarms | Lambda health, ingestion backlog, and all application DLQs |
 | Knowledge Base | Amazon Bedrock Knowledge Base | Retrieval-augmented generation over approved documents |
 | Vector store | Amazon S3 Vectors | Cosine-similarity index with 1024-dimensional float vectors |
 | Content storage | Private S3 buckets | Versioned raw uploads, Bedrock data-source copies, static sites, and immutable audit records |
-| Operational data | Two DynamoDB tables | Chat turns/feedback and analytics events |
+| Operational data | Three DynamoDB tables | Chat turns/feedback, analytics events, and short-lived document-batch coordination |
 | Authentication | Cognito User Pool | Dashboard authentication and admin group claims |
 | AI controls | Bedrock Prompt Management + Guardrails | Immutable prompt version and response-generation safety policies |
 
@@ -111,9 +112,20 @@ Table name: `${RESOURCE_PREFIX}GCC-AnalyticsLogs`
 
 Current event types are `escalation` and `document_processing`.
 
+### Document Upload Batches
+
+Table name: `${RESOURCE_PREFIX}GCC-DocumentBatches`
+
+- Partition key: `batchId` (32-character server-generated identifier)
+- Contents: expected S3 keys, idempotent processed/accepted tokens, batch state, and ingestion job ID
+- Billing: on demand
+- Recovery: point-in-time recovery enabled
+- Retention: DynamoDB TTL removes coordination state after seven days
+- Removal policy: destroy because the records are temporary workflow state, not source documents
+
 ### Object Storage
 
-- `${RESOURCE_PREFIX}gcc-document-store`: versioned source uploads under `uploads/`; retained when the stack is destroyed.
+- `${RESOURCE_PREFIX}gcc-document-store`: versioned source uploads under `uploads/` and rejected files under a seven-day `quarantine/` lifecycle; retained when the stack is destroyed.
 - `${RESOURCE_PREFIX}gcc-knowledge-base-data`: Bedrock source documents under `documents/`; retained when the stack is destroyed.
 - `${RESOURCE_PREFIX}gcc-chat-audit-archive`: versioned audit JSON with a one-year S3 Object Lock retention period.
 - CloudFront site bucket: generated name, auto-deleted with the stack because it contains only rebuildable static output.
@@ -156,13 +168,14 @@ backend/lib/
 - Dashboard routes require a Cognito token and membership in the `admin` group.
 - The dashboard Lambda repeats the group check rather than trusting only the gateway.
 - IAM grants are scoped to the application tables, buckets, secret, and Lambda where resource ARNs are available.
-- Upload and delete paths are validated against `uploads/`; traversal and control characters are rejected.
-- Presigned uploads/downloads expire after five minutes; upload POST policies enforce content type and a 25 MB maximum.
+- Upload and delete paths are validated against `uploads/`; traversal, ambiguous segments, duplicates, and control characters are rejected.
+- Presigned uploads/downloads expire after five minutes. Upload policies bind the exact object key, extension-compatible MIME type, byte size, and server-created batch ID; downloads are forced to attachments.
+- The document worker verifies stored metadata, byte limits, file signatures, UTF-8 text, and Office container structure before an object can enter the knowledge-base bucket. The allow-list is restricted to CSV, PDF, TXT, DOCX, and XLSX formats supported by the configured default parser.
 - Existing public sessions require a high-entropy bearer credential for continuation, history, and feedback.
 - Bedrock Guardrails evaluates response generation, and the production prompt is an immutable Prompt Management version.
 - Chat inserts stream to an object-locked S3 audit archive.
 - Lambda log groups retain logs for one month.
-- Document processing is buffered with bounded concurrency, and asynchronous paths use encrypted dead-letter queues.
+- Document copies are buffered with bounded concurrency, while a FIFO queue permits only one Bedrock ingestion start at a time. Both paths use encrypted dead-letter queues.
 - CloudWatch alarms notify the staff topic when a DLQ receives a message.
 - Source buckets and DynamoDB data are encrypted at rest with AWS-managed encryption; DynamoDB point-in-time recovery is enabled.
 
@@ -232,7 +245,7 @@ These limitations are intentional pilot tradeoffs, not production security recom
 
 - Lambda execution logs are available in CloudWatch for all handlers.
 - DynamoDB stores response confidence, chunk score samples, feedback, and escalation state for dashboard review.
-- Failed document, escalation, and audit-archive events are retained in encrypted SQS dead-letter queues for 14 days.
+- Failed document copy, document sync, escalation, and audit-archive events are retained in encrypted SQS dead-letter queues for 14 days.
 - Bedrock ingestion jobs provide the source of document readiness status.
 - A CloudWatch operations dashboard tracks Lambda errors/throttles/duration, ingestion backlog, and DLQ depth. Every application DLQ has an SNS-backed alarm.
 
