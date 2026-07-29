@@ -178,8 +178,18 @@ describe('Bounded ingestion and immutable audit storage', () => {
 
 describe('Failure observability', () => {
   test('alarms on every application dead-letter queue', () => {
-    template.resourceCountIs('AWS::CloudWatch::Alarm', 3);
+    template.resourceCountIs('AWS::CloudWatch::Alarm', 4);
     template.resourceCountIs('AWS::CloudWatch::Dashboard', 1);
+    template.hasResourceProperties('AWS::CloudWatch::Alarm', {
+      AlarmName: 'EscalationRouterDLQ-MessagesVisible',
+      Threshold: 1,
+      AlarmActions: Match.anyValue(),
+    });
+    template.hasResourceProperties('AWS::CloudWatch::Alarm', {
+      AlarmName: 'GCC-Escalation-OldestMessageAge',
+      Threshold: 300,
+      AlarmActions: Match.anyValue(),
+    });
   });
 
   test('subscribes the configured staff mailbox to alerts', () => {

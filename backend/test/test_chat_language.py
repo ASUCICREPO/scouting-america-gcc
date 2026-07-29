@@ -71,8 +71,11 @@ class FakeBedrockRuntime:
 class FakeSqs:
     def __init__(self):
         self.messages = []
+        self.error = None
 
     def send_message(self, **kwargs):
+        if self.error:
+            raise self.error
         self.messages.append(kwargs)
         return {"MessageId": "message-1"}
 
@@ -130,6 +133,7 @@ class ChatLanguageTests(unittest.TestCase):
         self.runtime.prompt_attack_detected = False
         self.table.items.clear()
         self.sqs.messages.clear()
+        self.sqs.error = None
 
     def test_spanish_prompt_requires_spanish_only(self):
         chunk = self.module.RetrievedChunk(
@@ -216,7 +220,22 @@ class ChatLanguageTests(unittest.TestCase):
         self.assertEqual(len(self.sqs.messages), 1)
         queued = self.sqs.messages[0]
         self.assertEqual(queued["QueueUrl"], "https://sqs.example/escalations")
-        self.assertIn("Safety keyword detected", json.loads(queued["MessageBody"])["reason"])
+        payload = json.loads(queued["MessageBody"])
+        self.assertIn("Safety keyword detected", payload["reason"])
+        self.assertTrue(payload["escalationId"].startswith(payload["sessionId"]))
+        self.assertEqual(payload["timestamp"], json.loads(result["body"])["messageId"])
+
+    def test_queue_failure_returns_an_error_instead_of_silently_losing_alert(self):
+        self.sqs.error = RuntimeError("SQS unavailable")
+
+        result = self.module.handler({
+            "httpMethod": "POST",
+            "resource": "/chat",
+            "body": json.dumps({"question": "This is an emergency"}),
+        }, None)
+
+        self.assertEqual(result["statusCode"], 500)
+        self.assertEqual(self.table.items, [])
 
     def test_existing_session_requires_its_anonymous_bearer_token(self):
         first = self.module.handle_chat({

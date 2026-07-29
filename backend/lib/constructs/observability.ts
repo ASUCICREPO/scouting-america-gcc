@@ -12,6 +12,7 @@ export interface ObservabilityProps {
   functions: lambda.IFunction[];
   deadLetterQueues: sqs.IQueue[];
   documentQueue: sqs.IQueue;
+  escalationQueue: sqs.IQueue;
 }
 
 export class Observability extends Construct {
@@ -43,6 +44,20 @@ export class Observability extends Construct {
       alarm.addAlarmAction(new actions.SnsAction(props.alertTopic));
     }
 
+    const escalationAgeAlarm = new cloudwatch.Alarm(this, 'EscalationQueueAgeAlarm', {
+      alarmName: `${PREFIX}GCC-Escalation-OldestMessageAge`,
+      alarmDescription: 'Escalation messages older than five minutes indicate delayed staff alerts.',
+      metric: props.escalationQueue.metricApproximateAgeOfOldestMessage({
+        period: cdk.Duration.minutes(1),
+        statistic: 'Maximum',
+      }),
+      threshold: 300,
+      evaluationPeriods: 1,
+      datapointsToAlarm: 1,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+    });
+    escalationAgeAlarm.addAlarmAction(new actions.SnsAction(props.alertTopic));
+
     this.dashboard = new cloudwatch.Dashboard(this, 'OperationsDashboard', {
       dashboardName: `${PREFIX}GCC-Operations`,
     });
@@ -57,6 +72,14 @@ export class Observability extends Construct {
         left: [
           props.documentQueue.metricApproximateNumberOfMessagesVisible(),
           props.documentQueue.metricApproximateAgeOfOldestMessage(),
+        ],
+        width: 12,
+      }),
+      new cloudwatch.GraphWidget({
+        title: 'Escalation queue depth and oldest message',
+        left: [
+          props.escalationQueue.metricApproximateNumberOfMessagesVisible(),
+          props.escalationQueue.metricApproximateAgeOfOldestMessage(),
         ],
         width: 12,
       }),

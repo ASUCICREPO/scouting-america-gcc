@@ -71,8 +71,9 @@ export class EscalationRouter extends Construct {
     // Permission: publish to SNS staff alerts topic
     props.staffAlertTopic.grantPublish(this.function);
 
-    // Permission: write escalation logs to AnalyticsLogs table
-    props.analyticsLogsTable.grantWriteData(this.function);
+    // Delivery state is read and updated on retries so SNS/SES successes are not
+    // repeated when a later channel fails.
+    props.analyticsLogsTable.grantReadWriteData(this.function);
 
     // Permission: send emails via SES
     this.function.addToRolePolicy(new iam.PolicyStatement({

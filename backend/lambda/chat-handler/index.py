@@ -468,6 +468,8 @@ def handle_chat(event: dict[str, Any]) -> dict[str, Any]:
 
     if escalate:
         trigger_escalation({
+            "escalationId": f"{session_id}:{timestamp}",
+            "timestamp": timestamp,
             "sessionId": session_id,
             "userId": user_id,
             "question": request.question,

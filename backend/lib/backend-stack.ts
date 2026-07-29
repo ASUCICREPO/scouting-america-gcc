@@ -135,6 +135,7 @@ export class GrandCanyonCouncilChatbot extends cdk.Stack {
         chatArchive.deadLetterQueue,
       ],
       documentQueue: docProcessor.processingQueue,
+      escalationQueue: escalationRouter.processingQueue,
     });
 
     // ---------------------------------------------------------------
