@@ -109,7 +109,7 @@ export class AiSafety extends Construct {
     });
 
     this.guardrailId = guardrail.attrGuardrailId;
-    this.guardrailVersion = 'DRAFT';
+    this.guardrailVersion = guardrailVersion.attrVersion;
     this.promptId = prompt.attrId;
     this.promptVersion = promptVersion.attrVersion;
   }

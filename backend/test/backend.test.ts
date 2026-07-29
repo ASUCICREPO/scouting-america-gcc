@@ -82,17 +82,24 @@ describe('Grounded response generation controls', () => {
   });
 
   test('applies the Guardrail and versioned prompt to the chat Lambda', () => {
-    template.hasResourceProperties('AWS::Lambda::Function', {
-      FunctionName: 'GCC-ChatHandler',
-      Environment: {
-        Variables: Match.objectLike({
-          GUARDRAIL_ID: Match.anyValue(),
-          GUARDRAIL_VERSION: Match.anyValue(),
-          PROMPT_ID: Match.anyValue(),
-          PROMPT_VERSION: Match.anyValue(),
-        }),
+    const functions = Object.values(template.findResources('AWS::Lambda::Function'));
+    const chatFunction = functions.find(
+      (resource) => resource.Properties?.FunctionName === 'GCC-ChatHandler',
+    );
+    const variables = chatFunction?.Properties?.Environment?.Variables;
+    const guardrailVersionLogicalId = Object.keys(
+      template.findResources('AWS::Bedrock::GuardrailVersion'),
+    )[0];
+
+    expect(variables).toEqual(expect.objectContaining({
+      GUARDRAIL_ID: expect.anything(),
+      GUARDRAIL_VERSION: {
+        'Fn::GetAtt': [guardrailVersionLogicalId, 'Version'],
       },
-    });
+      PROMPT_ID: expect.anything(),
+      PROMPT_VERSION: expect.anything(),
+    }));
+    expect(variables.GUARDRAIL_VERSION).not.toBe('DRAFT');
   });
 
   test('does not store system prompts in Secrets Manager', () => {
