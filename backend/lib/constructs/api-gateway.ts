@@ -1,5 +1,6 @@
 import * as apigateway from 'aws-cdk-lib/aws-apigateway';
 import { Construct } from 'constructs';
+import { CONFIG } from '../config/environment';
 
 export interface ApiGatewayProps {
   allowedOrigin: string;
@@ -20,8 +21,10 @@ export class ApiGateway extends Construct {
       description: 'REST API for the GCC AI Volunteer Support Assistant',
       deployOptions: {
         stageName: 'prod',
-        throttlingRateLimit: 100,   // max 100 requests/sec per user
-        throttlingBurstLimit: 200,  // allow short bursts up to 200
+        // Shared stage protection. Per-caller generation limits are enforced
+        // separately by the regional WAF rate-based rule.
+        throttlingRateLimit: CONFIG.PUBLIC_API_THROTTLING_RATE_LIMIT,
+        throttlingBurstLimit: CONFIG.PUBLIC_API_THROTTLING_BURST_LIMIT,
       },
       defaultCorsPreflightOptions: {
         allowOrigins: [props.allowedOrigin],

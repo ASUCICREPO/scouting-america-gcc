@@ -178,7 +178,7 @@ describe('Bounded ingestion and immutable audit storage', () => {
 
 describe('Failure observability', () => {
   test('alarms on every application dead-letter queue', () => {
-    template.resourceCountIs('AWS::CloudWatch::Alarm', 4);
+    template.resourceCountIs('AWS::CloudWatch::Alarm', 7);
     template.resourceCountIs('AWS::CloudWatch::Dashboard', 1);
     template.hasResourceProperties('AWS::CloudWatch::Alarm', {
       AlarmName: 'EscalationRouterDLQ-MessagesVisible',
@@ -188,6 +188,36 @@ describe('Failure observability', () => {
     template.hasResourceProperties('AWS::CloudWatch::Alarm', {
       AlarmName: 'GCC-Escalation-OldestMessageAge',
       Threshold: 300,
+      AlarmActions: Match.anyValue(),
+    });
+    template.hasResourceProperties('AWS::CloudWatch::Alarm', {
+      AlarmName: 'GCC-PublicApi-WAF-BlockedRequests',
+      Metrics: Match.arrayWith([
+        Match.objectLike({
+          MetricStat: {
+            Metric: Match.objectLike({
+              Namespace: 'AWS/WAFV2',
+              MetricName: 'BlockedRequests',
+            }),
+            Period: 60,
+            Stat: 'Sum',
+          },
+        }),
+      ]),
+      Threshold: 1,
+      AlarmActions: Match.anyValue(),
+    });
+    template.hasResourceProperties('AWS::CloudWatch::Alarm', {
+      AlarmName: 'GCC-PublicChat-LambdaThrottles',
+      MetricName: 'Throttles',
+      Threshold: 1,
+      AlarmActions: Match.anyValue(),
+    });
+    template.hasResourceProperties('AWS::CloudWatch::Alarm', {
+      AlarmName: 'GCC-PublicChat-HighVolume',
+      MetricName: 'Invocations',
+      Period: 300,
+      Threshold: 100,
       AlarmActions: Match.anyValue(),
     });
   });
@@ -232,6 +262,101 @@ describe('Failure observability', () => {
     const variables = chatFunction?.Properties?.Environment?.Variables;
     expect(variables.ESCALATION_QUEUE_URL).toBeDefined();
     expect(variables.ESCALATION_FUNCTION_ARN).toBeUndefined();
+  });
+});
+
+describe('Public chat abuse protection', () => {
+  test('rate-limits answer generation per source IP with AWS WAF', () => {
+    template.hasResourceProperties('AWS::WAFv2::WebACL', {
+      Scope: 'REGIONAL',
+      DefaultAction: { Allow: {} },
+      VisibilityConfig: {
+        CloudWatchMetricsEnabled: true,
+        SampledRequestsEnabled: false,
+      },
+      Rules: Match.arrayWith([
+        Match.objectLike({
+          Name: 'PublicChatGenerationRateLimit',
+          Action: { Block: {} },
+          Statement: {
+            RateBasedStatement: Match.objectLike({
+              AggregateKeyType: 'IP',
+              EvaluationWindowSec: 300,
+              Limit: 100,
+              ScopeDownStatement: {
+                AndStatement: {
+                  Statements: Match.arrayWith([
+                    Match.objectLike({
+                      ByteMatchStatement: Match.objectLike({
+                        FieldToMatch: { Method: {} },
+                        SearchString: 'POST',
+                      }),
+                    }),
+                    Match.objectLike({
+                      ByteMatchStatement: Match.objectLike({
+                        FieldToMatch: { UriPath: {} },
+                        SearchString: '/chat',
+                      }),
+                    }),
+                  ]),
+                },
+              },
+            }),
+          },
+          VisibilityConfig: Match.objectLike({ SampledRequestsEnabled: false }),
+        }),
+        Match.objectLike({
+          Name: 'PublicApiGeneralRateLimit',
+          Priority: 1,
+          Action: { Block: {} },
+          Statement: {
+            RateBasedStatement: Match.objectLike({
+              AggregateKeyType: 'IP',
+              EvaluationWindowSec: 300,
+              Limit: 600,
+            }),
+          },
+          VisibilityConfig: Match.objectLike({ SampledRequestsEnabled: false }),
+        }),
+      ]),
+    });
+  });
+
+  test('associates the regional Web ACL with the public API stage', () => {
+    const associations = Object.values(
+      template.findResources('AWS::WAFv2::WebACLAssociation'),
+    );
+    expect(associations).toHaveLength(1);
+    const properties = associations[0].Properties;
+    const resourceArn = JSON.stringify(properties.ResourceArn);
+    expect(resourceArn).toContain(':apigateway:');
+    expect(resourceArn).toContain('::/restapis/');
+    expect(resourceArn).toContain('/stages/');
+    expect(properties.WebACLArn).toEqual(expect.objectContaining({
+      'Fn::GetAtt': expect.any(Array),
+    }));
+  });
+
+  test('uses a conservative shared API Gateway throttle', () => {
+    template.hasResourceProperties('AWS::ApiGateway::Stage', {
+      StageName: 'prod',
+      MethodSettings: Match.arrayWith([
+        Match.objectLike({
+          ThrottlingRateLimit: 10,
+          ThrottlingBurstLimit: 20,
+        }),
+      ]),
+    });
+  });
+
+  test('caps public chat Lambda concurrency and anonymous session growth', () => {
+    template.hasResourceProperties('AWS::Lambda::Function', {
+      FunctionName: 'GCC-ChatHandler',
+      ReservedConcurrentExecutions: 10,
+      Environment: {
+        Variables: Match.objectLike({ MAX_SESSION_TURNS: '50' }),
+      },
+    });
   });
 });
 

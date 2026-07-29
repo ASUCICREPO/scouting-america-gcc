@@ -14,6 +14,7 @@ import { AiSafety } from './constructs/ai-safety';
 import { PythonDependencies } from './constructs/python-dependencies';
 import { ChatArchive } from './constructs/chat-archive';
 import { Observability } from './constructs/observability';
+import { PublicApiProtection } from './constructs/public-api-protection';
 
 export class GrandCanyonCouncilChatbot extends cdk.Stack {
   constructor(scope: Construct, id: string, props?: cdk.StackProps) {
@@ -57,6 +58,9 @@ export class GrandCanyonCouncilChatbot extends cdk.Stack {
     // ---------------------------------------------------------------
     const apiGateway = new ApiGateway(this, 'ApiGateway', {
       allowedOrigin: frontendOrigin,
+    });
+    const publicApiProtection = new PublicApiProtection(this, 'PublicApiProtection', {
+      api: apiGateway.api,
     });
 
     // ---------------------------------------------------------------
@@ -136,6 +140,8 @@ export class GrandCanyonCouncilChatbot extends cdk.Stack {
       ],
       documentQueue: docProcessor.processingQueue,
       escalationQueue: escalationRouter.processingQueue,
+      publicChatFunction: chatHandler.function,
+      publicApiBlockedRequests: publicApiProtection.blockedRequestsMetric,
     });
 
     // ---------------------------------------------------------------

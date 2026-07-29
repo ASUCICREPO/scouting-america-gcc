@@ -45,6 +45,9 @@ export class ChatHandler extends Construct {
       code: lambda.Code.fromAsset(path.join(__dirname, '../../lambda/chat-handler')),
       timeout: cdk.Duration.seconds(30), // Bedrock calls can take a few seconds
       memorySize: 512,
+      // This is both a reservation and a hard ceiling. Public traffic cannot
+      // consume the account concurrency needed by admin and ingestion workers.
+      reservedConcurrentExecutions: CONFIG.PUBLIC_CHAT_RESERVED_CONCURRENCY,
       layers: [props.dependenciesLayer],
       environment: {
         KB_ID: props.knowledgeBaseId,
@@ -60,6 +63,7 @@ export class ChatHandler extends Construct {
         ESCALATION_QUEUE_URL: props.escalationQueue.queueUrl,
         CONFIDENCE_THRESHOLD: CONFIG.CONFIDENCE_THRESHOLD.toString(),
         SAFETY_KEYWORDS: JSON.stringify(CONFIG.SAFETY_KEYWORDS),
+        MAX_SESSION_TURNS: CONFIG.PUBLIC_CHAT_MAX_SESSION_TURNS.toString(),
       },
       // Bound log retention — chat logs may incidentally contain user-entered
       // content, so they shouldn't be kept indefinitely.
