@@ -51,6 +51,7 @@ chat_table = ddb.Table(CHAT_LOGS_TABLE)
 
 MAX_QUESTION_LENGTH = 4000
 MAX_SESSION_ID_LENGTH = 128
+MAX_SESSION_TURNS = max(1, int(os.environ.get("MAX_SESSION_TURNS", "50")))
 PROMPT_PATH = Path(__file__).parent / "templates" / "chat_prompt.j2"
 # This template produces a plain-text model prompt, not HTML. HTML autoescape
 # would corrupt quoted source material without preventing prompt injection.
@@ -64,6 +65,7 @@ class HttpStatus(IntEnum):
     BAD_REQUEST = 400
     FORBIDDEN = 403
     NOT_FOUND = 404
+    TOO_MANY_REQUESTS = 429
     INTERNAL_SERVER_ERROR = 500
 
 
@@ -235,6 +237,17 @@ def _owns_session(session_id: str, token: str | None) -> bool:
     items = result.get("Items", [])
     expected = items[0].get("sessionTokenHash") if items else None
     return isinstance(expected, str) and hmac.compare_digest(expected, _token_hash(token))
+
+
+def _session_at_capacity(session_id: str) -> bool:
+    """Bound an anonymous session without reading complete chat records."""
+    result = chat_table.query(
+        KeyConditionExpression=Key("sessionId").eq(session_id),
+        Select="COUNT",
+        Limit=MAX_SESSION_TURNS,
+        ConsistentRead=True,
+    )
+    return int(result.get("Count", 0)) >= MAX_SESSION_TURNS
 
 
 @lru_cache(maxsize=1)
@@ -427,6 +440,16 @@ def handle_chat(event: dict[str, Any]) -> dict[str, Any]:
                 HttpStatus.FORBIDDEN,
                 ErrorResponse(error="Invalid session credentials"),
             )
+        if _session_at_capacity(request.session_id):
+            message = (
+                "Esta conversación alcanzó su límite de turnos. Inicie un chat nuevo para continuar."
+                if request.language == "es"
+                else "This conversation has reached its turn limit. Start a new chat to continue."
+            )
+            return api_response(
+                HttpStatus.TOO_MANY_REQUESTS,
+                ErrorResponse(error=message),
+            )
         session_id = request.session_id
     else:
         session_id = str(uuid.uuid4())
@@ -575,8 +598,12 @@ def get_history(event: dict[str, Any]) -> dict[str, Any]:
 
     result = chat_table.query(
         KeyConditionExpression=Key("sessionId").eq(session_id),
-        ScanIndexForward=True,
+        ScanIndexForward=False,
+        Limit=MAX_SESSION_TURNS,
     )
+    # The descending bounded query returns the most recent turns first; restore
+    # chronological order for the browser transcript.
+    items = list(reversed(result.get("Items", [])))
     history = [
         HistoryTurn(
             question=item.get("question"),
@@ -587,7 +614,7 @@ def get_history(event: dict[str, Any]) -> dict[str, Any]:
             escalated=item.get("escalated"),
             language=item.get("language", "en"),
         )
-        for item in result.get("Items", [])
+        for item in items
     ]
     return api_response(
         HttpStatus.OK,

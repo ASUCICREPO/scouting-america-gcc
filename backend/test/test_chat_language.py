@@ -15,8 +15,16 @@ class FakeTable:
     def put_item(self, Item):  # noqa: N803 - mirrors boto3
         self.items.append(Item)
 
-    def query(self, **_kwargs):
-        return {"Items": self.items}
+    def query(self, **kwargs):
+        items = list(self.items)
+        if kwargs.get("ScanIndexForward") is False:
+            items.reverse()
+        limit = kwargs.get("Limit")
+        if limit is not None:
+            items = items[:limit]
+        if kwargs.get("Select") == "COUNT":
+            return {"Count": len(items)}
+        return {"Items": items}
 
 
 class FakeDynamoResource:
@@ -97,6 +105,7 @@ def load_chat_module():
         "CONFIDENCE_THRESHOLD": "0.7",
         "SAFETY_KEYWORDS": json.dumps(["emergency", "emergencia"]),
         "ALLOWED_ORIGIN": "https://public.example",
+        "MAX_SESSION_TURNS": "50",
     })
     table = FakeTable()
     agent = FakeBedrockAgent()
@@ -261,6 +270,56 @@ class ChatLanguageTests(unittest.TestCase):
             }),
         })
         self.assertEqual(allowed["statusCode"], 200)
+
+    def test_session_turn_limit_blocks_generation_for_valid_owner(self):
+        first = self.module.handle_chat({
+            "body": json.dumps({"question": "First question"})
+        })
+        first_body = json.loads(first["body"])
+        first_item = dict(self.table.items[0])
+        for index in range(1, self.module.MAX_SESSION_TURNS):
+            turn = dict(first_item)
+            turn["timestamp"] = f"2026-07-29T00:00:{index:02d}.000Z"
+            self.table.items.append(turn)
+
+        retrievals_before = len(self.retrieval.requests)
+        result = self.module.handle_chat({
+            "headers": {"X-Session-Token": first_body["sessionToken"]},
+            "body": json.dumps({
+                "question": "One question too many",
+                "sessionId": first_body["sessionId"],
+            }),
+        })
+
+        self.assertEqual(result["statusCode"], 429)
+        self.assertIn("turn limit", json.loads(result["body"])["error"])
+        self.assertEqual(len(self.retrieval.requests), retrievals_before)
+        self.assertEqual(len(self.table.items), self.module.MAX_SESSION_TURNS)
+
+    def test_history_returns_only_the_most_recent_bounded_turns(self):
+        token = "session-secret"
+        token_hash = self.module._token_hash(token)
+        total = self.module.MAX_SESSION_TURNS + 5
+        for index in range(total):
+            self.table.items.append({
+                "sessionId": "session-1",
+                "sessionTokenHash": token_hash,
+                "timestamp": f"2026-07-29T00:{index:02d}:00.000Z",
+                "question": f"Question {index}",
+                "answer": f"Answer {index}",
+                "language": "en",
+            })
+
+        result = self.module.get_history({
+            "headers": {"X-Session-Token": token},
+            "pathParameters": {"sessionId": "session-1"},
+        })
+
+        body = json.loads(result["body"])
+        self.assertEqual(result["statusCode"], 200)
+        self.assertEqual(len(body["history"]), self.module.MAX_SESSION_TURNS)
+        self.assertEqual(body["history"][0]["question"], "Question 5")
+        self.assertEqual(body["history"][-1]["question"], f"Question {total - 1}")
 
     def test_cors_is_scoped_to_the_public_distribution(self):
         result = self.module.handle_chat({

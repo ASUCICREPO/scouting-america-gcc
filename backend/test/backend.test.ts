@@ -318,6 +318,16 @@ describe('Public chat abuse protection', () => {
       ]),
     });
   });
+
+  test('caps public chat Lambda concurrency and anonymous session growth', () => {
+    template.hasResourceProperties('AWS::Lambda::Function', {
+      FunctionName: 'GCC-ChatHandler',
+      ReservedConcurrentExecutions: 10,
+      Environment: {
+        Variables: Match.objectLike({ MAX_SESSION_TURNS: '50' }),
+      },
+    });
+  });
 });
 
 describe('CloudFront static route rewriting', () => {
