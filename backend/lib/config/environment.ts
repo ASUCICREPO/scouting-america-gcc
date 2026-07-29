@@ -35,6 +35,13 @@ export const CONFIG = {
 
   // Thresholds
   CONFIDENCE_THRESHOLD: 0.7,
+  // Public chat protection. AWS WAF counts answer-generation requests per
+  // originating IP over this five-minute window; API Gateway also applies a
+  // lower shared-stage throttle as a second availability boundary.
+  PUBLIC_CHAT_RATE_LIMIT_PER_FIVE_MINUTES: 100,
+  PUBLIC_API_RATE_LIMIT_PER_FIVE_MINUTES: 600,
+  PUBLIC_API_THROTTLING_RATE_LIMIT: 10,
+  PUBLIC_API_THROTTLING_BURST_LIMIT: 20,
   SAFETY_KEYWORDS: [
     'abuse',
     'emergency',

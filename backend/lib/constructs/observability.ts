@@ -13,6 +13,7 @@ export interface ObservabilityProps {
   deadLetterQueues: sqs.IQueue[];
   documentQueue: sqs.IQueue;
   escalationQueue: sqs.IQueue;
+  publicApiBlockedRequests: cloudwatch.IMetric;
 }
 
 export class Observability extends Construct {
@@ -91,6 +92,11 @@ export class Observability extends Construct {
       new cloudwatch.GraphWidget({
         title: 'Lambda duration',
         left: props.functions.map((fn) => fn.metricDuration({ statistic: 'p95' })),
+        width: 12,
+      }),
+      new cloudwatch.GraphWidget({
+        title: 'Public chat requests blocked by AWS WAF',
+        left: [props.publicApiBlockedRequests],
         width: 12,
       }),
     );

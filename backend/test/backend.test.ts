@@ -235,6 +235,91 @@ describe('Failure observability', () => {
   });
 });
 
+describe('Public chat abuse protection', () => {
+  test('rate-limits answer generation per source IP with AWS WAF', () => {
+    template.hasResourceProperties('AWS::WAFv2::WebACL', {
+      Scope: 'REGIONAL',
+      DefaultAction: { Allow: {} },
+      VisibilityConfig: {
+        CloudWatchMetricsEnabled: true,
+        SampledRequestsEnabled: false,
+      },
+      Rules: Match.arrayWith([
+        Match.objectLike({
+          Name: 'PublicChatGenerationRateLimit',
+          Action: { Block: {} },
+          Statement: {
+            RateBasedStatement: Match.objectLike({
+              AggregateKeyType: 'IP',
+              EvaluationWindowSec: 300,
+              Limit: 100,
+              ScopeDownStatement: {
+                AndStatement: {
+                  Statements: Match.arrayWith([
+                    Match.objectLike({
+                      ByteMatchStatement: Match.objectLike({
+                        FieldToMatch: { Method: {} },
+                        SearchString: 'POST',
+                      }),
+                    }),
+                    Match.objectLike({
+                      ByteMatchStatement: Match.objectLike({
+                        FieldToMatch: { UriPath: {} },
+                        SearchString: '/chat',
+                      }),
+                    }),
+                  ]),
+                },
+              },
+            }),
+          },
+          VisibilityConfig: Match.objectLike({ SampledRequestsEnabled: false }),
+        }),
+        Match.objectLike({
+          Name: 'PublicApiGeneralRateLimit',
+          Priority: 1,
+          Action: { Block: {} },
+          Statement: {
+            RateBasedStatement: Match.objectLike({
+              AggregateKeyType: 'IP',
+              EvaluationWindowSec: 300,
+              Limit: 600,
+            }),
+          },
+          VisibilityConfig: Match.objectLike({ SampledRequestsEnabled: false }),
+        }),
+      ]),
+    });
+  });
+
+  test('associates the regional Web ACL with the public API stage', () => {
+    const associations = Object.values(
+      template.findResources('AWS::WAFv2::WebACLAssociation'),
+    );
+    expect(associations).toHaveLength(1);
+    const properties = associations[0].Properties;
+    const resourceArn = JSON.stringify(properties.ResourceArn);
+    expect(resourceArn).toContain(':apigateway:');
+    expect(resourceArn).toContain('::/restapis/');
+    expect(resourceArn).toContain('/stages/');
+    expect(properties.WebACLArn).toEqual(expect.objectContaining({
+      'Fn::GetAtt': expect.any(Array),
+    }));
+  });
+
+  test('uses a conservative shared API Gateway throttle', () => {
+    template.hasResourceProperties('AWS::ApiGateway::Stage', {
+      StageName: 'prod',
+      MethodSettings: Match.arrayWith([
+        Match.objectLike({
+          ThrottlingRateLimit: 10,
+          ThrottlingBurstLimit: 20,
+        }),
+      ]),
+    });
+  });
+});
+
 describe('CloudFront static route rewriting', () => {
   test('hosts the public chat and protected dashboard on one distribution', () => {
     template.resourceCountIs('AWS::CloudFront::Distribution', 1);
