@@ -2,6 +2,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   confirmPasswordReset,
+  getUser,
+  isAuthenticated,
   login,
   requestPasswordReset,
 } from './auth';
@@ -35,7 +37,7 @@ class MemoryStorage implements Storage {
 }
 
 const jwt = (payload: Record<string, unknown>): string => {
-  const encoded = Buffer.from(JSON.stringify(payload)).toString('base64');
+  const encoded = Buffer.from(JSON.stringify(payload)).toString('base64url');
   return `header.${encoded}.signature`;
 };
 
@@ -91,6 +93,51 @@ describe('admin authentication privacy', () => {
 
     await expect(login('admin@example.org', 'Password1!')).resolves.toEqual({ success: true });
     expect(sessionStorage.getItem('gcc_admin_tokens')).not.toBeNull();
+  });
+
+  it('decodes URL-safe JWT payloads and validates the admin claim', async () => {
+    const idToken = jwt({
+      email: 'admin+测试@example.org',
+      exp: Math.floor(Date.now() / 1000) + 300,
+      'cognito:groups': ['admin'],
+    });
+    sessionStorage.setItem('gcc_admin_tokens', JSON.stringify({
+      idToken,
+      accessToken: jwt({ token_use: 'access' }),
+      refreshToken: 'refresh-token',
+    }));
+
+    expect(getUser()).toEqual({
+      email: 'admin+测试@example.org',
+      groups: ['admin'],
+      isAdmin: true,
+    });
+    expect(isAuthenticated()).toBe(true);
+  });
+
+  it('removes malformed stored token data', () => {
+    sessionStorage.setItem('gcc_admin_tokens', JSON.stringify({ idToken: 123 }));
+    localStorage.setItem('gcc_admin_tokens', 'legacy-token');
+
+    expect(isAuthenticated()).toBe(false);
+    expect(sessionStorage.getItem('gcc_admin_tokens')).toBeNull();
+    expect(localStorage.getItem('gcc_admin_tokens')).toBeNull();
+  });
+
+  it('removes expired or non-admin sessions', () => {
+    for (const payload of [
+      { exp: Math.floor(Date.now() / 1000) - 1, 'cognito:groups': ['admin'] },
+      { exp: Math.floor(Date.now() / 1000) + 300, 'cognito:groups': ['volunteers'] },
+    ]) {
+      sessionStorage.setItem('gcc_admin_tokens', JSON.stringify({
+        idToken: jwt(payload),
+        accessToken: jwt({ token_use: 'access' }),
+        refreshToken: 'refresh-token',
+      }));
+
+      expect(isAuthenticated()).toBe(false);
+      expect(sessionStorage.getItem('gcc_admin_tokens')).toBeNull();
+    }
   });
 
   it.each([

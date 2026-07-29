@@ -27,6 +27,12 @@ interface AuthTokens {
   refreshToken: string;
 }
 
+interface JwtPayload {
+  email?: unknown;
+  exp?: unknown;
+  'cognito:groups'?: unknown;
+}
+
 export interface AdminUser {
   email: string;
   groups: string[];
@@ -144,10 +150,40 @@ export async function confirmPasswordReset(
 
 export function getStoredTokens(): AuthTokens | null {
   if (typeof window === 'undefined') return null;
-  const stored = sessionStorage.getItem(TOKEN_KEY);
-  if (!stored) return null;
   try {
-    return JSON.parse(stored);
+    const stored = sessionStorage.getItem(TOKEN_KEY);
+    if (!stored) return null;
+    const parsed: unknown = JSON.parse(stored);
+    if (!isAuthTokens(parsed)) {
+      clearTokens();
+      return null;
+    }
+    return parsed;
+  } catch {
+    clearTokens();
+    return null;
+  }
+}
+
+function isAuthTokens(value: unknown): value is AuthTokens {
+  if (!value || typeof value !== 'object') return false;
+  const candidate = value as Partial<AuthTokens>;
+  return (
+    typeof candidate.idToken === 'string' && candidate.idToken.length > 0 &&
+    typeof candidate.accessToken === 'string' && candidate.accessToken.length > 0 &&
+    typeof candidate.refreshToken === 'string'
+  );
+}
+
+function decodeJwtPayload(token: string): JwtPayload | null {
+  try {
+    const parts = token.split('.');
+    if (parts.length !== 3 || !parts[1]) return null;
+    const base64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+    const padded = base64.padEnd(Math.ceil(base64.length / 4) * 4, '=');
+    const bytes = Uint8Array.from(atob(padded), (character) => character.charCodeAt(0));
+    const payload: unknown = JSON.parse(new TextDecoder().decode(bytes));
+    return payload && typeof payload === 'object' ? payload as JwtPayload : null;
   } catch {
     return null;
   }
@@ -161,41 +197,49 @@ export function getIdToken(): string | null {
 export function getUser(): AdminUser | null {
   const tokens = getStoredTokens();
   if (!tokens) return null;
-  try {
-    const payload = JSON.parse(atob(tokens.idToken.split('.')[1]));
-    const groups: string[] = payload['cognito:groups'] || [];
-    return {
-      email: payload.email || '',
-      groups,
-      isAdmin: groups.includes('admin'),
-    };
-  } catch {
+  const payload = decodeJwtPayload(tokens.idToken);
+  if (!payload) {
+    clearTokens();
     return null;
   }
+  const groups = Array.isArray(payload['cognito:groups'])
+    ? payload['cognito:groups'].filter((group): group is string => typeof group === 'string')
+    : [];
+  return {
+    email: typeof payload.email === 'string' ? payload.email : '',
+    groups,
+    isAdmin: groups.includes('admin'),
+  };
 }
 
 export function isAuthenticated(): boolean {
   const tokens = getStoredTokens();
   if (!tokens) return false;
-  try {
-    const payload = JSON.parse(atob(tokens.idToken.split('.')[1]));
-    // Check expiry
-    if (payload.exp * 1000 < Date.now()) {
-      clearTokens();
-      return false;
-    }
-    // Check admin group
-    const groups: string[] = payload['cognito:groups'] || [];
-    return groups.includes('admin');
-  } catch {
+  const payload = decodeJwtPayload(tokens.idToken);
+  const expiry = typeof payload?.exp === 'number' ? payload.exp : Number.NaN;
+  const groups = Array.isArray(payload?.['cognito:groups'])
+    ? payload['cognito:groups']
+    : [];
+  if (!Number.isFinite(expiry) || expiry * 1000 <= Date.now() || !groups.includes('admin')) {
+    clearTokens();
     return false;
   }
+  return true;
 }
 
 function clearTokens(): void {
-  sessionStorage.removeItem(TOKEN_KEY);
-  // Remove tokens written by pre-hardening builds.
-  localStorage.removeItem(TOKEN_KEY);
+  if (typeof window === 'undefined') return;
+  try {
+    sessionStorage.removeItem(TOKEN_KEY);
+  } catch {
+    // The browser can deny storage access in restricted privacy contexts.
+  }
+  try {
+    // Remove tokens written by pre-hardening builds.
+    localStorage.removeItem(TOKEN_KEY);
+  } catch {
+    // The browser can deny storage access in restricted privacy contexts.
+  }
 }
 
 export function logout(): void {
