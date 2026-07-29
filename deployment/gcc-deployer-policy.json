@@ -1,0 +1,108 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "CallerIdentity",
+      "Effect": "Allow",
+      "Action": "sts:GetCallerIdentity",
+      "Resource": "*"
+    },
+    {
+      "Sid": "CodeBuildRoleManagement",
+      "Effect": "Allow",
+      "Action": [
+        "iam:AttachRolePolicy",
+        "iam:CreateRole",
+        "iam:DeleteRolePolicy",
+        "iam:DetachRolePolicy",
+        "iam:GetRole",
+        "iam:ListAttachedRolePolicies",
+        "iam:ListRolePolicies",
+        "iam:PassRole",
+        "iam:TagRole",
+        "iam:UpdateAssumeRolePolicy"
+      ],
+      "Resource": [
+        "arn:aws:iam::<ACCOUNT_ID>:role/gcc-codebuild-deployment-role",
+        "arn:aws:iam::<ACCOUNT_ID>:role/*-gcc-codebuild-deployment-role"
+      ]
+    },
+    {
+      "Sid": "DeploymentPolicyManagement",
+      "Effect": "Allow",
+      "Action": [
+        "iam:CreatePolicy",
+        "iam:CreatePolicyVersion",
+        "iam:DeletePolicyVersion",
+        "iam:GetPolicy",
+        "iam:GetPolicyVersion",
+        "iam:ListPolicyVersions",
+        "iam:TagPolicy"
+      ],
+      "Resource": "arn:aws:iam::<ACCOUNT_ID>:policy/GCC-Chatbot-DeploymentPolicy"
+    },
+    {
+      "Sid": "DeploymentSourceBucket",
+      "Effect": "Allow",
+      "Action": [
+        "s3:CreateBucket",
+        "s3:GetBucketLocation",
+        "s3:ListBucket",
+        "s3:PutEncryptionConfiguration",
+        "s3:PutLifecycleConfiguration",
+        "s3:PutBucketPublicAccessBlock",
+        "s3:PutBucketVersioning"
+      ],
+      "Resource": "arn:aws:s3:::gcc-chatbot-deploy-<ACCOUNT_ID>-<REGION>"
+    },
+    {
+      "Sid": "DeploymentSourceObjects",
+      "Effect": "Allow",
+      "Action": [
+        "s3:AbortMultipartUpload",
+        "s3:PutObject"
+      ],
+      "Resource": "arn:aws:s3:::gcc-chatbot-deploy-<ACCOUNT_ID>-<REGION>/*"
+    },
+    {
+      "Sid": "CodeBuildManagement",
+      "Effect": "Allow",
+      "Action": [
+        "codebuild:BatchGetBuilds",
+        "codebuild:BatchGetProjects",
+        "codebuild:CreateProject",
+        "codebuild:StartBuild",
+        "codebuild:UpdateProject"
+      ],
+      "Resource": [
+        "arn:aws:codebuild:<REGION>:<ACCOUNT_ID>:project/gcc-chatbot-deployment",
+        "arn:aws:codebuild:<REGION>:<ACCOUNT_ID>:project/*-gcc-chatbot-deployment"
+      ]
+    },
+    {
+      "Sid": "CodeBuildLogsRead",
+      "Effect": "Allow",
+      "Action": [
+        "logs:DescribeLogStreams",
+        "logs:GetLogEvents"
+      ],
+      "Resource": "arn:aws:logs:<REGION>:<ACCOUNT_ID>:log-group:/aws/codebuild/*gcc-chatbot-deployment:*"
+    },
+    {
+      "Sid": "ApplicationOutputs",
+      "Effect": "Allow",
+      "Action": "cloudformation:DescribeStacks",
+      "Resource": "arn:aws:cloudformation:<REGION>:<ACCOUNT_ID>:stack/GrandCanyonCouncilChatbot/*"
+    },
+    {
+      "Sid": "InitialCognitoAdministrator",
+      "Effect": "Allow",
+      "Action": [
+        "cognito-idp:AdminAddUserToGroup",
+        "cognito-idp:AdminCreateUser",
+        "cognito-idp:AdminSetUserPassword"
+      ],
+      "Resource": "arn:aws:cognito-idp:<REGION>:<ACCOUNT_ID>:userpool/*"
+    }
+  ]
+}

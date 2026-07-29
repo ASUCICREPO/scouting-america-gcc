@@ -25,6 +25,7 @@ phases:
         npx cdk bootstrap
         "aws://${CDK_DEFAULT_ACCOUNT}/${AWS_REGION}"
         --bootstrap-kms-key-id AWS_MANAGED_KEY
+        --cloudformation-execution-policies "$DEPLOYMENT_POLICY_ARN"
 
   build:
     commands:

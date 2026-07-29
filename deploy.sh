@@ -12,12 +12,13 @@
 #               [--admin-email you@example.org] [--admin-password 'Pass@123']
 #               [--skip-admin] [--yes]
 #
-# Prerequisites: AWS CLI v2, Bash, Git, jq, and an administrator-capable AWS
-# CLI session in an approved sandbox account. This is not a production installer.
+# Prerequisites: AWS CLI v2, Bash, Git, jq, and either AdministratorAccess or
+# the scoped policy in deployment/gcc-deployer-policy.json.
 set -euo pipefail
 
 STACK_NAME="GrandCanyonCouncilChatbot"
-REGION="${AWS_REGION:-${AWS_DEFAULT_REGION:-us-west-2}}"
+REGION="${AWS_REGION:-${AWS_DEFAULT_REGION:-}}"
+REGION_SET_BY_FLAG="false"
 PROFILE=""
 RESOURCE_PREFIX="${RESOURCE_PREFIX:-}"
 ADMIN_EMAIL=""
@@ -52,7 +53,7 @@ require_value() {
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --region)
-      require_value "$1" "${2:-}"; REGION="$2"; shift 2;;
+      require_value "$1" "${2:-}"; REGION="$2"; REGION_SET_BY_FLAG="true"; shift 2;;
     --profile)
       require_value "$1" "${2:-}"; PROFILE="$2"; shift 2;;
     --prefix)
@@ -71,6 +72,14 @@ while [[ $# -gt 0 ]]; do
       die "Unknown argument: $1";;
   esac
 done
+
+if [[ "$REGION_SET_BY_FLAG" != "true" && -t 0 ]]; then
+  DEFAULT_REGION="${REGION:-us-west-2}"
+  read -r -p "AWS Region [$DEFAULT_REGION]: " REGION_INPUT
+  REGION="${REGION_INPUT:-$DEFAULT_REGION}"
+else
+  REGION="${REGION:-us-west-2}"
+fi
 
 if [[ -n "$RESOURCE_PREFIX" ]]; then
   [[ "$RESOURCE_PREFIX" =~ ^[a-z0-9]([a-z0-9-]*[a-z0-9])?$ ]] \
@@ -108,10 +117,12 @@ DEPLOY_COMMIT="$(git -C "$SCRIPT_DIR" rev-parse HEAD)"
 NAME_PREFIX="${RESOURCE_PREFIX:+${RESOURCE_PREFIX}-}"
 PROJECT_NAME="${NAME_PREFIX}gcc-chatbot-deployment"
 ROLE_NAME="${NAME_PREFIX}gcc-codebuild-deployment-role"
+DEPLOYMENT_POLICY_NAME="GCC-Chatbot-DeploymentPolicy"
+DEPLOYMENT_POLICY_ARN="arn:aws:iam::${ACCOUNT_ID}:policy/${DEPLOYMENT_POLICY_NAME}"
+DEPLOYMENT_POLICY_FILE="$SCRIPT_DIR/deployment/gcc-codebuild-policy.json"
 SOURCE_BUCKET="gcc-chatbot-deploy-${ACCOUNT_ID}-${REGION}"
 SOURCE_KEY="${NAME_PREFIX}releases/$(date -u +%Y%m%dT%H%M%SZ)-${DEPLOY_COMMIT:0:12}.zip"
 LOG_GROUP="/aws/codebuild/${PROJECT_NAME}"
-ADMIN_POLICY_ARN="arn:aws:iam::aws:policy/AdministratorAccess"
 
 echo
 echo "AWS sandbox deployment target"
@@ -120,8 +131,9 @@ echo "  Account:  $ACCOUNT_ID"
 echo "  Region:   $REGION"
 echo "  Commit:   $DEPLOY_COMMIT"
 echo "  Prefix:   ${RESOURCE_PREFIX:-<none>}"
+echo "  Policy:   $DEPLOYMENT_POLICY_ARN"
 echo
-warn "This sandbox installer gives the CodeBuild deployment role AdministratorAccess."
+warn "The deployment policy is scoped to the AWS services and GCC/CDK resources managed by this repository."
 
 if [[ "$ASSUME_YES" != "true" ]]; then
   [[ -t 0 ]] || die "Use --yes for a non-interactive deployment"
@@ -153,6 +165,10 @@ fi
 TEMP_DIR="$(mktemp -d)"
 SOURCE_ARCHIVE="$TEMP_DIR/gcc-source.zip"
 
+[[ -f "$DEPLOYMENT_POLICY_FILE" ]] \
+  || die "Missing deployment policy: $DEPLOYMENT_POLICY_FILE"
+CODEBUILD_POLICY_JSON="$(jq -c . "$DEPLOYMENT_POLICY_FILE")"
+
 TRUST_POLICY_JSON="$(cat <<'JSON'
 {
   "Version": "2012-10-17",
@@ -166,6 +182,38 @@ TRUST_POLICY_JSON="$(cat <<'JSON'
 }
 JSON
 )"
+
+
+info "Creating or updating the scoped GCC deployment policy"
+if aws_cli iam get-policy --policy-arn "$DEPLOYMENT_POLICY_ARN" >/dev/null 2>&1; then
+  POLICY_VERSIONS_JSON="$(aws_cli iam list-policy-versions \
+    --policy-arn "$DEPLOYMENT_POLICY_ARN" \
+    --output json)"
+  if (( $(jq '.Versions | length' <<<"$POLICY_VERSIONS_JSON") >= 5 )); then
+    OLDEST_NONDEFAULT_VERSION="$(jq -r \
+      '[.Versions[] | select(.IsDefaultVersion == false)] | sort_by(.CreateDate) | first | .VersionId // empty' \
+      <<<"$POLICY_VERSIONS_JSON")"
+    [[ -n "$OLDEST_NONDEFAULT_VERSION" ]] \
+      || die "Cannot rotate versions for $DEPLOYMENT_POLICY_NAME"
+    aws_cli iam delete-policy-version \
+      --policy-arn "$DEPLOYMENT_POLICY_ARN" \
+      --version-id "$OLDEST_NONDEFAULT_VERSION"
+  fi
+  aws_cli iam create-policy-version \
+    --policy-arn "$DEPLOYMENT_POLICY_ARN" \
+    --policy-document "$CODEBUILD_POLICY_JSON" \
+    --set-as-default >/dev/null
+  aws_cli iam tag-policy \
+    --policy-arn "$DEPLOYMENT_POLICY_ARN" \
+    --tags Key=Project,Value=GrandCanyonCouncilChatbot Key=ManagedBy,Value=deploy.sh
+else
+  aws_cli iam create-policy \
+    --policy-name "$DEPLOYMENT_POLICY_NAME" \
+    --description "Scoped CDK and CodeBuild deployment access for GCC Chat" \
+    --policy-document "$CODEBUILD_POLICY_JSON" \
+    --tags Key=Project,Value=GrandCanyonCouncilChatbot Key=ManagedBy,Value=deploy.sh >/dev/null
+fi
+ok "Deployment policy ready: $DEPLOYMENT_POLICY_ARN"
 
 info "Creating or updating the administrator-capable CodeBuild service role"
 if aws_cli iam get-role --role-name "$ROLE_NAME" >/dev/null 2>&1; then
@@ -184,7 +232,28 @@ else
 fi
 aws_cli iam attach-role-policy \
   --role-name "$ROLE_NAME" \
-  --policy-arn "$ADMIN_POLICY_ARN"
+  --policy-arn "$DEPLOYMENT_POLICY_ARN"
+
+# Remove permissions left by older sandbox installers after the scoped policy
+# is attached, so updates do not silently retain administrator access.
+if aws_cli iam list-attached-role-policies \
+  --role-name "$ROLE_NAME" \
+  --query "AttachedPolicies[?PolicyArn=='arn:aws:iam::aws:policy/AdministratorAccess'].PolicyArn | [0]" \
+  --output text | grep -qx 'arn:aws:iam::aws:policy/AdministratorAccess'; then
+  aws_cli iam detach-role-policy \
+    --role-name "$ROLE_NAME" \
+    --policy-arn arn:aws:iam::aws:policy/AdministratorAccess
+fi
+
+LEGACY_INLINE_POLICY="${NAME_PREFIX}gcc-sandbox-administrator"
+if aws_cli iam list-role-policies \
+  --role-name "$ROLE_NAME" \
+  --query "PolicyNames[?@=='$LEGACY_INLINE_POLICY'] | [0]" \
+  --output text | grep -qx "$LEGACY_INLINE_POLICY"; then
+  aws_cli iam delete-role-policy \
+    --role-name "$ROLE_NAME" \
+    --policy-name "$LEGACY_INLINE_POLICY"
+fi
 ROLE_ARN="$(aws_cli iam get-role --role-name "$ROLE_NAME" --query 'Role.Arn' --output text)"
 ok "CodeBuild role ready: $ROLE_ARN"
 
@@ -253,7 +322,8 @@ PROJECT_JSON="$(cat <<JSON
       { "name": "CDK_DEFAULT_REGION", "value": "${REGION}", "type": "PLAINTEXT" },
       { "name": "CDK_DEFAULT_ACCOUNT", "value": "${ACCOUNT_ID}", "type": "PLAINTEXT" },
       { "name": "RESOURCE_PREFIX", "value": "${RESOURCE_PREFIX}", "type": "PLAINTEXT" },
-      { "name": "STACK_NAME", "value": "${STACK_NAME}", "type": "PLAINTEXT" }
+      { "name": "STACK_NAME", "value": "${STACK_NAME}", "type": "PLAINTEXT" },
+      { "name": "DEPLOYMENT_POLICY_ARN", "value": "${DEPLOYMENT_POLICY_ARN}", "type": "PLAINTEXT" }
     ]
   },
   "serviceRole": "${ROLE_ARN}",
