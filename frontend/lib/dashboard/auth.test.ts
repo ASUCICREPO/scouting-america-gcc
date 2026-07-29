@@ -6,6 +6,7 @@ import {
   getUser,
   isAuthenticated,
   login,
+  logout,
   requestPasswordReset,
 } from './auth';
 
@@ -176,6 +177,107 @@ describe('admin authentication privacy', () => {
 
     await expect(getValidIdToken()).resolves.toBeNull();
     expect(sessionStorage.getItem('gcc_admin_tokens')).toBeNull();
+  });
+
+  it('globally signs out and then clears the local admin session', async () => {
+    sessionStorage.setItem('gcc_admin_tokens', JSON.stringify({
+      idToken: jwt({ exp: Math.floor(Date.now() / 1000) + 300, 'cognito:groups': ['admin'] }),
+      accessToken: 'current-access-token',
+      refreshToken: 'current-refresh-token',
+    }));
+    const fetchMock = vi.fn().mockResolvedValue(response({}));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await logout();
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0][1].headers['X-Amz-Target'])
+      .toBe('AWSCognitoIdentityProviderService.GlobalSignOut');
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({
+      AccessToken: 'current-access-token',
+    });
+    expect(sessionStorage.getItem('gcc_admin_tokens')).toBeNull();
+    expect(window.location.href).toBe('/admin');
+  });
+
+  it('falls back to refresh-token revocation when global sign-out is rejected', async () => {
+    sessionStorage.setItem('gcc_admin_tokens', JSON.stringify({
+      idToken: jwt({ exp: Math.floor(Date.now() / 1000) + 300, 'cognito:groups': ['admin'] }),
+      accessToken: 'expired-access-token',
+      refreshToken: 'current-refresh-token',
+    }));
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(response({ __type: 'NotAuthorizedException' }))
+      .mockResolvedValueOnce(response({}));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await logout();
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls[1][1].headers['X-Amz-Target'])
+      .toBe('AWSCognitoIdentityProviderService.RevokeToken');
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toMatchObject({
+      Token: 'current-refresh-token',
+    });
+    expect(sessionStorage.getItem('gcc_admin_tokens')).toBeNull();
+  });
+
+  it('always clears local tokens when Cognito logout is unavailable', async () => {
+    sessionStorage.setItem('gcc_admin_tokens', JSON.stringify({
+      idToken: jwt({ exp: Math.floor(Date.now() / 1000) + 300, 'cognito:groups': ['admin'] }),
+      accessToken: 'current-access-token',
+      refreshToken: 'current-refresh-token',
+    }));
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('network unavailable')));
+
+    await logout();
+
+    expect(sessionStorage.getItem('gcc_admin_tokens')).toBeNull();
+    expect(window.location.href).toBe('/admin');
+  });
+
+  it('does not let an older refresh overwrite a newly authenticated session', async () => {
+    sessionStorage.setItem('gcc_admin_tokens', JSON.stringify({
+      idToken: jwt({ exp: Math.floor(Date.now() / 1000) - 1, 'cognito:groups': ['admin'] }),
+      accessToken: 'expired-access-token',
+      refreshToken: 'old-refresh-token',
+    }));
+    const oldRefreshedIdToken = jwt({
+      exp: Math.floor(Date.now() / 1000) + 3600,
+      'cognito:groups': ['admin'],
+    });
+    const newlyAuthenticatedIdToken = jwt({
+      exp: Math.floor(Date.now() / 1000) + 3600,
+      email: 'new-admin@example.org',
+      'cognito:groups': ['admin'],
+    });
+    let finishOldRefresh: (() => void) | undefined;
+    const fetchMock = vi.fn()
+      .mockImplementationOnce(() => new Promise<Response>((resolve) => {
+        finishOldRefresh = () => resolve(response({
+          AuthenticationResult: {
+            IdToken: oldRefreshedIdToken,
+            AccessToken: 'old-refreshed-access-token',
+          },
+        }));
+      }))
+      .mockResolvedValueOnce(response({
+        AuthenticationResult: {
+          IdToken: newlyAuthenticatedIdToken,
+          AccessToken: 'new-access-token',
+          RefreshToken: 'new-refresh-token',
+        },
+      }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const oldRefresh = getValidIdToken();
+    await expect(login('new-admin@example.org', 'Password1!')).resolves.toEqual({ success: true });
+    finishOldRefresh?.();
+
+    await expect(oldRefresh).resolves.toBeNull();
+    expect(JSON.parse(sessionStorage.getItem('gcc_admin_tokens') || '{}').idToken)
+      .toBe(newlyAuthenticatedIdToken);
   });
 
   it.each([

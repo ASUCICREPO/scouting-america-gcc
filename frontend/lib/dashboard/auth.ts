@@ -57,6 +57,7 @@ interface CognitoResponse {
 }
 
 let refreshPromise: Promise<AuthTokens | null> | null = null;
+let sessionGeneration = 0;
 
 async function cognitoRequest(target: string, body: Record<string, unknown>): Promise<CognitoResponse> {
   const response = await fetch(COGNITO_ENDPOINT, {
@@ -91,6 +92,9 @@ export async function login(email: string, password: string): Promise<AuthResult
         accessToken: data.AuthenticationResult.AccessToken,
         refreshToken: data.AuthenticationResult.RefreshToken || '',
       };
+      // Invalidate any refresh request that started from an older session
+      // before replacing it with this newly authenticated session.
+      sessionGeneration += 1;
       sessionStorage.setItem(TOKEN_KEY, JSON.stringify(tokens));
 
       // Verify admin group membership
@@ -206,6 +210,7 @@ function adminTokenIsCurrent(token: string, refreshSkewSeconds = 0): boolean {
 }
 
 async function refreshAdminTokens(tokens: AuthTokens): Promise<AuthTokens | null> {
+  const expectedGeneration = sessionGeneration;
   try {
     const data = await cognitoRequest('InitiateAuth', {
       AuthFlow: 'REFRESH_TOKEN_AUTH',
@@ -233,6 +238,9 @@ async function refreshAdminTokens(tokens: AuthTokens): Promise<AuthTokens | null
       clearAdminSession();
       return null;
     }
+    // Logout or an authorization failure may have cleared the session while
+    // this network request was in flight. Never recreate that cleared session.
+    if (sessionGeneration !== expectedGeneration) return null;
     sessionStorage.setItem(TOKEN_KEY, JSON.stringify(refreshed));
     return refreshed;
   } catch (err) {
@@ -305,6 +313,7 @@ export function isAuthenticated(): boolean {
 
 export function clearAdminSession(): void {
   if (typeof window === 'undefined') return;
+  sessionGeneration += 1;
   try {
     sessionStorage.removeItem(TOKEN_KEY);
   } catch {
@@ -318,7 +327,27 @@ export function clearAdminSession(): void {
   }
 }
 
-export function logout(): void {
-  clearAdminSession();
-  window.location.href = '/admin';
+export async function logout(): Promise<void> {
+  const tokens = getStoredTokens();
+  try {
+    if (tokens) {
+      const result = await cognitoRequest('GlobalSignOut', {
+        AccessToken: tokens.accessToken,
+      });
+      // If the access token has already expired, revoke its refresh-token
+      // family as a fallback so it cannot mint a new administrator session.
+      if (result.__type && tokens.refreshToken) {
+        await cognitoRequest('RevokeToken', {
+          ClientId: COGNITO_CONFIG.clientId,
+          Token: tokens.refreshToken,
+        });
+      }
+    }
+  } catch (err) {
+    // Local logout must still complete if Cognito or the network is unavailable.
+    console.error('Cognito logout error:', err);
+  } finally {
+    clearAdminSession();
+    if (typeof window !== 'undefined') window.location.href = '/admin';
+  }
 }
