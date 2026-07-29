@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useRef, useSyncExternalStore } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
-import { isAuthenticated, logout, getUser } from '@/lib/dashboard/auth';
+import { getValidIdToken, logout, getUser } from '@/lib/dashboard/auth';
 import { useSettings } from '@/lib/dashboard/settings-context';
 import { LayoutDashboard, FileText, User, LogOut, Settings } from 'lucide-react';
 import { useLanguage } from '@/context/LanguageContext';
@@ -12,7 +12,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const router = useRouter();
   const pathname = usePathname();
   const mounted = useSyncExternalStore(() => () => {}, () => true, () => false);
-  const authenticated = mounted && isAuthenticated();
+  const [authStatus, setAuthStatus] = useState<'checking' | 'authenticated' | 'unauthenticated'>('checking');
   const [showProfileMenu, setShowProfileMenu] = useState(false);
   const profileRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -20,10 +20,19 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const { t } = useLanguage();
 
   useEffect(() => {
-    if (mounted && !authenticated) {
-      router.replace('/admin');
-    }
-  }, [authenticated, mounted, router]);
+    if (!mounted) return;
+    let active = true;
+    void getValidIdToken().then((token) => {
+      if (!active) return;
+      if (token) {
+        setAuthStatus('authenticated');
+      } else {
+        setAuthStatus('unauthenticated');
+        router.replace('/admin');
+      }
+    });
+    return () => { active = false; };
+  }, [mounted, router]);
 
   useEffect(() => {
     // Close profile menu on outside click
@@ -39,7 +48,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   // Do not render the dashboard shell or its static children until the browser
   // has confirmed a current admin token. API Gateway and Lambda perform the
   // authoritative authorization checks for every data request.
-  if (!authenticated) return null;
+  if (!mounted || authStatus !== 'authenticated') return null;
 
   const navItems = [
     { label: t.dashboard.navOverview, href: '/dashboard', icon: LayoutDashboard },

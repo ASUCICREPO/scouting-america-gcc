@@ -289,6 +289,13 @@ describe('Origin and session hardening', () => {
     });
   });
 
+  test('supports revoking administrator refresh-token families', () => {
+    template.hasResourceProperties('AWS::Cognito::UserPoolClient', {
+      EnableTokenRevocation: true,
+      PreventUserExistenceErrors: 'ENABLED',
+    });
+  });
+
   test('requires Cognito authorization on every dashboard API method', () => {
     const methods = Object.entries(template.findResources('AWS::ApiGateway::Method'))
       .filter(([logicalId, resource]) =>

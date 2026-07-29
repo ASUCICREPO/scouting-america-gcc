@@ -158,6 +158,7 @@ export class SharedResources extends Construct {
         userPassword: true,
         userSrp: true,
       },
+      enableTokenRevocation: true,
       preventUserExistenceErrors: true,
     });
 
