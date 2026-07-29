@@ -151,12 +151,9 @@ if [[ "$SKIP_ADMIN" != "true" ]]; then
 fi
 
 TEMP_DIR="$(mktemp -d)"
-TRUST_POLICY_FILE="$TEMP_DIR/codebuild-trust.json"
-PROJECT_FILE="$TEMP_DIR/codebuild-project.json"
 SOURCE_ARCHIVE="$TEMP_DIR/gcc-source.zip"
-LIFECYCLE_FILE="$TEMP_DIR/source-lifecycle.json"
 
-cat > "$TRUST_POLICY_FILE" <<'JSON'
+TRUST_POLICY_JSON="$(cat <<'JSON'
 {
   "Version": "2012-10-17",
   "Statement": [
@@ -168,12 +165,13 @@ cat > "$TRUST_POLICY_FILE" <<'JSON'
   ]
 }
 JSON
+)"
 
 info "Creating or updating the administrator-capable CodeBuild service role"
 if aws_cli iam get-role --role-name "$ROLE_NAME" >/dev/null 2>&1; then
   aws_cli iam update-assume-role-policy \
     --role-name "$ROLE_NAME" \
-    --policy-document "file://$TRUST_POLICY_FILE"
+    --policy-document "$TRUST_POLICY_JSON"
   aws_cli iam tag-role \
     --role-name "$ROLE_NAME" \
     --tags Key=Project,Value=GrandCanyonCouncilChatbot Key=ManagedBy,Value=deploy.sh
@@ -181,7 +179,7 @@ else
   aws_cli iam create-role \
     --role-name "$ROLE_NAME" \
     --description "Sandbox deployment role for GCC Chat" \
-    --assume-role-policy-document "file://$TRUST_POLICY_FILE" \
+    --assume-role-policy-document "$TRUST_POLICY_JSON" \
     --tags Key=Project,Value=GrandCanyonCouncilChatbot Key=ManagedBy,Value=deploy.sh >/dev/null
 fi
 aws_cli iam attach-role-policy \
@@ -211,7 +209,7 @@ aws_cli s3api put-bucket-encryption \
 aws_cli s3api put-bucket-versioning \
   --bucket "$SOURCE_BUCKET" \
   --versioning-configuration Status=Enabled
-cat > "$LIFECYCLE_FILE" <<'JSON'
+LIFECYCLE_JSON="$(cat <<'JSON'
 {
   "Rules": [
     {
@@ -224,15 +222,16 @@ cat > "$LIFECYCLE_FILE" <<'JSON'
   ]
 }
 JSON
+)"
 aws_cli s3api put-bucket-lifecycle-configuration \
   --bucket "$SOURCE_BUCKET" \
-  --lifecycle-configuration "file://$LIFECYCLE_FILE"
+  --lifecycle-configuration "$LIFECYCLE_JSON"
 
 git -C "$SCRIPT_DIR" archive --format=zip --output "$SOURCE_ARCHIVE" HEAD
 aws_cli s3 cp "$SOURCE_ARCHIVE" "s3://$SOURCE_BUCKET/$SOURCE_KEY" --only-show-errors
 ok "Uploaded reviewed source: s3://$SOURCE_BUCKET/$SOURCE_KEY"
 
-cat > "$PROJECT_FILE" <<JSON
+PROJECT_JSON="$(cat <<JSON
 {
   "name": "${PROJECT_NAME}",
   "description": "Unified sandbox deployment for GCC Chat",
@@ -272,17 +271,18 @@ cat > "$PROJECT_FILE" <<JSON
   ]
 }
 JSON
+)"
 
 info "Creating or updating CodeBuild project: $PROJECT_NAME"
 if [[ "$(aws_cli codebuild batch-get-projects \
   --names "$PROJECT_NAME" \
   --query 'projects[0].name' \
   --output text 2>/dev/null || true)" == "$PROJECT_NAME" ]]; then
-  aws_cli codebuild update-project --cli-input-json "file://$PROJECT_FILE" >/dev/null
+  aws_cli codebuild update-project --cli-input-json "$PROJECT_JSON" >/dev/null
 else
   # New IAM roles can take a few seconds to become assumable by CodeBuild.
   sleep 10
-  aws_cli codebuild create-project --cli-input-json "file://$PROJECT_FILE" >/dev/null
+  aws_cli codebuild create-project --cli-input-json "$PROJECT_JSON" >/dev/null
 fi
 ok "CodeBuild project ready"
 
