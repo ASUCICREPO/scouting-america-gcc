@@ -46,19 +46,18 @@ phases:
         DASHBOARD_API_URL="$(stack_output DashboardApiUrl)"
         USER_POOL_ID="$(stack_output UserPoolId)"
         CLIENT_ID="$(stack_output UserPoolClientId)"
-        PUBLIC_FRONTEND_BUCKET="$(stack_output PublicFrontendBucket)"
-        PUBLIC_FRONTEND_DIST_ID="$(stack_output PublicFrontendDistributionId)"
-        PUBLIC_FRONTEND_URL="$(stack_output PublicFrontendUrl)"
-        ADMIN_FRONTEND_BUCKET="$(stack_output AdminFrontendBucket)"
-        ADMIN_FRONTEND_DIST_ID="$(stack_output AdminFrontendDistributionId)"
-        ADMIN_FRONTEND_URL="$(stack_output AdminFrontendUrl)"
+        FRONTEND_BUCKET="$(stack_output FrontendBucket)"
+        FRONTEND_DIST_ID="$(stack_output FrontendDistributionId)"
+        FRONTEND_URL="$(stack_output FrontendUrl)"
 
         test -n "$CHAT_API_URL"
         test "$CHAT_API_URL" != "None"
-        test -n "$PUBLIC_FRONTEND_BUCKET"
-        test "$PUBLIC_FRONTEND_BUCKET" != "None"
-        test -n "$ADMIN_FRONTEND_BUCKET"
-        test "$ADMIN_FRONTEND_BUCKET" != "None"
+        test -n "$FRONTEND_BUCKET"
+        test "$FRONTEND_BUCKET" != "None"
+        test -n "$FRONTEND_DIST_ID"
+        test "$FRONTEND_DIST_ID" != "None"
+        test -n "$FRONTEND_URL"
+        test "$FRONTEND_URL" != "None"
 
         CHAT_API_URL="${CHAT_API_URL%/}"
         DASHBOARD_API_URL="${DASHBOARD_API_URL%/}"
@@ -76,36 +75,20 @@ phases:
         npm run build
         test -d out
 
-        echo "Publishing the public chat to its private S3 origin"
-        aws s3 sync out "s3://$PUBLIC_FRONTEND_BUCKET" \
-          --delete \
-          --exclude "dashboard/*" \
-          --exclude "login/*" \
-          --region "$AWS_REGION"
-        aws s3 rm "s3://$PUBLIC_FRONTEND_BUCKET/dashboard/" \
-          --recursive \
-          --region "$AWS_REGION"
-        aws s3 rm "s3://$PUBLIC_FRONTEND_BUCKET/login/" \
-          --recursive \
-          --region "$AWS_REGION"
-
-        echo "Publishing the admin application to its private S3 origin"
-        aws s3 sync out "s3://$ADMIN_FRONTEND_BUCKET" \
+        echo "Publishing the complete frontend to its private S3 origin"
+        aws s3 sync out "s3://$FRONTEND_BUCKET" \
           --delete \
           --region "$AWS_REGION"
 
         aws cloudfront create-invalidation \
-          --distribution-id "$PUBLIC_FRONTEND_DIST_ID" \
-          --paths "/*" \
-          --region "$AWS_REGION" >/dev/null
-        aws cloudfront create-invalidation \
-          --distribution-id "$ADMIN_FRONTEND_DIST_ID" \
+          --distribution-id "$FRONTEND_DIST_ID" \
           --paths "/*" \
           --region "$AWS_REGION" >/dev/null
 
         echo "GCC deployment complete"
-        echo "Public chat: $PUBLIC_FRONTEND_URL"
-        echo "Admin dashboard: $ADMIN_FRONTEND_URL"
+        echo "Public chat: $FRONTEND_URL"
+        echo "Admin login: $FRONTEND_URL/admin"
+        echo "Admin dashboard: $FRONTEND_URL/dashboard"
 
   post_build:
     commands:

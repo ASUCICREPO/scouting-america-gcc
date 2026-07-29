@@ -269,7 +269,7 @@ The repository includes:
 
 **Challenge:** Large multi-file/folder uploads through Lambda would add payload limits and cost; direct S3 uploads require careful CORS and key handling.
 
-**Resolution:** The dashboard uses size-enforced presigned S3 POST policies, mirrored relative paths, type validation, progress reporting, short expiration, and `uploads/` key validation. Upload CORS trusts only the separate admin CloudFront origin.
+**Resolution:** The dashboard uses size-enforced presigned S3 POST policies, mirrored relative paths, type validation, progress reporting, short expiration, and `uploads/` key validation. Upload CORS trusts only the deployed CloudFront frontend origin.
 
 ### Deployment Environment Collisions
 

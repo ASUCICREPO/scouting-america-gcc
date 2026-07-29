@@ -32,7 +32,7 @@ Do not assume the public and dashboard API IDs are the same.
 | `X-Session-Token` | Required after the first turn | Not used | Anonymous bearer credential returned when a chat is created |
 | `Authorization: ID_TOKEN` | Not used | Required | Raw Cognito ID token containing the `admin` group |
 
-The public and admin applications use separate CloudFront distributions. Public API CORS is limited to the public distribution; dashboard API and upload-bucket CORS are limited to the admin distribution.
+The public chat and admin application share one CloudFront origin. Both APIs and the upload bucket restrict browser CORS to that exact origin; dashboard API routes additionally require a valid Cognito ID token containing the `admin` group.
 
 ## Public Chat API
 

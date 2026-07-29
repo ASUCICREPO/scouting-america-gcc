@@ -12,6 +12,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const router = useRouter();
   const pathname = usePathname();
   const mounted = useSyncExternalStore(() => () => {}, () => true, () => false);
+  const authenticated = mounted && isAuthenticated();
   const [showProfileMenu, setShowProfileMenu] = useState(false);
   const profileRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -19,10 +20,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const { t } = useLanguage();
 
   useEffect(() => {
-    if (!isAuthenticated()) {
-      router.push('/login');
+    if (mounted && !authenticated) {
+      router.replace('/admin');
     }
+  }, [authenticated, mounted, router]);
 
+  useEffect(() => {
     // Close profile menu on outside click
     function handleClickOutside(e: MouseEvent) {
       if (profileRef.current && !profileRef.current.contains(e.target as Node)) {
@@ -31,9 +34,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     }
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [router]);
+  }, []);
 
-  if (!mounted) return null;
+  // Do not render the dashboard shell or its static children until the browser
+  // has confirmed a current admin token. API Gateway and Lambda perform the
+  // authoritative authorization checks for every data request.
+  if (!authenticated) return null;
 
   const navItems = [
     { label: t.dashboard.navOverview, href: '/dashboard', icon: LayoutDashboard },

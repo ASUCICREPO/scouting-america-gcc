@@ -1,5 +1,8 @@
 'use client';
 
+// Canonical administrator sign-in route. The public application intentionally
+// exposes no second login alias.
+
 import { useState, useEffect, useSyncExternalStore } from 'react';
 import { useRouter } from 'next/navigation';
 import { login, isAuthenticated } from '@/lib/dashboard/auth';
@@ -30,7 +33,7 @@ export default function LoginPage() {
 
   useEffect(() => {
     if (isAuthenticated()) {
-      router.push('/dashboard');
+      router.replace('/dashboard');
     }
   }, [router]);
 
@@ -43,7 +46,7 @@ export default function LoginPage() {
     const result = await login(email, password);
     setLoading(false);
     if (result.success) {
-      router.push('/dashboard');
+      router.replace('/dashboard');
     } else {
       setError(result.error || t.login.loginFailed);
     }

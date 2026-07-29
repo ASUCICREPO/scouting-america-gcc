@@ -6,7 +6,7 @@ Scout AI is a bilingual English/Spanish support assistant for Scouting America's
 
 ![Grand Canyon Council Scout AI architecture](./docs/media/architecture.png)
 
-The Next.js application is exported into separate private S3/CloudFront public and admin surfaces. Public chat requests use API Gateway, Lambda, Bedrock Guardrails, and an Amazon Bedrock Knowledge Base backed by S3 Vectors. Admin routes use a separate Cognito-protected API and origin. Uploaded documents enter a bounded SQS worker before Bedrock ingestion.
+The Next.js application is exported to one private S3 origin behind CloudFront. Public chat requests use API Gateway, Lambda, Bedrock Guardrails, and an Amazon Bedrock Knowledge Base backed by S3 Vectors. Admin pages share the frontend origin but use a separate Cognito-protected API. Uploaded documents enter a bounded SQS worker before Bedrock ingestion.
 
 See the [Architecture Deep Dive](./docs/architectureDeepDive.md) for component, data-flow, security, scaling, and architectural-decision details.
 
@@ -78,7 +78,7 @@ See the [Development Guide](./docs/developmentGuide.md) for the complete workflo
 
 ## Deployment
 
-The deployment script installs dependencies, deploys the `GrandCanyonCouncilChatbot` CDK stack, writes the frontend environment, builds the static export, publishes isolated public/admin S3 origins, and invalidates both CloudFront distributions.
+The deployment script installs dependencies, deploys the `GrandCanyonCouncilChatbot` CDK stack, writes the frontend environment, builds the static export, publishes it to one private S3 origin, and invalidates the CloudFront distribution. The public chat is served at `/`; administrators sign in at `/admin` and use the protected application under `/dashboard`.
 
 ```bash
 RESOURCE_PREFIX=demo ./deploy.sh

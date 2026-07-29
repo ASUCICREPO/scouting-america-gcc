@@ -35,7 +35,7 @@ def load_module():
         "KB_BUCKET": "kb-bucket",
         "KNOWLEDGE_BASE_ID": "kb-id",
         "DATA_SOURCE_ID": "data-source-id",
-        "ALLOWED_ORIGIN": "https://admin.example",
+        "ALLOWED_ORIGIN": "https://frontend.example",
     })
     fake_s3 = FakeS3()
     path = Path(__file__).parents[1] / "lambda" / "dashboard" / "index.py"
@@ -73,11 +73,11 @@ class DashboardSecurityTests(unittest.TestCase):
         body = json.loads(result["body"])
         self.assertEqual(body["fields"], {"policy": "signed-policy"})
 
-    def test_response_cors_is_scoped_to_admin_origin(self):
+    def test_response_cors_is_scoped_to_frontend_origin(self):
         result = self.module.respond(self.module.HttpStatus.OK, {"ok": True})
         self.assertEqual(
             result["headers"]["Access-Control-Allow-Origin"],
-            "https://admin.example",
+            "https://frontend.example",
         )
 
 

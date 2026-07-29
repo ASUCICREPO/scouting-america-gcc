@@ -163,16 +163,13 @@ describe('Failure observability', () => {
 });
 
 describe('CloudFront static route rewriting', () => {
-  test('isolates public chat and admin dashboard in two distributions', () => {
-    template.resourceCountIs('AWS::CloudFront::Distribution', 2);
-    template.resourceCountIs('AWS::CloudFront::Function', 2);
+  test('hosts the public chat and protected dashboard on one distribution', () => {
+    template.resourceCountIs('AWS::CloudFront::Distribution', 1);
+    template.resourceCountIs('AWS::CloudFront::Function', 1);
     template.hasResourceProperties('AWS::CloudFront::Distribution', {
       DistributionConfig: {
-        DefaultRootObject: 'login/index.html',
+        DefaultRootObject: 'index.html',
       },
-    });
-    template.hasResourceProperties('AWS::CloudFront::Function', {
-      FunctionCode: Match.stringLikeRegexp("uri === '/dashboard'"),
     });
   });
 
@@ -200,7 +197,7 @@ describe('CloudFront static route rewriting', () => {
 });
 
 describe('Origin and session hardening', () => {
-  test('scopes upload CORS to the admin distribution', () => {
+  test('scopes upload CORS to the deployed frontend distribution', () => {
     const buckets = Object.values(template.findResources('AWS::S3::Bucket'));
     const documentBucket = buckets.find(
       (resource) => resource.Properties?.BucketName === 'gcc-document-store',
@@ -219,18 +216,34 @@ describe('Origin and session hardening', () => {
     });
   });
 
-  test('passes distinct CloudFront origins to public and admin Lambdas', () => {
-    template.hasResourceProperties('AWS::Lambda::Function', {
-      FunctionName: 'GCC-ChatHandler',
-      Environment: {
-        Variables: Match.objectLike({ ALLOWED_ORIGIN: Match.anyValue() }),
-      },
-    });
-    template.hasResourceProperties('AWS::Lambda::Function', {
-      FunctionName: 'GCC-AdminDashboard',
-      Environment: {
-        Variables: Match.objectLike({ ALLOWED_ORIGIN: Match.anyValue() }),
-      },
-    });
+  test('requires Cognito authorization on every dashboard API method', () => {
+    const methods = Object.entries(template.findResources('AWS::ApiGateway::Method'))
+      .filter(([logicalId, resource]) =>
+        logicalId.startsWith('DashboardApi') && resource.Properties?.HttpMethod !== 'OPTIONS',
+      )
+      .map(([, resource]) => resource.Properties);
+
+    expect(methods).toHaveLength(13);
+    for (const method of methods) {
+      expect(method.AuthorizationType).toBe('COGNITO_USER_POOLS');
+      expect(method.AuthorizerId).toBeDefined();
+    }
+  });
+
+  test('uses the same scoped CloudFront origin for public and admin APIs', () => {
+    const functions = Object.values(template.findResources('AWS::Lambda::Function'));
+    const chatFunction = functions.find(
+      (resource) => resource.Properties?.FunctionName === 'GCC-ChatHandler',
+    );
+    const dashboardFunction = functions.find(
+      (resource) => resource.Properties?.FunctionName === 'GCC-AdminDashboard',
+    );
+
+    const chatOrigin = chatFunction?.Properties?.Environment?.Variables?.ALLOWED_ORIGIN;
+    const dashboardOrigin = dashboardFunction?.Properties?.Environment?.Variables?.ALLOWED_ORIGIN;
+
+    expect(chatOrigin).toBeDefined();
+    expect(dashboardOrigin).toEqual(chatOrigin);
+    expect(JSON.stringify(chatOrigin)).not.toContain('*');
   });
 });

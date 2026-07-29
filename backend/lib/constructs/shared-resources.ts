@@ -8,7 +8,7 @@ import { Construct } from 'constructs';
 import { CONFIG } from '../config/environment';
 
 export interface SharedResourcesProps {
-  adminOrigin: string;
+  allowedOrigin: string;
 }
 
 export class SharedResources extends Construct {
@@ -43,11 +43,11 @@ export class SharedResources extends Construct {
       blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
       removalPolicy: cdk.RemovalPolicy.RETAIN,
       enforceSSL: true,
-      // Only the isolated admin CloudFront surface may use presigned uploads.
+      // Only the deployed CloudFront frontend may use presigned uploads.
       cors: [
         {
           allowedMethods: [s3.HttpMethods.POST, s3.HttpMethods.GET, s3.HttpMethods.HEAD],
-          allowedOrigins: [props.adminOrigin],
+          allowedOrigins: [props.allowedOrigin],
           allowedHeaders: ['*'],
           exposedHeaders: ['ETag'],
           maxAge: 3000,
