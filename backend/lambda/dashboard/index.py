@@ -4,51 +4,63 @@ Single Cognito-authenticated admin surface. All routes require the caller to be
 in the 'admin' group (validated here in addition to the API Gateway authorizer).
 """
 
+import hashlib
 import json
 import os
 import re
+import time
+import urllib.parse
+import uuid
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from enum import IntEnum
 
 import boto3
 from boto3.dynamodb.conditions import Key
+from botocore.exceptions import ClientError
 from pydantic import BaseModel, ConfigDict, Field
 
 ddb = boto3.resource("dynamodb")
 s3 = boto3.client("s3")
 bedrock_agent = boto3.client("bedrock-agent")
+sqs = boto3.client("sqs")
 
 CHAT_LOGS_TABLE = os.environ["CHAT_LOGS_TABLE"]
 ANALYTICS_LOGS_TABLE = os.environ["ANALYTICS_LOGS_TABLE"]
+DOCUMENT_BATCHES_TABLE = os.environ["DOCUMENT_BATCHES_TABLE"]
 DOCUMENT_BUCKET = os.environ["DOCUMENT_BUCKET"]
 KB_BUCKET = os.environ["KB_BUCKET"]
 KNOWLEDGE_BASE_ID = os.environ["KNOWLEDGE_BASE_ID"]
 DATA_SOURCE_ID = os.environ["DATA_SOURCE_ID"]
+DOCUMENT_SYNC_QUEUE_URL = os.environ["DOCUMENT_SYNC_QUEUE_URL"]
 ALLOWED_ORIGIN = os.environ["ALLOWED_ORIGIN"]
 
 chat_table = ddb.Table(CHAT_LOGS_TABLE)
 analytics_table = ddb.Table(ANALYTICS_LOGS_TABLE)
+document_batches_table = ddb.Table(DOCUMENT_BATCHES_TABLE)
 
-ALLOWED_CONTENT_TYPES = [
-    # Documents
-    "application/pdf",
-    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",  # .docx
-    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",  # .xlsx
-    "application/vnd.openxmlformats-officedocument.presentationml.presentation",  # .pptx
-    "application/msword",
-    "application/vnd.ms-excel",
-    # Text / data
-    "text/csv",
-    "text/plain",  # .txt
-    # Images
-    "image/svg+xml",
-    "image/png",
-    "image/jpeg",
-]
 MAX_FILE_SIZE_BYTES = 25 * 1024 * 1024
+MAX_UPLOAD_BATCH_FILES = 500
+UPLOAD_BATCH_TTL_SECONDS = 7 * 24 * 60 * 60
+UPLOAD_BATCH_ID_RE = re.compile(r"^[a-f0-9]{32}$")
 
-
+# Extension and MIME type are validated together. This is a conservative subset
+# of the formats handled by the configured default Bedrock parser. Active SVG,
+# images, presentations, executables, and generic archives are intentionally
+# excluded.
+ALLOWED_FILE_TYPES = {
+    ".csv": ("text/csv", MAX_FILE_SIZE_BYTES),
+    ".docx": (
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        MAX_FILE_SIZE_BYTES,
+    ),
+    ".pdf": ("application/pdf", MAX_FILE_SIZE_BYTES),
+    ".txt": ("text/plain", MAX_FILE_SIZE_BYTES),
+    ".xlsx": (
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        MAX_FILE_SIZE_BYTES,
+    ),
+}
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
 class HttpStatus(IntEnum):
@@ -143,15 +155,16 @@ def validate_admin(event):
 
 
 def validate_s3_key(key: str, allowed_prefix: str) -> bool:
-    if not key:
+    if not isinstance(key, str) or not key.startswith(allowed_prefix):
         return False
-    if ".." in key:
+    relative = key[len(allowed_prefix):]
+    if not relative or len(relative) > 500:
         return False
-    if not key.startswith(allowed_prefix):
+    if ".." in relative or "//" in relative:
         return False
-    if re.search(r"[\x00-\x1f]", key):
+    if re.search(r"[\x00-\x1f\x7f]", relative):
         return False
-    return True
+    return all(segment and segment == segment.strip() and segment != "." for segment in relative.split("/"))
 
 
 def sanitize_relative_path(relative_path: str) -> str:
@@ -162,32 +175,113 @@ def sanitize_relative_path(relative_path: str) -> str:
     under the ``uploads/`` prefix in S3. Path-traversal (``..``), leading
     slashes, control characters, and empty/``.`` segments are stripped.
     """
-    if not relative_path:
+    if not isinstance(relative_path, str) or not relative_path:
         return ""
-    # Normalize Windows separators, drop any leading slashes.
-    normalized = relative_path.replace("\\", "/").lstrip("/")
-    segments = []
-    for raw in normalized.split("/"):
-        seg = raw.replace("..", "").strip()
-        if not seg or seg == ".":
-            continue
-        seg = re.sub(r"[\x00-\x1f]", "", seg)
-        if not seg:
-            continue
-        segments.append(seg)
-    safe = "/".join(segments)
-    if len(safe) > 500:
-        safe = safe[:500]
-    return safe
+    normalized = relative_path.replace("\\", "/")
+    if normalized.startswith("/") or len(normalized) > 500:
+        return ""
+    segments = normalized.split("/")
+    if any(
+        not segment
+        or segment != segment.strip()
+        or segment == "."
+        or ".." in segment
+        or re.search(r"[\x00-\x1f\x7f]", segment)
+        for segment in segments
+    ):
+        return ""
+    return normalized
 
 
-def sync_knowledge_base():
+def _file_extension(path: str) -> str:
+    name = path.rsplit("/", 1)[-1]
+    if "." not in name:
+        return ""
+    return f".{name.rsplit('.', 1)[-1].lower()}"
+
+
+def validate_upload_file(file_request):
+    """Return normalized upload metadata or a user-facing validation error."""
+    if not isinstance(file_request, dict):
+        return None, "Each file must be an object"
+
+    relative_path = sanitize_relative_path(file_request.get("relativePath"))
+    if not relative_path:
+        return None, "Invalid relativePath"
+
+    extension = _file_extension(relative_path)
+    type_config = ALLOWED_FILE_TYPES.get(extension)
+    if not type_config:
+        return None, f"File extension not allowed: {extension or '(none)'}"
+
+    expected_content_type, max_size = type_config
+    content_type = file_request.get("contentType")
+    if content_type != expected_content_type:
+        return None, f"Content type does not match {extension}"
+
+    file_size = file_request.get("size")
+    if isinstance(file_size, bool) or not isinstance(file_size, int) or file_size < 1:
+        return None, "File size must be a positive integer"
+    if file_size > max_size:
+        return None, f"File exceeds the {max_size}-byte limit for {extension}"
+
+    return {
+        "relativePath": relative_path,
+        "contentType": content_type,
+        "size": file_size,
+        "maxSizeBytes": max_size,
+        "key": f"uploads/{relative_path}",
+    }, None
+
+
+def _batch_token(key: str) -> str:
+    return hashlib.sha256(key.encode("utf-8")).hexdigest()
+
+
+def _queue_batch_sync(batch_id: str):
+    sqs.send_message(
+        QueueUrl=DOCUMENT_SYNC_QUEUE_URL,
+        MessageBody=json.dumps({"type": "document_batch_sync", "batchId": batch_id}),
+        MessageGroupId=KNOWLEDGE_BASE_ID,
+        MessageDeduplicationId=hashlib.sha256(f"batch:{batch_id}".encode("utf-8")).hexdigest(),
+    )
+
+
+def _complete_batch_if_ready(batch):
+    processed = set(batch.get("processedTokens") or [])
+    expected_count = int(batch.get("expectedCount") or 0)
+    status = batch.get("status", "uploading")
+    if status == "ready":
+        # Re-sending the deterministic FIFO deduplication ID is safe and
+        # repairs a prior attempt that committed the state transition but
+        # failed before SQS acknowledged the message.
+        _queue_batch_sync(batch["batchId"])
+        return status
+    if len(processed) < expected_count or status != "uploading":
+        return status
+
+    accepted = set(batch.get("acceptedTokens") or [])
+    new_status = "ready" if accepted else "failed"
     try:
-        bedrock_agent.start_ingestion_job(
-            knowledgeBaseId=KNOWLEDGE_BASE_ID, dataSourceId=DATA_SOURCE_ID
+        document_batches_table.update_item(
+            Key={"batchId": batch["batchId"]},
+            UpdateExpression="SET #status = :status, completedAt = :completed_at",
+            ConditionExpression="#status = :uploading",
+            ExpressionAttributeNames={"#status": "status"},
+            ExpressionAttributeValues={
+                ":status": new_status,
+                ":uploading": "uploading",
+                ":completed_at": datetime.now(timezone.utc).isoformat(),
+            },
         )
-    except Exception as err:  # noqa: BLE001 - best effort; one job per source
-        print(f"Failed to start KB ingestion after document change: {err}")
+    except ClientError as err:
+        if err.response.get("Error", {}).get("Code") != "ConditionalCheckFailedException":
+            raise
+        return batch.get("status", "uploading")
+
+    if new_status == "ready":
+        _queue_batch_sync(batch["batchId"])
+    return new_status
 
 
 def scan_with_time_filter(table, days_back=None):
@@ -604,21 +698,27 @@ def doc_ingestion_status(last_modified, state):
 
 
 def get_documents(event):
-    listed = s3.list_objects_v2(Bucket=DOCUMENT_BUCKET, Prefix="uploads/")
     state = get_ingestion_state()
     documents = []
-    for obj in listed.get("Contents", []):
-        key = obj.get("Key")
-        if not key or key == "uploads/":
-            continue
-        last_modified = obj.get("LastModified")
-        documents.append({
-            "key": key,
-            "fileName": key[len("uploads/"):],
-            "fileSize": obj.get("Size", 0),
-            "lastModified": last_modified.astimezone(timezone.utc).isoformat().replace("+00:00", "Z") if last_modified else "",
-            "status": doc_ingestion_status(last_modified, state),
-        })
+    list_request = {"Bucket": DOCUMENT_BUCKET, "Prefix": "uploads/"}
+    while True:
+        listed = s3.list_objects_v2(**list_request)
+        for obj in listed.get("Contents", []):
+            key = obj.get("Key")
+            if not key or key == "uploads/":
+                continue
+            last_modified = obj.get("LastModified")
+            documents.append({
+                "key": key,
+                "fileName": key[len("uploads/"):],
+                "fileSize": obj.get("Size", 0),
+                "lastModified": last_modified.astimezone(timezone.utc).isoformat().replace("+00:00", "Z") if last_modified else "",
+                "status": doc_ingestion_status(last_modified, state),
+            })
+        continuation_token = listed.get("NextContinuationToken")
+        if not continuation_token:
+            break
+        list_request["ContinuationToken"] = continuation_token
     documents.sort(key=lambda d: d["lastModified"], reverse=True)
     return respond(HttpStatus.OK, {
         "documents": documents,
@@ -633,70 +733,225 @@ def get_document_download_url(event):
         return respond(HttpStatus.BAD_REQUEST, {"message": "key parameter is required"})
     if not validate_s3_key(key, "uploads/"):
         return respond(HttpStatus.FORBIDDEN, {"message": "Invalid document key"})
+    filename = urllib.parse.quote(key.rsplit("/", 1)[-1], safe="")
     url = s3.generate_presigned_url(
-        "get_object", Params={"Bucket": DOCUMENT_BUCKET, "Key": key}, ExpiresIn=300
+        "get_object",
+        Params={
+            "Bucket": DOCUMENT_BUCKET,
+            "Key": key,
+            "ResponseContentDisposition": f"attachment; filename*=UTF-8''{filename}",
+            "ResponseContentType": "application/octet-stream",
+        },
+        ExpiresIn=300,
     )
     return respond(HttpStatus.OK, {"url": url, "key": key})
 
 
 def delete_document(event):
-    key = _qs(event, "key")
-    if not key:
-        return respond(HttpStatus.BAD_REQUEST, {"message": "key parameter is required"})
-    if not validate_s3_key(key, "uploads/"):
-        return respond(HttpStatus.FORBIDDEN, {"message": "Invalid document key"})
-
-    s3.delete_object(Bucket=DOCUMENT_BUCKET, Key=key)
-
-    # Remove the copy from the KB bucket so it stops being ingested
-    kb_key = f"documents/{key[len('uploads/'):]}"
-    try:
-        s3.delete_object(Bucket=KB_BUCKET, Key=kb_key)
-    except Exception:  # noqa: BLE001 - fine if the KB copy doesn't exist
-        print(f"KB bucket delete skipped: {kb_key}")
-
-    # Re-sync so the deleted document's vectors are removed
-    sync_knowledge_base()
-    return respond(HttpStatus.OK, {"status": "deleted", "key": key})
-
-
-def get_upload_url(event):
     try:
         body = json.loads(event.get("body") or "{}")
     except json.JSONDecodeError:
         return respond(HttpStatus.BAD_REQUEST, {"message": "Request body must be valid JSON"})
+    if not isinstance(body, dict):
+        return respond(HttpStatus.BAD_REQUEST, {"message": "Request body must be a JSON object"})
 
-    # Prefer a folder-qualified relativePath (mirrors dropped folder structure);
-    # fall back to a flat fileName for single-file uploads / older clients.
-    relative_path = body.get("relativePath") or body.get("fileName")
-    content_type = body.get("contentType")
-    if not relative_path:
-        return respond(HttpStatus.BAD_REQUEST, {"message": "relativePath or fileName is required"})
+    keys = body.get("keys")
+    if keys is None:
+        query_key = _qs(event, "key")
+        keys = [query_key] if query_key else []
+    if not isinstance(keys, list) or not keys or len(keys) > 100:
+        return respond(HttpStatus.BAD_REQUEST, {"message": "keys must contain 1 to 100 document keys"})
+    if any(not validate_s3_key(key, "uploads/") for key in keys):
+        return respond(HttpStatus.FORBIDDEN, {"message": "Invalid document key"})
+    if len(set(keys)) != len(keys):
+        return respond(HttpStatus.BAD_REQUEST, {"message": "Duplicate document keys are not allowed"})
 
-    safe_path = sanitize_relative_path(relative_path)
-    if not safe_path:
-        return respond(HttpStatus.BAD_REQUEST, {"message": "Invalid file path"})
+    kb_keys = {f"documents/{key[len('uploads/')]}": key for key in keys}
 
-    ct = content_type or "application/pdf"
-    if ct not in ALLOWED_CONTENT_TYPES:
-        return respond(HttpStatus.BAD_REQUEST, {"message": f"Content type not allowed. Allowed: {', '.join(ALLOWED_CONTENT_TYPES)}"})
+    def delete_from_bucket(bucket, object_keys):
+        try:
+            result = s3.delete_objects(
+                Bucket=bucket,
+                Delete={"Objects": [{"Key": key} for key in object_keys], "Quiet": True},
+            )
+            return {error.get("Key") for error in result.get("Errors", []) if error.get("Key")}
+        except ClientError as err:
+            print(f"Bulk document delete failed in {bucket}: {err}")
+            return set(object_keys)
 
-    key = f"uploads/{safe_path}"
-    upload = s3.generate_presigned_post(
-        Bucket=DOCUMENT_BUCKET,
-        Key=key,
-        Fields={"Content-Type": ct},
-        Conditions=[
-            {"Content-Type": ct},
-            ["content-length-range", 1, MAX_FILE_SIZE_BYTES],
-        ],
-        ExpiresIn=300,
-    )
+    raw_failures = delete_from_bucket(DOCUMENT_BUCKET, keys)
+    kb_failures = delete_from_bucket(KB_BUCKET, list(kb_keys))
+    failed_keys = [
+        key for key in keys
+        if key in raw_failures or f"documents/{key[len('uploads/'):]}" in kb_failures
+    ]
+    deleted_keys = [key for key in keys if key not in failed_keys]
+
+    # A successful KB delete changes the retrieval corpus even if removing the
+    # matching raw object failed, so always serialize a sync for that mutation.
+    if len(kb_failures) < len(kb_keys):
+        change_id = uuid.uuid4().hex
+        sqs.send_message(
+            QueueUrl=DOCUMENT_SYNC_QUEUE_URL,
+            MessageBody=json.dumps({"type": "document_change_sync", "changeId": change_id}),
+            MessageGroupId=KNOWLEDGE_BASE_ID,
+            MessageDeduplicationId=hashlib.sha256(f"delete:{change_id}".encode("utf-8")).hexdigest(),
+        )
+
     return respond(HttpStatus.OK, {
-        "url": upload["url"],
-        "fields": upload["fields"],
-        "key": key,
-        "maxSizeBytes": MAX_FILE_SIZE_BYTES,
+        "status": "deleted" if not failed_keys else "partial",
+        "deletedKeys": deleted_keys,
+        "failedKeys": failed_keys,
+    })
+
+
+def create_upload_batch(event):
+    try:
+        body = json.loads(event.get("body") or "{}")
+    except json.JSONDecodeError:
+        return respond(HttpStatus.BAD_REQUEST, {"message": "Request body must be valid JSON"})
+    if not isinstance(body, dict):
+        return respond(HttpStatus.BAD_REQUEST, {"message": "Request body must be a JSON object"})
+
+    files = body.get("files")
+    if not isinstance(files, list) or not files:
+        return respond(HttpStatus.BAD_REQUEST, {"message": "files must be a non-empty array"})
+    if len(files) > MAX_UPLOAD_BATCH_FILES:
+        return respond(
+            HttpStatus.BAD_REQUEST,
+            {"message": f"A batch may contain at most {MAX_UPLOAD_BATCH_FILES} files"},
+        )
+
+    validated = []
+    seen_keys = set()
+    for index, file_request in enumerate(files):
+        upload_file, error = validate_upload_file(file_request)
+        if error:
+            return respond(HttpStatus.BAD_REQUEST, {"message": f"files[{index}]: {error}"})
+        if upload_file["key"] in seen_keys:
+            return respond(
+                HttpStatus.BAD_REQUEST,
+                {"message": f"Duplicate upload path: {upload_file['relativePath']}"},
+            )
+        seen_keys.add(upload_file["key"])
+        validated.append(upload_file)
+
+    batch_id = uuid.uuid4().hex
+    uploads = []
+    for upload_file in validated:
+        content_type = upload_file["contentType"]
+        metadata_field = "x-amz-meta-upload-batch-id"
+        upload = s3.generate_presigned_post(
+            Bucket=DOCUMENT_BUCKET,
+            Key=upload_file["key"],
+            Fields={
+                "Content-Type": content_type,
+                metadata_field: batch_id,
+            },
+            Conditions=[
+                {"Content-Type": content_type},
+                {metadata_field: batch_id},
+                ["content-length-range", upload_file["size"], upload_file["size"]],
+            ],
+            ExpiresIn=300,
+        )
+        uploads.append({
+            "relativePath": upload_file["relativePath"],
+            "url": upload["url"],
+            "fields": upload["fields"],
+            "key": upload_file["key"],
+            "maxSizeBytes": upload_file["maxSizeBytes"],
+        })
+
+    now = int(time.time())
+    document_batches_table.put_item(Item={
+        "batchId": batch_id,
+        "status": "uploading",
+        "expectedCount": len(validated),
+        "expectedKeys": [upload_file["key"] for upload_file in validated],
+        "createdAt": datetime.now(timezone.utc).isoformat(),
+        "expiresAt": now + UPLOAD_BATCH_TTL_SECONDS,
+    })
+
+    return respond(HttpStatus.OK, {
+        "batchId": batch_id,
+        "uploads": uploads,
+        "expiresIn": 300,
+    })
+
+
+def complete_upload_batch(event):
+    """Close an upload batch and account for browser-side transfer failures."""
+    try:
+        body = json.loads(event.get("body") or "{}")
+    except json.JSONDecodeError:
+        return respond(HttpStatus.BAD_REQUEST, {"message": "Request body must be valid JSON"})
+    if not isinstance(body, dict):
+        return respond(HttpStatus.BAD_REQUEST, {"message": "Request body must be a JSON object"})
+
+    batch_id = body.get("batchId")
+    failed_keys = body.get("failedKeys", [])
+    if not isinstance(batch_id, str) or not UPLOAD_BATCH_ID_RE.fullmatch(batch_id):
+        return respond(HttpStatus.BAD_REQUEST, {"message": "Invalid batchId"})
+    if (
+        not isinstance(failed_keys, list)
+        or len(failed_keys) > MAX_UPLOAD_BATCH_FILES
+        or any(not isinstance(key, str) for key in failed_keys)
+    ):
+        return respond(
+            HttpStatus.BAD_REQUEST,
+            {"message": f"failedKeys must contain at most {MAX_UPLOAD_BATCH_FILES} strings"},
+        )
+
+    response = document_batches_table.get_item(Key={"batchId": batch_id}, ConsistentRead=True)
+    batch = response.get("Item")
+    if not batch:
+        return respond(HttpStatus.NOT_FOUND, {"message": "Upload batch not found"})
+
+    expected_keys = set(batch.get("expectedKeys") or [])
+    supplied_failures = set(failed_keys)
+    if not supplied_failures.issubset(expected_keys):
+        return respond(HttpStatus.BAD_REQUEST, {"message": "failedKeys contains an unknown object key"})
+
+    # An XHR can miss S3's success response even though the object landed. Only
+    # mark a reported failure complete when this batch's object is truly absent.
+    confirmed_failures = set()
+    for key in supplied_failures:
+        try:
+            head = s3.head_object(Bucket=DOCUMENT_BUCKET, Key=key)
+            if (head.get("Metadata") or {}).get("upload-batch-id") != batch_id:
+                confirmed_failures.add(key)
+        except ClientError as err:
+            if err.response.get("Error", {}).get("Code") in ("404", "NoSuchKey", "NotFound"):
+                confirmed_failures.add(key)
+            else:
+                raise
+
+    if confirmed_failures:
+        updated = document_batches_table.update_item(
+            Key={"batchId": batch_id},
+            UpdateExpression="SET finalizedAt = :finalized_at ADD processedTokens :tokens",
+            ExpressionAttributeValues={
+                ":tokens": {_batch_token(key) for key in confirmed_failures},
+                ":finalized_at": datetime.now(timezone.utc).isoformat(),
+            },
+            ReturnValues="ALL_NEW",
+        )
+        batch = updated.get("Attributes") or batch
+    else:
+        document_batches_table.update_item(
+            Key={"batchId": batch_id},
+            UpdateExpression="SET finalizedAt = :finalized_at",
+            ExpressionAttributeValues={
+                ":finalized_at": datetime.now(timezone.utc).isoformat(),
+            },
+        )
+
+    status = _complete_batch_if_ready(batch)
+    return respond(HttpStatus.OK, {
+        "batchId": batch_id,
+        "status": status,
+        "failedCount": len(confirmed_failures),
     })
 
 
@@ -717,7 +972,8 @@ ROUTES = {
         "/dashboard/documents/download": get_document_download_url,
     },
     "POST": {
-        "/dashboard/documents/upload": get_upload_url,
+        "/dashboard/documents/upload": create_upload_batch,
+        "/dashboard/documents/upload/complete": complete_upload_batch,
     },
     "DELETE": {
         "/dashboard/documents": delete_document,

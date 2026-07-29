@@ -17,6 +17,8 @@ export interface DocProcessorProps {
   knowledgeBaseBucket: s3.IBucket;
   /** DynamoDB table for analytics logging */
   analyticsTable: dynamodb.ITable;
+  /** Short-lived upload batch coordination state */
+  documentBatchesTable: dynamodb.ITable;
   /** Bedrock Knowledge Base ID */
   knowledgeBaseId: string;
   /** Bedrock Knowledge Base Data Source ID */
@@ -28,6 +30,8 @@ export class DocProcessor extends Construct {
   public readonly function: lambda.Function;
   public readonly processingQueue: sqs.Queue;
   public readonly deadLetterQueue: sqs.Queue;
+  public readonly syncQueue: sqs.Queue;
+  public readonly syncDeadLetterQueue: sqs.Queue;
 
   constructor(scope: Construct, id: string, props: DocProcessorProps) {
     super(scope, id);
@@ -50,28 +54,59 @@ export class DocProcessor extends Construct {
       },
     });
 
+    // S3 cannot publish directly to a FIFO queue, so object events first enter
+    // the standard processing queue above. Once every file in an upload batch
+    // is validated and copied, the worker sends one message here. A single
+    // message group serializes StartIngestionJob for the shared data source.
+    this.syncDeadLetterQueue = new sqs.Queue(this, 'DocSyncDLQ', {
+      queueName: `${PREFIX}GCC-DocSync-DLQ.fifo`,
+      fifo: true,
+      encryption: sqs.QueueEncryption.SQS_MANAGED,
+      enforceSSL: true,
+      retentionPeriod: cdk.Duration.days(14),
+    });
+    this.syncQueue = new sqs.Queue(this, 'DocSyncQueue', {
+      queueName: `${PREFIX}GCC-DocSync-Queue.fifo`,
+      fifo: true,
+      encryption: sqs.QueueEncryption.SQS_MANAGED,
+      enforceSSL: true,
+      retentionPeriod: cdk.Duration.days(14),
+      visibilityTimeout: cdk.Duration.minutes(6),
+      deadLetterQueue: {
+        queue: this.syncDeadLetterQueue,
+        // Large document sets can keep the one allowed Bedrock sync occupied
+        // for an extended period. Retain the next batch for several hours.
+        maxReceiveCount: 40,
+      },
+    });
+
     this.function = new lambda.Function(this, 'DocProcessorFunction', {
       runtime: lambda.Runtime.PYTHON_3_13,
       handler: 'index.handler',
       code: lambda.Code.fromAsset(path.join(__dirname, '../../lambda/doc-processor')),
       timeout: cdk.Duration.minutes(5),
       memorySize: 512,
-      // Keep document jobs from consuming the account's Lambda concurrency and
-      // serialize ingestion starts for this single Bedrock data source.
-      reservedConcurrentExecutions: 2,
+      // Two object workers plus one FIFO-coordinated ingestion invocation.
+      reservedConcurrentExecutions: 3,
       environment: {
         KNOWLEDGE_BASE_BUCKET: props.knowledgeBaseBucket.bucketName,
         ANALYTICS_TABLE: props.analyticsTable.tableName,
+        DOCUMENT_BATCHES_TABLE: props.documentBatchesTable.tableName,
         KNOWLEDGE_BASE_ID: props.knowledgeBaseId,
         DATA_SOURCE_ID: props.dataSourceId,
+        SYNC_QUEUE_URL: this.syncQueue.queueUrl,
       },
-      description: 'Copies uploaded documents to KB bucket and triggers Bedrock ingestion',
+      description: 'Validates queued document batches and coordinates Bedrock ingestion',
       logGroup: new logs.LogGroup(this, 'DocProcessorLogs', {
         retention: logs.RetentionDays.ONE_MONTH,
         removalPolicy: cdk.RemovalPolicy.DESTROY,
       }),
     });
     this.function.addEventSource(new sources.SqsEventSource(this.processingQueue, {
+      batchSize: 1,
+      maxConcurrency: 2,
+    }));
+    this.function.addEventSource(new sources.SqsEventSource(this.syncQueue, {
       batchSize: 1,
       maxConcurrency: 2,
     }));
@@ -85,10 +120,26 @@ export class DocProcessor extends Construct {
     // Grant write access to the analytics DynamoDB table
     props.analyticsTable.grantWriteData(this.function);
 
+    props.documentBatchesTable.grantReadWriteData(this.function);
+    this.syncQueue.grantSendMessages(this.function);
+
+    this.function.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ['s3:PutObject'],
+        resources: [`${props.documentStoreBucket.bucketArn}/quarantine/*`],
+      }),
+    );
+    this.function.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ['s3:DeleteObject', 's3:DeleteObjectVersion'],
+        resources: [`${props.documentStoreBucket.bucketArn}/uploads/*`],
+      }),
+    );
+
     // Grant Bedrock Agent permissions for StartIngestionJob
     this.function.addToRolePolicy(
       new iam.PolicyStatement({
-        actions: ['bedrock:StartIngestionJob'],
+        actions: ['bedrock:StartIngestionJob', 'bedrock:ListIngestionJobs'],
         resources: [
           `arn:aws:bedrock:*:*:knowledge-base/${props.knowledgeBaseId}`,
         ],
