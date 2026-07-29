@@ -67,6 +67,8 @@ export class GrandCanyonCouncilChatbot extends cdk.Stack {
       dependenciesLayer: pythonDependencies.layer,
       guardrailId: aiSafety.guardrailId,
       guardrailVersion: aiSafety.guardrailVersion,
+      promptAttackGuardrailId: aiSafety.promptAttackGuardrailId,
+      promptAttackGuardrailVersion: aiSafety.promptAttackGuardrailVersion,
       promptId: aiSafety.promptId,
       promptVersion: aiSafety.promptVersion,
       allowedOrigin: frontendOrigin,
@@ -74,7 +76,7 @@ export class GrandCanyonCouncilChatbot extends cdk.Stack {
       chatHistoryResource: apiGateway.chatHistoryResource,
       chatFeedbackResource: apiGateway.chatFeedbackResource,
       knowledgeBaseId: knowledgeBase.knowledgeBaseId,
-      escalationFunctionArn: escalationRouter.function.functionArn,
+      escalationQueue: escalationRouter.processingQueue,
     });
 
     // ---------------------------------------------------------------
@@ -133,6 +135,7 @@ export class GrandCanyonCouncilChatbot extends cdk.Stack {
         chatArchive.deadLetterQueue,
       ],
       documentQueue: docProcessor.processingQueue,
+      escalationQueue: escalationRouter.processingQueue,
     });
 
     // ---------------------------------------------------------------

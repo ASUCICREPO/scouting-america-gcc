@@ -4,6 +4,7 @@ import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as apigateway from 'aws-cdk-lib/aws-apigateway';
 import * as logs from 'aws-cdk-lib/aws-logs';
+import * as sqs from 'aws-cdk-lib/aws-sqs';
 import { Construct } from 'constructs';
 import { CONFIG, PREFIX } from '../config/environment';
 import * as path from 'path';
@@ -14,6 +15,8 @@ export interface ChatHandlerProps {
   dependenciesLayer: lambda.ILayerVersion;
   guardrailId: string;
   guardrailVersion: string;
+  promptAttackGuardrailId: string;
+  promptAttackGuardrailVersion: string;
   promptId: string;
   promptVersion: string;
   allowedOrigin: string;
@@ -23,8 +26,8 @@ export interface ChatHandlerProps {
   chatFeedbackResource: apigateway.Resource;
   // Knowledge Base ID — we'll get this from the KB construct
   knowledgeBaseId: string;
-  // Escalation Router Lambda ARN — wire after creating escalation construct
-  escalationFunctionArn?: string;
+  // Durable queue consumed by the Escalation Router.
+  escalationQueue: sqs.IQueue;
 }
 
 export class ChatHandler extends Construct {
@@ -49,10 +52,12 @@ export class ChatHandler extends Construct {
         CHAT_LOGS_TABLE: props.chatLogsTable.tableName,
         GUARDRAIL_ID: props.guardrailId,
         GUARDRAIL_VERSION: props.guardrailVersion,
+        PROMPT_ATTACK_GUARDRAIL_ID: props.promptAttackGuardrailId,
+        PROMPT_ATTACK_GUARDRAIL_VERSION: props.promptAttackGuardrailVersion,
         PROMPT_ID: props.promptId,
         PROMPT_VERSION: props.promptVersion,
         ALLOWED_ORIGIN: props.allowedOrigin,
-        ESCALATION_FUNCTION_ARN: props.escalationFunctionArn || '',
+        ESCALATION_QUEUE_URL: props.escalationQueue.queueUrl,
         CONFIDENCE_THRESHOLD: CONFIG.CONFIDENCE_THRESHOLD.toString(),
         SAFETY_KEYWORDS: JSON.stringify(CONFIG.SAFETY_KEYWORDS),
       },
@@ -80,13 +85,9 @@ export class ChatHandler extends Construct {
       resources: ['*'], // KB resources are account-wide
     }));
 
-    // Grant permissions: invoke Escalation Router Lambda
-    if (props.escalationFunctionArn) {
-      this.function.addToRolePolicy(new iam.PolicyStatement({
-        actions: ['lambda:InvokeFunction'],
-        resources: [props.escalationFunctionArn],
-      }));
-    }
+    // Enqueue safety/low-confidence events without coupling chat latency to
+    // downstream notification delivery.
+    props.escalationQueue.grantSendMessages(this.function);
 
     // Connect to API Gateway: POST /chat (no auth — public endpoint)
     props.chatResource.addMethod('POST', new apigateway.LambdaIntegration(this.function), {

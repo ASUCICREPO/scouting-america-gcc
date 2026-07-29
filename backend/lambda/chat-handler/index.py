@@ -30,7 +30,7 @@ bedrock_agent = boto3.client("bedrock-agent")
 bedrock_retrieval = boto3.client("bedrock-agent-runtime")
 bedrock_runtime = boto3.client("bedrock-runtime")
 ddb = boto3.resource("dynamodb")
-lambda_client = boto3.client("lambda")
+sqs = boto3.client("sqs")
 
 # Environment set by the CDK construct.
 KB_ID = os.environ["KB_ID"]
@@ -38,9 +38,11 @@ MODEL_ARN = os.environ["MODEL_ARN"]
 CHAT_LOGS_TABLE = os.environ["CHAT_LOGS_TABLE"]
 GUARDRAIL_ID = os.environ["GUARDRAIL_ID"]
 GUARDRAIL_VERSION = os.environ["GUARDRAIL_VERSION"]
+PROMPT_ATTACK_GUARDRAIL_ID = os.environ["PROMPT_ATTACK_GUARDRAIL_ID"]
+PROMPT_ATTACK_GUARDRAIL_VERSION = os.environ["PROMPT_ATTACK_GUARDRAIL_VERSION"]
 PROMPT_ID = os.environ["PROMPT_ID"]
 PROMPT_VERSION = os.environ["PROMPT_VERSION"]
-ESCALATION_FUNCTION_ARN = os.environ.get("ESCALATION_FUNCTION_ARN", "")
+ESCALATION_QUEUE_URL = os.environ["ESCALATION_QUEUE_URL"]
 CONFIDENCE_THRESHOLD = float(os.environ.get("CONFIDENCE_THRESHOLD", "0.7"))
 SAFETY_KEYWORDS = json.loads(os.environ.get("SAFETY_KEYWORDS", "[]"))
 ALLOWED_ORIGIN = os.environ["ALLOWED_ORIGIN"]
@@ -315,6 +317,17 @@ def retrieve_chunks(question: str) -> list[RetrievedChunk]:
     return chunks
 
 
+def prompt_attack_detected(question: str) -> bool:
+    """Screen only untrusted user text, before retrieval or prompt rendering."""
+    result = bedrock_runtime.apply_guardrail(
+        guardrailIdentifier=PROMPT_ATTACK_GUARDRAIL_ID,
+        guardrailVersion=PROMPT_ATTACK_GUARDRAIL_VERSION,
+        source="INPUT",
+        content=[{"text": {"text": question}}],
+    )
+    return result.get("action") == "GUARDRAIL_INTERVENED"
+
+
 MAX_HISTORY_TURNS = 10
 
 
@@ -387,17 +400,11 @@ def check_escalation(question: str, answer: str, confidence: float) -> tuple[boo
 
 
 def trigger_escalation(payload: dict[str, Any]) -> None:
-    """Invoke the Escalation Router asynchronously on a best-effort basis."""
-    if not ESCALATION_FUNCTION_ARN:
-        return
-    try:
-        lambda_client.invoke(
-            FunctionName=ESCALATION_FUNCTION_ARN,
-            InvocationType="Event",
-            Payload=json.dumps(payload).encode("utf-8"),
-        )
-    except Exception as error:  # noqa: BLE001 - answering should not depend on alert delivery
-        print(f"Failed to trigger escalation: {error}")
+    """Durably enqueue an escalation before returning the chat response."""
+    sqs.send_message(
+        QueueUrl=ESCALATION_QUEUE_URL,
+        MessageBody=json.dumps(payload, ensure_ascii=False),
+    )
 
 
 def handle_chat(event: dict[str, Any]) -> dict[str, Any]:
@@ -426,6 +433,16 @@ def handle_chat(event: dict[str, Any]) -> dict[str, Any]:
         session_token = secrets.token_urlsafe(32)
     timestamp = _now()
 
+    if prompt_attack_detected(request.question):
+        message = (
+            "No puedo procesar esa solicitud. Por favor, haga una pregunta sobre "
+            "recursos aprobados de GCC o Scouting America."
+            if request.language == "es"
+            else "I cannot process that request. Please ask a question about approved "
+            "GCC or Scouting America resources."
+        )
+        return api_response(HttpStatus.FORBIDDEN, ErrorResponse(error=message))
+
     chunks = retrieve_chunks(request.question)
     answer, stop_reason = generate_answer(request.question, request.language, chunks, request.session_id)
 
@@ -451,6 +468,8 @@ def handle_chat(event: dict[str, Any]) -> dict[str, Any]:
 
     if escalate:
         trigger_escalation({
+            "escalationId": f"{session_id}:{timestamp}",
+            "timestamp": timestamp,
             "sessionId": session_id,
             "userId": user_id,
             "question": request.question,

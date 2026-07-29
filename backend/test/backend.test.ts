@@ -77,22 +77,50 @@ describe('Grounded response generation controls', () => {
   test('provisions immutable Prompt Management and Guardrail versions', () => {
     template.resourceCountIs('AWS::Bedrock::Prompt', 1);
     template.resourceCountIs('AWS::Bedrock::PromptVersion', 1);
-    template.resourceCountIs('AWS::Bedrock::Guardrail', 1);
-    template.resourceCountIs('AWS::Bedrock::GuardrailVersion', 1);
+    template.resourceCountIs('AWS::Bedrock::Guardrail', 2);
+    template.resourceCountIs('AWS::Bedrock::GuardrailVersion', 2);
+    template.hasResourceProperties('AWS::Bedrock::Guardrail', {
+      ContentPolicyConfig: {
+        FiltersConfig: Match.arrayWith([
+          Match.objectLike({
+            Type: 'PROMPT_ATTACK',
+            InputAction: 'BLOCK',
+            InputEnabled: true,
+            OutputEnabled: false,
+          }),
+        ]),
+      },
+    });
   });
 
   test('applies the Guardrail and versioned prompt to the chat Lambda', () => {
-    template.hasResourceProperties('AWS::Lambda::Function', {
-      FunctionName: 'GCC-ChatHandler',
-      Environment: {
-        Variables: Match.objectLike({
-          GUARDRAIL_ID: Match.anyValue(),
-          GUARDRAIL_VERSION: Match.anyValue(),
-          PROMPT_ID: Match.anyValue(),
-          PROMPT_VERSION: Match.anyValue(),
-        }),
+    const functions = Object.values(template.findResources('AWS::Lambda::Function'));
+    const chatFunction = functions.find(
+      (resource) => resource.Properties?.FunctionName === 'GCC-ChatHandler',
+    );
+    const variables = chatFunction?.Properties?.Environment?.Variables;
+    const guardrailVersions = template.findResources('AWS::Bedrock::GuardrailVersion');
+    const responseGuardrailVersionLogicalId = Object.keys(guardrailVersions).find(
+      (logicalId) => logicalId.includes('ResponseGuardrailVersion'),
+    );
+    const promptAttackGuardrailVersionLogicalId = Object.keys(guardrailVersions).find(
+      (logicalId) => logicalId.includes('PromptAttackGuardrailVersion'),
+    );
+
+    expect(variables).toEqual(expect.objectContaining({
+      GUARDRAIL_ID: expect.anything(),
+      GUARDRAIL_VERSION: {
+        'Fn::GetAtt': [responseGuardrailVersionLogicalId, 'Version'],
       },
-    });
+      PROMPT_ATTACK_GUARDRAIL_ID: expect.anything(),
+      PROMPT_ATTACK_GUARDRAIL_VERSION: {
+        'Fn::GetAtt': [promptAttackGuardrailVersionLogicalId, 'Version'],
+      },
+      PROMPT_ID: expect.anything(),
+      PROMPT_VERSION: expect.anything(),
+    }));
+    expect(variables.GUARDRAIL_VERSION).not.toBe('DRAFT');
+    expect(variables.PROMPT_ATTACK_GUARDRAIL_VERSION).not.toBe('DRAFT');
   });
 
   test('does not store system prompts in Secrets Manager', () => {
@@ -150,8 +178,18 @@ describe('Bounded ingestion and immutable audit storage', () => {
 
 describe('Failure observability', () => {
   test('alarms on every application dead-letter queue', () => {
-    template.resourceCountIs('AWS::CloudWatch::Alarm', 3);
+    template.resourceCountIs('AWS::CloudWatch::Alarm', 4);
     template.resourceCountIs('AWS::CloudWatch::Dashboard', 1);
+    template.hasResourceProperties('AWS::CloudWatch::Alarm', {
+      AlarmName: 'EscalationRouterDLQ-MessagesVisible',
+      Threshold: 1,
+      AlarmActions: Match.anyValue(),
+    });
+    template.hasResourceProperties('AWS::CloudWatch::Alarm', {
+      AlarmName: 'GCC-Escalation-OldestMessageAge',
+      Threshold: 300,
+      AlarmActions: Match.anyValue(),
+    });
   });
 
   test('subscribes the configured staff mailbox to alerts', () => {
@@ -159,6 +197,41 @@ describe('Failure observability', () => {
       Protocol: 'email',
       Endpoint: 'staff@grandcanyonbsa.org',
     });
+  });
+
+  test('delivers chat escalations through an encrypted SQS queue with a DLQ', () => {
+    const queues = template.findResources('AWS::SQS::Queue');
+    const escalationQueueEntry = Object.entries(queues).find(
+      ([, resource]) => resource.Properties?.QueueName === 'GCC-EscalationRouter-Queue',
+    );
+    expect(escalationQueueEntry).toBeDefined();
+    const [escalationQueueLogicalId, escalationQueue] = escalationQueueEntry!;
+    expect(escalationQueue.Properties).toEqual(expect.objectContaining({
+      SqsManagedSseEnabled: true,
+      RedrivePolicy: expect.objectContaining({ maxReceiveCount: 3 }),
+      VisibilityTimeout: 120,
+    }));
+
+    const eventSourceMappings = Object.values(
+      template.findResources('AWS::Lambda::EventSourceMapping'),
+    );
+    expect(eventSourceMappings).toContainEqual(expect.objectContaining({
+      Properties: expect.objectContaining({
+        BatchSize: 1,
+        EventSourceArn: {
+          'Fn::GetAtt': [escalationQueueLogicalId, 'Arn'],
+        },
+        ScalingConfig: { MaximumConcurrency: 2 },
+      }),
+    }));
+
+    const functions = Object.values(template.findResources('AWS::Lambda::Function'));
+    const chatFunction = functions.find(
+      (resource) => resource.Properties?.FunctionName === 'GCC-ChatHandler',
+    );
+    const variables = chatFunction?.Properties?.Environment?.Variables;
+    expect(variables.ESCALATION_QUEUE_URL).toBeDefined();
+    expect(variables.ESCALATION_FUNCTION_ARN).toBeUndefined();
   });
 });
 

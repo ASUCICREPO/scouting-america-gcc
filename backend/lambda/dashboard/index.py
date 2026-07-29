@@ -412,7 +412,7 @@ def get_escalations(event):
     for item in items:
         metadata = item.get("metadata") or {}
         reason = item.get("reason") or metadata.get("reason") or "unknown"
-        ts = item.get("timestamp") or ""
+        ts = item.get("occurredAt") or (item.get("timestamp") or "").split("#", 1)[0]
         conf = _num(metadata.get("confidence")) or 0
         g = grouped.setdefault(reason, {"count": 0, "lastOccurred": "", "confSum": 0.0})
         g["count"] += 1

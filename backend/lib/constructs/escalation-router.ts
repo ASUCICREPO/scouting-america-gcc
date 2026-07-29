@@ -5,6 +5,7 @@ import * as sns from 'aws-cdk-lib/aws-sns';
 import * as sqs from 'aws-cdk-lib/aws-sqs';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as logs from 'aws-cdk-lib/aws-logs';
+import * as sources from 'aws-cdk-lib/aws-lambda-event-sources';
 import { Construct } from 'constructs';
 import { CONFIG, PREFIX } from '../config/environment';
 import * as path from 'path';
@@ -17,20 +18,29 @@ export interface EscalationRouterProps {
 }
 
 export class EscalationRouter extends Construct {
-  // Expose the function so Chat Handler can reference its ARN
   public readonly function: lambda.Function;
+  public readonly processingQueue: sqs.Queue;
   public readonly deadLetterQueue: sqs.Queue;
 
   constructor(scope: Construct, id: string, props: EscalationRouterProps) {
     super(scope, id);
 
-    // Dead-letter queue: this function is invoked asynchronously by the chat
-    // handler, so failed events (after retries) land here instead of being lost.
     this.deadLetterQueue = new sqs.Queue(this, 'EscalationRouterDLQ', {
       queueName: `${PREFIX}GCC-EscalationRouter-DLQ`,
       encryption: sqs.QueueEncryption.SQS_MANAGED,
       enforceSSL: true,
       retentionPeriod: cdk.Duration.days(14),
+    });
+    this.processingQueue = new sqs.Queue(this, 'EscalationRouterQueue', {
+      queueName: `${PREFIX}GCC-EscalationRouter-Queue`,
+      encryption: sqs.QueueEncryption.SQS_MANAGED,
+      enforceSSL: true,
+      retentionPeriod: cdk.Duration.days(14),
+      visibilityTimeout: cdk.Duration.minutes(2),
+      deadLetterQueue: {
+        queue: this.deadLetterQueue,
+        maxReceiveCount: 3,
+      },
     });
 
     // Lambda that processes escalations and alerts staff (Python 3.13, boto3)
@@ -46,7 +56,6 @@ export class EscalationRouter extends Construct {
         STAFF_EMAIL: CONFIG.STAFF_EMAIL,
         ANALYTICS_TABLE: props.analyticsLogsTable.tableName,
       },
-      deadLetterQueue: this.deadLetterQueue,
       // Escalation alerts reference the volunteer's question/answer, so bound
       // how long those logs are retained.
       logGroup: new logs.LogGroup(this, 'EscalationRouterLogs', {
@@ -54,12 +63,17 @@ export class EscalationRouter extends Construct {
         removalPolicy: cdk.RemovalPolicy.DESTROY,
       }),
     });
+    this.function.addEventSource(new sources.SqsEventSource(this.processingQueue, {
+      batchSize: 1,
+      maxConcurrency: 2,
+    }));
 
     // Permission: publish to SNS staff alerts topic
     props.staffAlertTopic.grantPublish(this.function);
 
-    // Permission: write escalation logs to AnalyticsLogs table
-    props.analyticsLogsTable.grantWriteData(this.function);
+    // Delivery state is read and updated on retries so SNS/SES successes are not
+    // repeated when a later channel fails.
+    props.analyticsLogsTable.grantReadWriteData(this.function);
 
     // Permission: send emails via SES
     this.function.addToRolePolicy(new iam.PolicyStatement({
