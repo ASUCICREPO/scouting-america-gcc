@@ -5,6 +5,7 @@ Publishes an SNS alert (always), emails staff for HIGH-severity/safety cases,
 and logs the escalation to the AnalyticsLogs table.
 """
 
+import json
 import os
 from datetime import datetime, timezone
 from decimal import Decimal
@@ -26,7 +27,27 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
 
 
-def handler(event, context):
+def _escalation_messages(event):
+    """Yield escalation payloads from SQS, with direct events for local use."""
+    records = event.get("Records") if isinstance(event, dict) else None
+    if not records:
+        yield event
+        return
+
+    for record in records:
+        event_source = record.get("eventSource") or record.get("EventSource")
+        if event_source != "aws:sqs":
+            raise ValueError(f"Unsupported escalation event source: {event_source}")
+        yield json.loads(record.get("body") or "{}")
+
+
+def handler(event, _context):
+    for message in _escalation_messages(event):
+        process_escalation(message)
+    return {"statusCode": 200, "body": "Escalation processed"}
+
+
+def process_escalation(event):
     session_id = event.get("sessionId")
     user_id = event.get("userId")
     question = event.get("question")
@@ -51,9 +72,6 @@ def handler(event, context):
         send_email_alert(message, severity)
 
     log_escalation(session_id, user_id, reason, confidence, severity, timestamp)
-
-    return {"statusCode": 200, "body": "Escalation processed"}
-
 
 def send_sns_alert(message: str, severity: str) -> None:
     try:

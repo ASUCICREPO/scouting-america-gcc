@@ -76,7 +76,7 @@ export class GrandCanyonCouncilChatbot extends cdk.Stack {
       chatHistoryResource: apiGateway.chatHistoryResource,
       chatFeedbackResource: apiGateway.chatFeedbackResource,
       knowledgeBaseId: knowledgeBase.knowledgeBaseId,
-      escalationFunctionArn: escalationRouter.function.functionArn,
+      escalationQueue: escalationRouter.processingQueue,
     });
 
     // ---------------------------------------------------------------

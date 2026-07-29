@@ -68,6 +68,15 @@ class FakeBedrockRuntime:
         }
 
 
+class FakeSqs:
+    def __init__(self):
+        self.messages = []
+
+    def send_message(self, **kwargs):
+        self.messages.append(kwargs)
+        return {"MessageId": "message-1"}
+
+
 def load_chat_module():
     os.environ.update({
         "AWS_DEFAULT_REGION": "us-east-1",
@@ -81,18 +90,22 @@ def load_chat_module():
         "PROMPT_ATTACK_GUARDRAIL_VERSION": "2",
         "PROMPT_ID": "prompt-test",
         "PROMPT_VERSION": "1",
+        "ESCALATION_QUEUE_URL": "https://sqs.example/escalations",
+        "CONFIDENCE_THRESHOLD": "0.7",
+        "SAFETY_KEYWORDS": json.dumps(["emergency", "emergencia"]),
         "ALLOWED_ORIGIN": "https://public.example",
     })
     table = FakeTable()
     agent = FakeBedrockAgent()
     retrieval = FakeBedrockRetrieval()
     runtime = FakeBedrockRuntime()
+    sqs = FakeSqs()
 
     clients = {
         "bedrock-agent": agent,
         "bedrock-agent-runtime": retrieval,
         "bedrock-runtime": runtime,
-        "lambda": MagicMock(),
+        "sqs": sqs,
     }
 
     module_path = Path(__file__).parents[1] / "lambda" / "chat-handler" / "index.py"
@@ -102,13 +115,13 @@ def load_chat_module():
         "boto3.resource", return_value=FakeDynamoResource(table)
     ):
         spec.loader.exec_module(module)
-    return module, retrieval, runtime, table
+    return module, retrieval, runtime, table, sqs
 
 
 class ChatLanguageTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.module, cls.retrieval, cls.runtime, cls.table = load_chat_module()
+        cls.module, cls.retrieval, cls.runtime, cls.table, cls.sqs = load_chat_module()
 
     def setUp(self):
         self.retrieval.requests.clear()
@@ -116,6 +129,7 @@ class ChatLanguageTests(unittest.TestCase):
         self.runtime.guardrail_requests.clear()
         self.runtime.prompt_attack_detected = False
         self.table.items.clear()
+        self.sqs.messages.clear()
 
     def test_spanish_prompt_requires_spanish_only(self):
         chunk = self.module.RetrievedChunk(
@@ -192,6 +206,17 @@ class ChatLanguageTests(unittest.TestCase):
         self.assertEqual(self.retrieval.requests, [])
         self.assertEqual(self.runtime.requests, [])
         self.assertIn("cannot process", json.loads(result["body"])["error"])
+
+    def test_safety_escalation_is_sent_to_the_durable_queue(self):
+        result = self.module.handle_chat({
+            "body": json.dumps({"question": "This is an emergency"})
+        })
+
+        self.assertEqual(result["statusCode"], 200)
+        self.assertEqual(len(self.sqs.messages), 1)
+        queued = self.sqs.messages[0]
+        self.assertEqual(queued["QueueUrl"], "https://sqs.example/escalations")
+        self.assertIn("Safety keyword detected", json.loads(queued["MessageBody"])["reason"])
 
     def test_existing_session_requires_its_anonymous_bearer_token(self):
         first = self.module.handle_chat({

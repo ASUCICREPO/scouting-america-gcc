@@ -188,6 +188,41 @@ describe('Failure observability', () => {
       Endpoint: 'staff@grandcanyonbsa.org',
     });
   });
+
+  test('delivers chat escalations through an encrypted SQS queue with a DLQ', () => {
+    const queues = template.findResources('AWS::SQS::Queue');
+    const escalationQueueEntry = Object.entries(queues).find(
+      ([, resource]) => resource.Properties?.QueueName === 'GCC-EscalationRouter-Queue',
+    );
+    expect(escalationQueueEntry).toBeDefined();
+    const [escalationQueueLogicalId, escalationQueue] = escalationQueueEntry!;
+    expect(escalationQueue.Properties).toEqual(expect.objectContaining({
+      SqsManagedSseEnabled: true,
+      RedrivePolicy: expect.objectContaining({ maxReceiveCount: 3 }),
+      VisibilityTimeout: 120,
+    }));
+
+    const eventSourceMappings = Object.values(
+      template.findResources('AWS::Lambda::EventSourceMapping'),
+    );
+    expect(eventSourceMappings).toContainEqual(expect.objectContaining({
+      Properties: expect.objectContaining({
+        BatchSize: 1,
+        EventSourceArn: {
+          'Fn::GetAtt': [escalationQueueLogicalId, 'Arn'],
+        },
+        ScalingConfig: { MaximumConcurrency: 2 },
+      }),
+    }));
+
+    const functions = Object.values(template.findResources('AWS::Lambda::Function'));
+    const chatFunction = functions.find(
+      (resource) => resource.Properties?.FunctionName === 'GCC-ChatHandler',
+    );
+    const variables = chatFunction?.Properties?.Environment?.Variables;
+    expect(variables.ESCALATION_QUEUE_URL).toBeDefined();
+    expect(variables.ESCALATION_FUNCTION_ARN).toBeUndefined();
+  });
 });
 
 describe('CloudFront static route rewriting', () => {
