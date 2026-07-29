@@ -1,6 +1,6 @@
 # Project Modification Guide
 
-This guide explains where and how to extend Grand Canyon Council Scout AI while preserving its public-chat, bilingual, admin, security, and deployment contracts.
+This guide explains where and how to extend GCC Chat while preserving its public-chat, bilingual, admin, security, and deployment contracts.
 
 Start with the [Development Guide](./developmentGuide.md) for setup and tests. Review the [Architecture Deep Dive](./architectureDeepDive.md) before changing service boundaries.
 
@@ -147,7 +147,7 @@ Update both:
 - Worker `ALLOWED_FILE_TYPES` and signature/container validators in `backend/lambda/doc-processor/index.py`
 - Frontend validation and user-facing copy in `frontend/lib/dashboard/upload-utils.ts` and `frontend/lib/i18n.ts`
 
-The dashboard manifest is validated before signing, every presigned POST binds the declared byte size, and the worker independently validates the stored object before copying. Supported files currently cap at 25 MB. The allow-list intentionally follows the formats handled by the configured default Bedrock parser; adding image or presentation formats also requires an appropriate parser configuration. Update all three layers together.
+The dashboard manifest is validated before signing, every presigned POST binds the declared byte size, and the worker independently validates the stored object before copying. Supported files currently cap at 50 MB, matching the Bedrock source-document limit. The allow-list intentionally follows the formats handled by the configured default Bedrock parser; adding image or presentation formats also requires an appropriate parser configuration. Update all three layers together.
 
 ### Change Folder Handling
 

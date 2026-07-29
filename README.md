@@ -1,10 +1,10 @@
-# Grand Canyon Council Scout AI
+# GCC Chat
 
-Scout AI is a bilingual English/Spanish support assistant for Scouting America's Grand Canyon Council (GCC). It answers volunteer and family questions from approved council documents, records response quality signals, escalates safety or low-confidence conversations, and gives GCC administrators an authenticated analytics and document-management dashboard.
+GCC Chat is a bilingual English/Spanish support assistant for Scouting America's Grand Canyon Council (GCC). It answers volunteer and family questions from approved council documents, records response quality signals, escalates safety or low-confidence conversations, and gives GCC administrators an authenticated analytics and document-management dashboard.
 
 ## Architecture
 
-![Grand Canyon Council Scout AI architecture](./docs/media/architecture.png)
+![GCC Chat architecture](./docs/media/architecture.png)
 
 The Next.js application is exported to one private S3 origin behind CloudFront. Public chat requests use API Gateway, Lambda, Bedrock Guardrails, and an Amazon Bedrock Knowledge Base backed by S3 Vectors. Admin pages share the frontend origin but use a separate Cognito-protected API. Uploaded documents enter a bounded SQS worker before Bedrock ingestion.
 
@@ -100,7 +100,7 @@ Always use the same `RESOURCE_PREFIX` when updating an existing prefixed environ
 
 ## Safety And Privacy
 
-Scout AI is an informational tool, not an emergency reporting channel. Users should not submit medical information, youth-protection reports, or other sensitive personal information. The application logs chat turns for quality and analytics; administrators can review rated conversations in the protected dashboard.
+GCC Chat is an informational tool, not an emergency reporting channel. Users should not submit medical information, youth-protection reports, or other sensitive personal information. The application logs chat turns for quality and analytics; administrators can review rated conversations in the protected dashboard.
 
 ## License
 
