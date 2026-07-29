@@ -90,12 +90,16 @@ Rules:
 
 - Lowercase letters and numbers are allowed.
 - Hyphens are allowed only inside the prefix.
-- Maximum length is 30 characters.
+- Maximum length is 26 characters so account-suffixed S3 names remain valid.
 - An empty prefix preserves legacy unprefixed names.
 
 **Always reuse the same prefix when updating an existing environment.** Changing or omitting it changes physical resource names and can cause replacements, empty dashboards, missing chat history, bucket-name collisions, or retained duplicate data resources.
 
 The prefix does not change the CloudFormation stack name. This repository manages one `GrandCanyonCouncilChatbot` stack per account/region.
+
+The three general-purpose application S3 buckets also receive the deploying
+12-digit AWS account ID automatically because the S3 namespace is global across
+AWS accounts. No bucket-name input is required from the deployer.
 
 ### Frontend Origin And Routes
 

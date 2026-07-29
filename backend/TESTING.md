@@ -39,8 +39,8 @@ If deploy fails with "already exists" errors for S3 buckets or DynamoDB tables, 
 ```bash
 aws dynamodb delete-table --table-name GCC-ChatLogs
 aws dynamodb delete-table --table-name GCC-AnalyticsLogs
-aws s3 rb s3://gcc-document-store --force
-aws s3 rb s3://gcc-knowledge-base-data --force
+aws s3 rb s3://gcc-document-store-<ACCOUNT_ID> --force
+aws s3 rb s3://gcc-knowledge-base-data-<ACCOUNT_ID> --force
 ```
 
 Also delete any stuck `BackendStack` in CloudFormation:
@@ -105,7 +105,7 @@ Expected response:
 ```json
 {
   "answer": "Based on the documents...",
-  "sources": ["s3://gcc-knowledge-base-data/chunks/..."],
+  "sources": ["s3://gcc-knowledge-base-data-<ACCOUNT_ID>/documents/..."],
   "confidence": 0.25,
   "sessionId": "uuid",
   "escalated": true
@@ -137,8 +137,8 @@ S3 buckets and DynamoDB tables are retained after destroy (removalPolicy: RETAIN
 ```bash
 aws dynamodb delete-table --table-name GCC-ChatLogs
 aws dynamodb delete-table --table-name GCC-AnalyticsLogs
-aws s3 rb s3://gcc-document-store --force
-aws s3 rb s3://gcc-knowledge-base-data --force
+aws s3 rb s3://gcc-document-store-<ACCOUNT_ID> --force
+aws s3 rb s3://gcc-knowledge-base-data-<ACCOUNT_ID> --force
 ```
 
 Also delete any leftover CloudWatch log groups:
