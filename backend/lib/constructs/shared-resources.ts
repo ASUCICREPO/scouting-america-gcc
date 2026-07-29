@@ -32,13 +32,18 @@ export class SharedResources extends Construct {
   constructor(scope: Construct, id: string, props: SharedResourcesProps) {
     super(scope, id);
 
+    // General-purpose S3 bucket names are globally unique across every AWS
+    // account. Include the deploying account ID so the same reviewed stack can
+    // be installed in independent customer sandboxes without name collisions.
+    const accountId = cdk.Stack.of(this).account;
+
     // ---------------------------------------------------------------
     // S3 Buckets
     // ---------------------------------------------------------------
 
     // Document store: raw uploaded docs
     this.documentStoreBucket = new s3.Bucket(this, 'DocumentStoreBucket', {
-      bucketName: CONFIG.DOCUMENT_STORE_BUCKET,
+      bucketName: `${CONFIG.DOCUMENT_STORE_BUCKET}-${accountId}`,
       encryption: s3.BucketEncryption.S3_MANAGED,
       versioned: true,
       blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
@@ -66,7 +71,7 @@ export class SharedResources extends Construct {
 
     // Knowledge base data: processed chunks for Bedrock KB
     this.knowledgeBaseBucket = new s3.Bucket(this, 'KnowledgeBaseBucket', {
-      bucketName: CONFIG.KNOWLEDGE_BASE_BUCKET,
+      bucketName: `${CONFIG.KNOWLEDGE_BASE_BUCKET}-${accountId}`,
       encryption: s3.BucketEncryption.S3_MANAGED,
       blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
       removalPolicy: cdk.RemovalPolicy.RETAIN,
@@ -77,7 +82,7 @@ export class SharedResources extends Construct {
     // history/admin screens; its stream is copied here for lower-cost retention
     // and future Athena/Glue analytics.
     this.chatArchiveBucket = new s3.Bucket(this, 'ChatArchiveBucket', {
-      bucketName: CONFIG.CHAT_ARCHIVE_BUCKET,
+      bucketName: `${CONFIG.CHAT_ARCHIVE_BUCKET}-${accountId}`,
       encryption: s3.BucketEncryption.S3_MANAGED,
       versioned: true,
       objectLockEnabled: true,

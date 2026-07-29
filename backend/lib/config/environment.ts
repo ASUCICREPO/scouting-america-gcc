@@ -14,7 +14,8 @@ export const CONFIG = {
   ANALYTICS_LOGS_TABLE: `${PREFIX}GCC-AnalyticsLogs`,
   DOCUMENT_BATCHES_TABLE: `${PREFIX}GCC-DocumentBatches`,
 
-  // S3 Buckets
+  // S3 bucket base names. SharedResources appends the deploying account ID
+  // because the general-purpose S3 namespace is global across AWS accounts.
   DOCUMENT_STORE_BUCKET: `${PREFIX}gcc-document-store`,
   KNOWLEDGE_BASE_BUCKET: `${PREFIX}gcc-knowledge-base-data`,
   CHAT_ARCHIVE_BUCKET: `${PREFIX}gcc-chat-audit-archive`,

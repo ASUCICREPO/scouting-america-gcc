@@ -410,12 +410,24 @@ describe('Origin and session hardening', () => {
   test('scopes upload CORS to the deployed frontend distribution', () => {
     const buckets = Object.values(template.findResources('AWS::S3::Bucket'));
     const documentBucket = buckets.find(
-      (resource) => resource.Properties?.BucketName === 'gcc-document-store',
+      (resource) => resource.Properties?.BucketName === 'gcc-document-store-123456789012',
     );
     const origins =
       documentBucket?.Properties?.CorsConfiguration?.CorsRules?.[0]?.AllowedOrigins;
     expect(origins).toHaveLength(1);
     expect(origins).not.toContain('*');
+  });
+
+  test('uses account-specific names for globally unique application buckets', () => {
+    template.hasResourceProperties('AWS::S3::Bucket', {
+      BucketName: 'gcc-document-store-123456789012',
+    });
+    template.hasResourceProperties('AWS::S3::Bucket', {
+      BucketName: 'gcc-knowledge-base-data-123456789012',
+    });
+    template.hasResourceProperties('AWS::S3::Bucket', {
+      BucketName: 'gcc-chat-audit-archive-123456789012',
+    });
   });
 
   test('does not allow self-signup into the admin user pool', () => {
