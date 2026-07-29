@@ -11,7 +11,7 @@ import {
   getDocuments,
   PresignedDocumentUpload,
 } from '@/lib/dashboard/api';
-import { Search, Paperclip, Upload, FolderUp, Pencil, Trash2, Download, FileText, ChevronLeft, ChevronRight, AlertTriangle } from 'lucide-react';
+import { Search, Paperclip, Upload, FolderUp, Trash2, Download, FileText, ChevronLeft, ChevronRight, AlertTriangle } from 'lucide-react';
 import { toast } from 'sonner';
 import ConfirmDialog from '@/components/ConfirmDialog';
 import { useLanguage } from '@/context/LanguageContext';
@@ -448,7 +448,6 @@ export default function DocumentsPage() {
                 <StatusBadge status={doc.status} />
               </span>
               <span className="doc-td doc-col-ops">
-                <button className="op-btn" aria-label={t.documents.edit} title={t.documents.edit}><Pencil size={13.5} /></button>
                 <button className="op-btn" aria-label={t.documents.delete} title={t.documents.delete} onClick={() => handleDelete(doc.key)}><Trash2 size={13} /></button>
                 <button className="op-btn" aria-label={t.documents.download} title={t.documents.download} onClick={() => handleDownload(doc.key)}><Download size={12} /></button>
               </span>
