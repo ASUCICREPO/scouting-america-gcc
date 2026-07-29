@@ -75,8 +75,10 @@ done
 if [[ -n "$RESOURCE_PREFIX" ]]; then
   [[ "$RESOURCE_PREFIX" =~ ^[a-z0-9]([a-z0-9-]*[a-z0-9])?$ ]] \
     || die "Prefix must contain only lowercase letters, numbers, and internal hyphens"
-  [[ ${#RESOURCE_PREFIX} -le 30 ]] \
-    || die "Prefix must be 30 characters or fewer for IAM and CodeBuild names"
+  # The longest account-suffixed S3 name must remain within the 63-character
+  # bucket-name limit.
+  [[ ${#RESOURCE_PREFIX} -le 26 ]] \
+    || die "Prefix must be 26 characters or fewer for S3 bucket names"
 fi
 [[ "$REGION" =~ ^[a-z0-9-]+$ ]] || die "Invalid AWS Region: $REGION"
 

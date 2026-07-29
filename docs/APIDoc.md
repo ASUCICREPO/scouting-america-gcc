@@ -79,7 +79,7 @@ Spanish example:
 {
   "answer": "## Camp Geronimo\n\n...",
   "sources": [
-    "s3://demo-gcc-knowledge-base-data/documents/Camp Geronimo Map.pdf"
+    "s3://demo-gcc-knowledge-base-data-123456789012/documents/Camp Geronimo Map.pdf"
   ],
   "confidence": 0.8234,
   "sessionId": "5901a24e-d15b-4f10-8c1f-example",

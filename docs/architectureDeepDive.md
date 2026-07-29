@@ -125,10 +125,14 @@ Table name: `${RESOURCE_PREFIX}GCC-DocumentBatches`
 
 ### Object Storage
 
-- `${RESOURCE_PREFIX}gcc-document-store`: versioned source uploads under `uploads/` and rejected files under a seven-day `quarantine/` lifecycle; retained when the stack is destroyed.
-- `${RESOURCE_PREFIX}gcc-knowledge-base-data`: Bedrock source documents under `documents/`; retained when the stack is destroyed.
-- `${RESOURCE_PREFIX}gcc-chat-audit-archive`: versioned audit JSON with a one-year S3 Object Lock retention period.
+- `${RESOURCE_PREFIX}gcc-document-store-<ACCOUNT_ID>`: versioned source uploads under `uploads/` and rejected files under a seven-day `quarantine/` lifecycle; retained when the stack is destroyed.
+- `${RESOURCE_PREFIX}gcc-knowledge-base-data-<ACCOUNT_ID>`: Bedrock source documents under `documents/`; retained when the stack is destroyed.
+- `${RESOURCE_PREFIX}gcc-chat-audit-archive-<ACCOUNT_ID>`: versioned audit JSON with a one-year S3 Object Lock retention period.
 - CloudFront site bucket: generated name, auto-deleted with the stack because it contains only rebuildable static output.
+
+The account ID suffix is resolved automatically by CloudFormation. It prevents
+globally unique S3 names from colliding when separate customer sandboxes deploy
+the same unprefixed stack.
 
 ## Infrastructure As Code
 
