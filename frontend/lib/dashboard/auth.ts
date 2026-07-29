@@ -6,6 +6,7 @@ const ACCOUNT_SAFE_RESET_ERRORS = new Set([
   'NotAuthorizedException',
   'UserNotFoundException',
 ]);
+const TOKEN_REFRESH_SKEW_SECONDS = 60;
 
 /**
  * Admin Dashboard Authentication — uses Cognito User Pool (shared with chatbot).
@@ -55,6 +56,8 @@ interface CognitoResponse {
   };
 }
 
+let refreshPromise: Promise<AuthTokens | null> | null = null;
+
 async function cognitoRequest(target: string, body: Record<string, unknown>): Promise<CognitoResponse> {
   const response = await fetch(COGNITO_ENDPOINT, {
     method: 'POST',
@@ -93,7 +96,7 @@ export async function login(email: string, password: string): Promise<AuthResult
       // Verify admin group membership
       const user = getUser();
       if (!user?.isAdmin) {
-        clearTokens();
+        clearAdminSession();
         return { success: false, error: 'credentials' };
       }
 
@@ -155,12 +158,12 @@ export function getStoredTokens(): AuthTokens | null {
     if (!stored) return null;
     const parsed: unknown = JSON.parse(stored);
     if (!isAuthTokens(parsed)) {
-      clearTokens();
+      clearAdminSession();
       return null;
     }
     return parsed;
   } catch {
-    clearTokens();
+    clearAdminSession();
     return null;
   }
 }
@@ -189,9 +192,83 @@ function decodeJwtPayload(token: string): JwtPayload | null {
   }
 }
 
-export function getIdToken(): string | null {
+function adminTokenIsCurrent(token: string, refreshSkewSeconds = 0): boolean {
+  const payload = decodeJwtPayload(token);
+  const expiry = typeof payload?.exp === 'number' ? payload.exp : Number.NaN;
+  const groups = Array.isArray(payload?.['cognito:groups'])
+    ? payload['cognito:groups']
+    : [];
+  return (
+    Number.isFinite(expiry) &&
+    expiry > (Date.now() / 1000) + refreshSkewSeconds &&
+    groups.includes('admin')
+  );
+}
+
+async function refreshAdminTokens(tokens: AuthTokens): Promise<AuthTokens | null> {
+  try {
+    const data = await cognitoRequest('InitiateAuth', {
+      AuthFlow: 'REFRESH_TOKEN_AUTH',
+      ClientId: COGNITO_CONFIG.clientId,
+      AuthParameters: {
+        REFRESH_TOKEN: tokens.refreshToken,
+      },
+    });
+    const authentication = data.AuthenticationResult;
+    if (
+      !authentication ||
+      typeof authentication.IdToken !== 'string' ||
+      typeof authentication.AccessToken !== 'string'
+    ) {
+      clearAdminSession();
+      return null;
+    }
+
+    const refreshed: AuthTokens = {
+      idToken: authentication.IdToken,
+      accessToken: authentication.AccessToken,
+      refreshToken: authentication.RefreshToken || tokens.refreshToken,
+    };
+    if (!adminTokenIsCurrent(refreshed.idToken)) {
+      clearAdminSession();
+      return null;
+    }
+    sessionStorage.setItem(TOKEN_KEY, JSON.stringify(refreshed));
+    return refreshed;
+  } catch (err) {
+    // A transient network failure must not destroy the refresh token. The
+    // caller can retry session restoration when connectivity returns.
+    console.error('Token refresh error:', err);
+    return null;
+  }
+}
+
+export async function getValidIdToken(): Promise<string | null> {
   const tokens = getStoredTokens();
-  return tokens?.idToken || null;
+  if (!tokens) return null;
+
+  const payload = decodeJwtPayload(tokens.idToken);
+  const groups = Array.isArray(payload?.['cognito:groups'])
+    ? payload['cognito:groups']
+    : [];
+  if (!groups.includes('admin')) {
+    clearAdminSession();
+    return null;
+  }
+  if (adminTokenIsCurrent(tokens.idToken, TOKEN_REFRESH_SKEW_SECONDS)) {
+    return tokens.idToken;
+  }
+  if (!tokens.refreshToken) {
+    clearAdminSession();
+    return null;
+  }
+
+  if (!refreshPromise) {
+    refreshPromise = refreshAdminTokens(tokens).finally(() => {
+      refreshPromise = null;
+    });
+  }
+  return (await refreshPromise)?.idToken || null;
 }
 
 export function getUser(): AdminUser | null {
@@ -199,7 +276,7 @@ export function getUser(): AdminUser | null {
   if (!tokens) return null;
   const payload = decodeJwtPayload(tokens.idToken);
   if (!payload) {
-    clearTokens();
+    clearAdminSession();
     return null;
   }
   const groups = Array.isArray(payload['cognito:groups'])
@@ -216,18 +293,17 @@ export function isAuthenticated(): boolean {
   const tokens = getStoredTokens();
   if (!tokens) return false;
   const payload = decodeJwtPayload(tokens.idToken);
-  const expiry = typeof payload?.exp === 'number' ? payload.exp : Number.NaN;
   const groups = Array.isArray(payload?.['cognito:groups'])
     ? payload['cognito:groups']
     : [];
-  if (!Number.isFinite(expiry) || expiry * 1000 <= Date.now() || !groups.includes('admin')) {
-    clearTokens();
+  if (!groups.includes('admin')) {
+    clearAdminSession();
     return false;
   }
-  return true;
+  return adminTokenIsCurrent(tokens.idToken);
 }
 
-function clearTokens(): void {
+export function clearAdminSession(): void {
   if (typeof window === 'undefined') return;
   try {
     sessionStorage.removeItem(TOKEN_KEY);
@@ -243,6 +319,6 @@ function clearTokens(): void {
 }
 
 export function logout(): void {
-  clearTokens();
+  clearAdminSession();
   window.location.href = '/admin';
 }

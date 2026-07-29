@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   confirmPasswordReset,
+  getValidIdToken,
   getUser,
   isAuthenticated,
   login,
@@ -124,20 +125,57 @@ describe('admin authentication privacy', () => {
     expect(localStorage.getItem('gcc_admin_tokens')).toBeNull();
   });
 
-  it('removes expired or non-admin sessions', () => {
-    for (const payload of [
-      { exp: Math.floor(Date.now() / 1000) - 1, 'cognito:groups': ['admin'] },
-      { exp: Math.floor(Date.now() / 1000) + 300, 'cognito:groups': ['volunteers'] },
-    ]) {
-      sessionStorage.setItem('gcc_admin_tokens', JSON.stringify({
-        idToken: jwt(payload),
-        accessToken: jwt({ token_use: 'access' }),
-        refreshToken: 'refresh-token',
-      }));
+  it('removes a non-admin session', () => {
+    sessionStorage.setItem('gcc_admin_tokens', JSON.stringify({
+      idToken: jwt({ exp: Math.floor(Date.now() / 1000) + 300, 'cognito:groups': ['volunteers'] }),
+      accessToken: jwt({ token_use: 'access' }),
+      refreshToken: 'refresh-token',
+    }));
 
-      expect(isAuthenticated()).toBe(false);
-      expect(sessionStorage.getItem('gcc_admin_tokens')).toBeNull();
-    }
+    expect(isAuthenticated()).toBe(false);
+    expect(sessionStorage.getItem('gcc_admin_tokens')).toBeNull();
+  });
+
+  it('refreshes an expired admin token and preserves its refresh token', async () => {
+    const oldRefreshToken = 'refresh-token';
+    sessionStorage.setItem('gcc_admin_tokens', JSON.stringify({
+      idToken: jwt({ exp: Math.floor(Date.now() / 1000) - 1, 'cognito:groups': ['admin'] }),
+      accessToken: jwt({ exp: Math.floor(Date.now() / 1000) - 1, token_use: 'access' }),
+      refreshToken: oldRefreshToken,
+    }));
+    const newIdToken = jwt({
+      exp: Math.floor(Date.now() / 1000) + 3600,
+      'cognito:groups': ['admin'],
+    });
+    const fetchMock = vi.fn().mockResolvedValue(response({
+      AuthenticationResult: {
+        IdToken: newIdToken,
+        AccessToken: jwt({ exp: Math.floor(Date.now() / 1000) + 3600, token_use: 'access' }),
+      },
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(Promise.all([getValidIdToken(), getValidIdToken()]))
+      .resolves.toEqual([newIdToken, newIdToken]);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(sessionStorage.getItem('gcc_admin_tokens') || '{}').refreshToken)
+      .toBe(oldRefreshToken);
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toMatchObject({
+      AuthFlow: 'REFRESH_TOKEN_AUTH',
+      AuthParameters: { REFRESH_TOKEN: oldRefreshToken },
+    });
+  });
+
+  it('clears a session when Cognito rejects its refresh token', async () => {
+    sessionStorage.setItem('gcc_admin_tokens', JSON.stringify({
+      idToken: jwt({ exp: Math.floor(Date.now() / 1000) - 1, 'cognito:groups': ['admin'] }),
+      accessToken: jwt({ token_use: 'access' }),
+      refreshToken: 'revoked-refresh-token',
+    }));
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response({ __type: 'NotAuthorizedException' })));
+
+    await expect(getValidIdToken()).resolves.toBeNull();
+    expect(sessionStorage.getItem('gcc_admin_tokens')).toBeNull();
   });
 
   it.each([

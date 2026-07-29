@@ -7,7 +7,7 @@ import { useState, useEffect, useSyncExternalStore } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   confirmPasswordReset,
-  isAuthenticated,
+  getValidIdToken,
   login,
   requestPasswordReset,
 } from '@/lib/dashboard/auth';
@@ -35,10 +35,13 @@ export default function LoginPage() {
   const [forgotSuccess, setForgotSuccess] = useState(false);
 
   useEffect(() => {
-    if (isAuthenticated()) {
-      router.replace('/dashboard');
-    }
-  }, [router]);
+    if (!mounted) return;
+    let active = true;
+    void getValidIdToken().then((token) => {
+      if (active && token) router.replace('/dashboard');
+    });
+    return () => { active = false; };
+  }, [mounted, router]);
 
   if (!mounted) return null;
 

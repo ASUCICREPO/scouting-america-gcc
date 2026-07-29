@@ -1,4 +1,4 @@
-import { getIdToken } from './auth';
+import { clearAdminSession, getValidIdToken } from './auth';
 
 const API_BASE = process.env.NEXT_PUBLIC_DASHBOARD_API_URL || 'http://localhost:3002';
 
@@ -9,7 +9,13 @@ async function fetchApi(path: string, params?: Record<string, string>, options?:
   }
 
   // Always include Authorization header with Cognito ID token
-  const token = getIdToken();
+  const token = await getValidIdToken();
+  if (!token) {
+    if (typeof window !== 'undefined') {
+      window.location.href = '/admin';
+    }
+    throw new Error('Unauthorized');
+  }
   const headers: Record<string, string> = {
     ...(options?.headers as Record<string, string> || {}),
   };
@@ -24,9 +30,8 @@ async function fetchApi(path: string, params?: Record<string, string>, options?:
 
   if (res.status === 401 || res.status === 403) {
     // Token expired or unauthorized — redirect to the admin login.
+    clearAdminSession();
     if (typeof window !== 'undefined') {
-      sessionStorage.removeItem('gcc_admin_tokens');
-      localStorage.removeItem('gcc_admin_tokens');
       window.location.href = '/admin';
     }
     throw new Error('Unauthorized');
