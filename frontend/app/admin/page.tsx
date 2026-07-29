@@ -5,12 +5,15 @@
 
 import { useState, useEffect, useSyncExternalStore } from 'react';
 import { useRouter } from 'next/navigation';
-import { login, isAuthenticated } from '@/lib/dashboard/auth';
+import {
+  confirmPasswordReset,
+  isAuthenticated,
+  login,
+  requestPasswordReset,
+} from '@/lib/dashboard/auth';
 import { Mail, Lock, Eye, EyeOff, ArrowLeft } from 'lucide-react';
 import { useLanguage } from '@/context/LanguageContext';
 import LanguageSwitcher from '@/components/LanguageSwitcher';
-import { formatText } from '@/lib/i18n';
-import { COGNITO_CONFIG } from '@/lib/config';
 import '../dashboard/dashboard.css';
 
 export default function LoginPage() {
@@ -48,7 +51,7 @@ export default function LoginPage() {
     if (result.success) {
       router.replace('/dashboard');
     } else {
-      setError(result.error || t.login.loginFailed);
+      setError(result.error === 'network' ? t.login.networkError : t.login.loginFailed);
     }
   }
 
@@ -57,28 +60,13 @@ export default function LoginPage() {
     setForgotMsg('');
     setForgotSuccess(false);
     setForgotLoading(true);
-    try {
-      const res = await fetch(`https://cognito-idp.${COGNITO_CONFIG.region}.amazonaws.com/`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/x-amz-json-1.1',
-          'X-Amz-Target': 'AWSCognitoIdentityProviderService.ForgotPassword',
-        },
-        body: JSON.stringify({
-          ClientId: COGNITO_CONFIG.clientId,
-          Username: forgotEmail,
-        }),
-      });
-      const data = await res.json();
-      if (data.CodeDeliveryDetails) {
-        setForgotStep('code');
-        setForgotSuccess(true);
-        setForgotMsg(formatText(t.login.codeSent, { destination: data.CodeDeliveryDetails.Destination }));
-      } else {
-        setForgotMsg(data.message || t.login.sendCodeFailed);
-      }
-    } catch {
-      setForgotMsg(t.login.networkError);
+    const result = await requestPasswordReset(forgotEmail);
+    if (result.success) {
+      setForgotStep('code');
+      setForgotSuccess(true);
+      setForgotMsg(t.login.codeSent);
+    } else {
+      setForgotMsg(result.error === 'network' ? t.login.networkError : t.login.sendCodeFailed);
     }
     setForgotLoading(false);
   }
@@ -88,30 +76,13 @@ export default function LoginPage() {
     setForgotMsg('');
     setForgotSuccess(false);
     setForgotLoading(true);
-    try {
-      const res = await fetch(`https://cognito-idp.${COGNITO_CONFIG.region}.amazonaws.com/`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/x-amz-json-1.1',
-          'X-Amz-Target': 'AWSCognitoIdentityProviderService.ConfirmForgotPassword',
-        },
-        body: JSON.stringify({
-          ClientId: COGNITO_CONFIG.clientId,
-          Username: forgotEmail,
-          ConfirmationCode: forgotCode,
-          Password: newPassword,
-        }),
-      });
-      const data = await res.json();
-      if (!data.__type) {
-        setForgotSuccess(true);
-        setForgotMsg(t.login.resetSuccess);
-        setTimeout(() => { setShowForgot(false); setForgotStep('email'); }, 2000);
-      } else {
-        setForgotMsg(data.message || t.login.resetFailed);
-      }
-    } catch {
-      setForgotMsg(t.login.networkError);
+    const result = await confirmPasswordReset(forgotEmail, forgotCode, newPassword);
+    if (result.success) {
+      setForgotSuccess(true);
+      setForgotMsg(t.login.resetSuccess);
+      setTimeout(() => { setShowForgot(false); setForgotStep('email'); }, 2000);
+    } else {
+      setForgotMsg(result.error === 'network' ? t.login.networkError : t.login.resetFailed);
     }
     setForgotLoading(false);
   }

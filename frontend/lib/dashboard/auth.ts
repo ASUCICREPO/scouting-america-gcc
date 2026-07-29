@@ -1,5 +1,12 @@
 import { COGNITO_CONFIG } from '../config';
 
+const COGNITO_ENDPOINT = `https://cognito-idp.${COGNITO_CONFIG.region}.amazonaws.com/`;
+const ACCOUNT_SAFE_RESET_ERRORS = new Set([
+  'InvalidParameterException',
+  'NotAuthorizedException',
+  'UserNotFoundException',
+]);
+
 /**
  * Admin Dashboard Authentication — uses Cognito User Pool (shared with chatbot).
  *
@@ -26,29 +33,48 @@ export interface AdminUser {
   isAdmin: boolean;
 }
 
+export type AuthError = 'credentials' | 'network' | 'request_failed' | 'confirm_failed';
+
+export interface AuthResult {
+  success: boolean;
+  error?: AuthError;
+}
+
+interface CognitoResponse {
+  __type?: string;
+  AuthenticationResult?: {
+    IdToken: string;
+    AccessToken: string;
+    RefreshToken?: string;
+  };
+}
+
+async function cognitoRequest(target: string, body: Record<string, unknown>): Promise<CognitoResponse> {
+  const response = await fetch(COGNITO_ENDPOINT, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/x-amz-json-1.1',
+      'X-Amz-Target': `AWSCognitoIdentityProviderService.${target}`,
+    },
+    body: JSON.stringify(body),
+  });
+  return response.json();
+}
+
 /**
  * Authenticate with Cognito using email + password.
  * Returns true on success, false on failure.
  */
-export async function login(email: string, password: string): Promise<{ success: boolean; error?: string }> {
+export async function login(email: string, password: string): Promise<AuthResult> {
   try {
-    const response = await fetch(`https://cognito-idp.${COGNITO_CONFIG.region}.amazonaws.com/`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-amz-json-1.1',
-        'X-Amz-Target': 'AWSCognitoIdentityProviderService.InitiateAuth',
+    const data = await cognitoRequest('InitiateAuth', {
+      AuthFlow: 'USER_PASSWORD_AUTH',
+      ClientId: COGNITO_CONFIG.clientId,
+      AuthParameters: {
+        USERNAME: email,
+        PASSWORD: password,
       },
-      body: JSON.stringify({
-        AuthFlow: 'USER_PASSWORD_AUTH',
-        ClientId: COGNITO_CONFIG.clientId,
-        AuthParameters: {
-          USERNAME: email,
-          PASSWORD: password,
-        },
-      }),
     });
-
-    const data = await response.json();
 
     if (data.AuthenticationResult) {
       const tokens: AuthTokens = {
@@ -62,27 +88,57 @@ export async function login(email: string, password: string): Promise<{ success:
       const user = getUser();
       if (!user?.isAdmin) {
         clearTokens();
-        return { success: false, error: 'Access denied: Admin group membership required' };
+        return { success: false, error: 'credentials' };
       }
 
       return { success: true };
     }
 
-    // Handle Cognito errors
-    if (data.__type?.includes('NotAuthorizedException')) {
-      return { success: false, error: 'Invalid email or password' };
-    }
-    if (data.__type?.includes('UserNotFoundException')) {
-      return { success: false, error: 'User not found' };
-    }
-    if (data.__type?.includes('UserNotConfirmedException')) {
-      return { success: false, error: 'Account not confirmed' };
-    }
-
-    return { success: false, error: data.message || 'Authentication failed' };
+    // Do not reveal whether an email exists, is unconfirmed, or lacks the
+    // administrator group. Cognito is configured to suppress user-existence
+    // errors, and the browser maintains the same boundary.
+    return { success: false, error: 'credentials' };
   } catch (err) {
     console.error('Login error:', err);
-    return { success: false, error: 'Network error — check your connection' };
+    return { success: false, error: 'network' };
+  }
+}
+
+export async function requestPasswordReset(email: string): Promise<AuthResult> {
+  try {
+    const data = await cognitoRequest('ForgotPassword', {
+      ClientId: COGNITO_CONFIG.clientId,
+      Username: email,
+    });
+    const errorType = data.__type?.split('#').pop();
+    if (!errorType || ACCOUNT_SAFE_RESET_ERRORS.has(errorType)) {
+      return { success: true };
+    }
+    return { success: false, error: 'request_failed' };
+  } catch (err) {
+    console.error('Password reset request error:', err);
+    return { success: false, error: 'network' };
+  }
+}
+
+export async function confirmPasswordReset(
+  email: string,
+  confirmationCode: string,
+  password: string,
+): Promise<AuthResult> {
+  try {
+    const data = await cognitoRequest('ConfirmForgotPassword', {
+      ClientId: COGNITO_CONFIG.clientId,
+      Username: email,
+      ConfirmationCode: confirmationCode,
+      Password: password,
+    });
+    return data.__type
+      ? { success: false, error: 'confirm_failed' }
+      : { success: true };
+  } catch (err) {
+    console.error('Password reset confirmation error:', err);
+    return { success: false, error: 'network' };
   }
 }
 
