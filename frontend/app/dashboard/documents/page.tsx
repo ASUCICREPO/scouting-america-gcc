@@ -1,7 +1,16 @@
 'use client';
 
 import { useEffect, useState, useRef } from 'react';
-import { getDocuments, getDocumentDownloadUrl, deleteDocument, getUploadUrl, DocumentItem, DocumentStatus } from '@/lib/dashboard/api';
+import {
+  completeUploadBatch,
+  createUploadBatch,
+  deleteDocuments,
+  DocumentItem,
+  DocumentStatus,
+  getDocumentDownloadUrl,
+  getDocuments,
+  PresignedDocumentUpload,
+} from '@/lib/dashboard/api';
 import { Search, Paperclip, Upload, FolderUp, Pencil, Trash2, Download, FileText, ChevronLeft, ChevronRight, AlertTriangle } from 'lucide-react';
 import { toast } from 'sonner';
 import ConfirmDialog from '@/components/ConfirmDialog';
@@ -12,8 +21,13 @@ import {
   CollectedFile,
   collectFilesFromDataTransfer,
   collectFilesFromInput,
+  chunkUploadBatch,
   contentTypeFor,
   partitionByType,
+  partitionByUniquePath,
+  runWithConcurrency,
+  sortByRelativePath,
+  UPLOAD_CONCURRENCY,
 } from '@/lib/dashboard/upload-utils';
 
 export default function DocumentsPage() {
@@ -89,17 +103,17 @@ export default function DocumentsPage() {
     if (deleteKeys.length === 0 || deleting) return;
 
     setDeleting(true);
-    const failed: string[] = [];
-    for (const key of deleteKeys) {
-      try {
-        await deleteDocument(key);
-      } catch (err) {
-        failed.push(key);
-        console.error(err);
-      }
+    let failed: string[] = [];
+    let deletedKeys: string[] = [];
+    try {
+      const result = await deleteDocuments(deleteKeys);
+      failed = result.failedKeys;
+      deletedKeys = result.deletedKeys;
+    } catch (err) {
+      failed = [...deleteKeys];
+      console.error(err);
     }
 
-    const deletedKeys = deleteKeys.filter(key => !failed.includes(key));
     setSelectedKeys(prev => {
       const next = new Set(prev);
       deletedKeys.forEach(key => next.delete(key));
@@ -117,28 +131,32 @@ export default function DocumentsPage() {
   // Upload a single collected file to S3 via a presigned URL, preserving its
   // relative folder path. Uses XHR so we get real byte-level progress events
   // (fetch can't report upload progress), reported via onProgress.
-  function uploadOne(item: CollectedFile, onProgress: (loaded: number) => void): Promise<void> {
-    const ct = contentTypeFor(item.file);
-    return getUploadUrl(item.relativePath, ct).then(({ url, fields, maxSizeBytes }) =>
-      new Promise<void>((resolve, reject) => {
-        if (item.file.size > maxSizeBytes) {
-          reject(new Error(`File exceeds ${maxSizeBytes} bytes: ${item.relativePath}`));
-          return;
-        }
-        const form = new FormData();
-        Object.entries(fields).forEach(([name, value]) => form.append(name, value));
-        form.append('file', item.file);
-        const xhr = new XMLHttpRequest();
-        xhr.open('POST', url);
-        xhr.upload.onprogress = (e) => { if (e.lengthComputable) onProgress(e.loaded); };
-        xhr.onload = () => {
-          if (xhr.status >= 200 && xhr.status < 300) resolve();
-          else reject(new Error(`POST failed (${xhr.status}) for ${item.relativePath}`));
-        };
-        xhr.onerror = () => reject(new Error(`Network error uploading ${item.relativePath}`));
-        xhr.send(form);
-      }),
-    );
+  function uploadOne(
+    item: CollectedFile,
+    upload: PresignedDocumentUpload,
+    onProgress: (loaded: number) => void,
+  ): Promise<void> {
+    return new Promise<void>((resolve, reject) => {
+      if (item.file.size > upload.maxSizeBytes) {
+        reject(new Error(`File exceeds ${upload.maxSizeBytes} bytes: ${item.relativePath}`));
+        return;
+      }
+      const form = new FormData();
+      Object.entries(upload.fields).forEach(([name, value]) => form.append(name, value));
+      form.append('file', item.file);
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', upload.url);
+      xhr.timeout = 300_000;
+      xhr.upload.onprogress = (e) => { if (e.lengthComputable) onProgress(e.loaded); };
+      xhr.onload = () => {
+        if (xhr.status >= 200 && xhr.status < 300) resolve();
+        else reject(new Error(`POST failed (${xhr.status}) for ${item.relativePath}`));
+      };
+      xhr.onerror = () => reject(new Error(`Network error uploading ${item.relativePath}`));
+      xhr.ontimeout = () => reject(new Error(`Upload timed out for ${item.relativePath}`));
+      xhr.onabort = () => reject(new Error(`Upload cancelled for ${item.relativePath}`));
+      xhr.send(form);
+    });
   }
 
   // Validate a batch, surface unsupported files as a bottom-right error toast,
@@ -156,29 +174,78 @@ export default function DocumentsPage() {
       );
     }
 
-    if (valid.length === 0) return;
+    const { unique, duplicates } = partitionByUniquePath(valid);
+    if (duplicates.length > 0) {
+      toast.error(
+        formatText(t.documents.duplicatePaths, { count: duplicates.length }),
+        { description: duplicates.map((file) => file.relativePath).join(', ') },
+      );
+    }
 
-    const totalBytes = valid.reduce((sum, f) => sum + (f.file.size || 0), 0) || 1;
-    let completedBytes = 0;
+    if (unique.length === 0) return;
+
+    const orderedFiles = sortByRelativePath(unique);
+    const totalBytes = orderedFiles.reduce((sum, f) => sum + (f.file.size || 0), 0) || 1;
+    const loadedBytes = new Map<string, number>();
+    let completedFiles = 0;
+
+    const updateProgress = () => {
+      const uploadedBytes = Array.from(loadedBytes.values()).reduce((sum, value) => sum + value, 0);
+      const pct = Math.min(100, Math.round((uploadedBytes / totalBytes) * 100));
+      setProgress({ done: completedFiles, total: orderedFiles.length, pct });
+    };
 
     setUploading(true);
-    setProgress({ done: 0, total: valid.length, pct: 0 });
+    setProgress({ done: 0, total: orderedFiles.length, pct: 0 });
     const failed: string[] = [];
     let succeeded = 0;
-    for (const item of valid) {
+
+    for (const batchFiles of chunkUploadBatch(orderedFiles)) {
       try {
-        await uploadOne(item, (loaded) => {
-          const pct = Math.min(100, Math.round(((completedBytes + loaded) / totalBytes) * 100));
-          setProgress({ done: succeeded + failed.length, total: valid.length, pct });
+        const batch = await createUploadBatch(batchFiles.map((item) => ({
+          relativePath: item.relativePath,
+          contentType: contentTypeFor(item.file),
+          size: item.file.size,
+        })));
+        const uploadsByPath = new Map(batch.uploads.map((upload) => [upload.relativePath, upload]));
+
+        const results = await runWithConcurrency(batchFiles, UPLOAD_CONCURRENCY, async (item) => {
+          const upload = uploadsByPath.get(item.relativePath);
+          if (!upload) throw new Error(`Missing upload policy for ${item.relativePath}`);
+          try {
+            await uploadOne(item, upload, (loaded) => {
+              loadedBytes.set(item.relativePath, loaded);
+              updateProgress();
+            });
+            return { item, upload, succeeded: true };
+          } catch (err) {
+            console.error(err);
+            return { item, upload, succeeded: false };
+          } finally {
+            loadedBytes.set(item.relativePath, item.file.size || 0);
+            completedFiles += 1;
+            updateProgress();
+          }
         });
-        succeeded += 1;
+
+        const failedResults = results.filter((result) => !result.succeeded);
+        await completeUploadBatch(
+          batch.batchId,
+          failedResults.map((result) => result.upload.key),
+        );
+        succeeded += results.length - failedResults.length;
+        failed.push(...failedResults.map((result) => result.item.relativePath));
       } catch (err) {
         console.error(err);
-        failed.push(item.relativePath);
+        for (const item of batchFiles) {
+          if (!loadedBytes.has(item.relativePath)) {
+            loadedBytes.set(item.relativePath, item.file.size || 0);
+            completedFiles += 1;
+          }
+          if (!failed.includes(item.relativePath)) failed.push(item.relativePath);
+        }
+        updateProgress();
       }
-      completedBytes += item.file.size || 0;
-      const pct = Math.min(100, Math.round((completedBytes / totalBytes) * 100));
-      setProgress({ done: succeeded + failed.length, total: valid.length, pct });
     }
     setUploading(false);
     setProgress(null);
