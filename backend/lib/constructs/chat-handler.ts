@@ -5,6 +5,7 @@ import * as iam from 'aws-cdk-lib/aws-iam';
 import * as apigateway from 'aws-cdk-lib/aws-apigateway';
 import * as logs from 'aws-cdk-lib/aws-logs';
 import * as sqs from 'aws-cdk-lib/aws-sqs';
+import * as s3 from 'aws-cdk-lib/aws-s3';
 import { Construct } from 'constructs';
 import { CONFIG, PREFIX } from '../config/environment';
 import * as path from 'path';
@@ -26,6 +27,8 @@ export interface ChatHandlerProps {
   chatFeedbackResource: apigateway.Resource;
   // Knowledge Base ID — we'll get this from the KB construct
   knowledgeBaseId: string;
+  // Private source objects used to create short-lived citation links.
+  knowledgeBaseBucket: s3.IBucket;
   // Durable queue consumed by the Escalation Router.
   escalationQueue: sqs.IQueue;
 }
@@ -51,6 +54,7 @@ export class ChatHandler extends Construct {
       layers: [props.dependenciesLayer],
       environment: {
         KB_ID: props.knowledgeBaseId,
+        KB_BUCKET: props.knowledgeBaseBucket.bucketName,
         MODEL_ARN: `arn:aws:bedrock:${cdk.Aws.REGION}:${cdk.Aws.ACCOUNT_ID}:inference-profile/${CONFIG.MODEL_ID}`,
         CHAT_LOGS_TABLE: props.chatLogsTable.tableName,
         GUARDRAIL_ID: props.guardrailId,
@@ -75,6 +79,7 @@ export class ChatHandler extends Construct {
 
     // Grant permissions: read/write to ChatLogs table
     props.chatLogsTable.grantReadWriteData(this.function);
+    props.knowledgeBaseBucket.grantRead(this.function);
 
     // Grant permissions: retrieve once from the KB, generate from those exact
     // sources, and read the immutable Prompt Management version.

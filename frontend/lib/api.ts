@@ -3,12 +3,17 @@ import { Language } from "./i18n";
 
 export type Feedback = "positive" | "negative";
 
+export interface SourceLink {
+  title: string;
+  url: string;
+}
+
 export interface ChatMessage {
   role: "user" | "assistant";
   content: string;
   timestamp?: string;
   suggestions?: string[];
-  links?: { title: string; url: string }[];
+  links?: SourceLink[];
   /** Server turn id (DynamoDB sort key) used to attach feedback. */
   messageId?: string;
   /** Locally-tracked rating the user gave this response. */
@@ -18,7 +23,7 @@ export interface ChatMessage {
 export interface ChatResponse {
   message: string;
   suggestions?: string[];
-  links?: { title: string; url: string }[];
+  links?: SourceLink[];
   sessionId?: string;
   sessionToken?: string;
   messageId?: string;
@@ -66,6 +71,7 @@ export interface HistoryItem {
   question: string;
   answer: string;
   timestamp: string;
+  links?: SourceLink[];
   language?: Language;
 }
 
@@ -83,7 +89,12 @@ export async function getChatHistory(
   const messages: ChatMessage[] = [];
   for (const item of data.history || []) {
     messages.push({ role: "user", content: item.question, timestamp: item.timestamp });
-    messages.push({ role: "assistant", content: item.answer, timestamp: item.timestamp });
+    messages.push({
+      role: "assistant",
+      content: item.answer,
+      timestamp: item.timestamp,
+      links: item.links,
+    });
   }
   const historyLanguage = (data.history || []).find(
     (item: HistoryItem) => item.language === "en" || item.language === "es",

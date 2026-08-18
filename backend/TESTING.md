@@ -106,6 +106,12 @@ Expected response:
 {
   "answer": "Based on the documents...",
   "sources": ["s3://gcc-knowledge-base-data-<ACCOUNT_ID>/documents/..."],
+  "links": [
+    {
+      "title": "source.pdf",
+      "url": "https://gcc-knowledge-base-data-<ACCOUNT_ID>.s3.amazonaws.com/..."
+    }
+  ],
   "confidence": 0.25,
   "sessionId": "uuid",
   "escalated": true
