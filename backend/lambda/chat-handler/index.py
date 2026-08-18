@@ -12,6 +12,7 @@ import hmac
 import json
 import os
 import secrets
+import urllib.parse
 import uuid
 from datetime import datetime, timezone
 from decimal import Decimal
@@ -30,12 +31,14 @@ bedrock_agent = boto3.client("bedrock-agent")
 bedrock_retrieval = boto3.client("bedrock-agent-runtime")
 bedrock_runtime = boto3.client("bedrock-runtime")
 ddb = boto3.resource("dynamodb")
+s3 = boto3.client("s3")
 sqs = boto3.client("sqs")
 
 # Environment set by the CDK construct.
 KB_ID = os.environ["KB_ID"]
 MODEL_ARN = os.environ["MODEL_ARN"]
 CHAT_LOGS_TABLE = os.environ["CHAT_LOGS_TABLE"]
+KB_BUCKET = os.environ["KB_BUCKET"]
 GUARDRAIL_ID = os.environ["GUARDRAIL_ID"]
 GUARDRAIL_VERSION = os.environ["GUARDRAIL_VERSION"]
 PROMPT_ATTACK_GUARDRAIL_ID = os.environ["PROMPT_ATTACK_GUARDRAIL_ID"]
@@ -52,6 +55,7 @@ chat_table = ddb.Table(CHAT_LOGS_TABLE)
 MAX_QUESTION_LENGTH = 4000
 MAX_SESSION_ID_LENGTH = 128
 MAX_SESSION_TURNS = max(1, int(os.environ.get("MAX_SESSION_TURNS", "50")))
+CITATION_URL_TTL_SECONDS = 15 * 60
 PROMPT_PATH = Path(__file__).parent / "templates" / "chat_prompt.j2"
 # This template produces a plain-text model prompt, not HTML. HTML autoescape
 # would corrupt quoted source material without preventing prompt injection.
@@ -114,6 +118,11 @@ class ChunkScore(StrictModel):
     chunk_text: str = Field(alias="chunkText")
 
 
+class CitationLink(StrictModel):
+    title: str
+    url: str
+
+
 class ChatLog(StrictModel):
     session_id: str = Field(alias="sessionId")
     timestamp: str
@@ -133,6 +142,7 @@ class ChatLog(StrictModel):
 class ChatResponse(StrictModel):
     answer: str
     sources: list[str]
+    links: list[CitationLink]
     confidence: float
     session_id: str = Field(alias="sessionId")
     session_token: str = Field(alias="sessionToken")
@@ -152,6 +162,7 @@ class HistoryTurn(StrictModel):
     question: str | None = None
     answer: str | None = None
     sources: list[str] | None = None
+    links: list[CitationLink] | None = None
     confidence: float | None = None
     timestamp: str | None = None
     escalated: bool | None = None
@@ -330,6 +341,70 @@ def retrieve_chunks(question: str) -> list[RetrievedChunk]:
     return chunks
 
 
+def _citation_link(source: str) -> CitationLink | None:
+    """Turn a retrieved KB object URI into a short-lived browser link."""
+    parsed = urllib.parse.urlparse(source)
+    if (
+        parsed.scheme != "s3"
+        or parsed.netloc != KB_BUCKET
+        or parsed.query
+        or parsed.fragment
+    ):
+        return None
+
+    key = urllib.parse.unquote(parsed.path.lstrip("/"))
+    key_parts = key.split("/")
+    if (
+        not key.startswith("documents/")
+        or key.endswith("/")
+        or any(part in {".", ".."} for part in key_parts)
+        or any(ord(character) < 32 for character in key)
+    ):
+        return None
+
+    title = key_parts[-1].strip()
+    if not title:
+        return None
+
+    encoded_title = urllib.parse.quote(title, safe="")
+    params: dict[str, str] = {
+        "Bucket": KB_BUCKET,
+        "Key": key,
+    }
+    if title.lower().endswith(".pdf"):
+        params.update({
+            "ResponseContentDisposition": f"inline; filename*=UTF-8''{encoded_title}",
+            "ResponseContentType": "application/pdf",
+        })
+
+    url = s3.generate_presigned_url(
+        "get_object",
+        Params=params,
+        ExpiresIn=CITATION_URL_TTL_SECONDS,
+    )
+    return CitationLink(title=title, url=url)
+
+
+def _citation_links(sources: list[str]) -> list[CitationLink]:
+    links = []
+    for source in sources:
+        try:
+            link = _citation_link(source)
+        except Exception as error:  # noqa: BLE001 - an unavailable citation must not lose the answer
+            print(f"Could not sign citation source: {error}")
+            continue
+        if link is not None:
+            links.append(link)
+    return links
+
+
+def _citable_sources(sources: list[str], confidence: float | None) -> list[str]:
+    """Expose citations only when retrieval met the configured confidence bar."""
+    if confidence is None or confidence < CONFIDENCE_THRESHOLD:
+        return []
+    return sources
+
+
 def prompt_attack_detected(question: str) -> bool:
     """Screen only untrusted user text, before retrieval or prompt rendering."""
     result = bedrock_runtime.apply_guardrail(
@@ -483,6 +558,8 @@ def handle_chat(event: dict[str, Any]) -> dict[str, Any]:
         if chunks
         else 0.3
     )
+    cited_sources = _citable_sources(sources, confidence)
+    links = _citation_links(cited_sources)
 
     escalate, reason = check_escalation(request.question, answer, confidence)
     if stop_reason == "guardrail_intervened":
@@ -522,7 +599,8 @@ def handle_chat(event: dict[str, Any]) -> dict[str, Any]:
         HttpStatus.OK,
         ChatResponse(
             answer=answer,
-            sources=sources,
+            sources=cited_sources,
+            links=links,
             confidence=confidence,
             sessionId=session_id,
             sessionToken=session_token,
@@ -604,18 +682,26 @@ def get_history(event: dict[str, Any]) -> dict[str, Any]:
     # The descending bounded query returns the most recent turns first; restore
     # chronological order for the browser transcript.
     items = list(reversed(result.get("Items", [])))
-    history = [
-        HistoryTurn(
-            question=item.get("question"),
-            answer=item.get("answer"),
-            sources=item.get("sources"),
-            confidence=float(item["confidence"]) if item.get("confidence") is not None else None,
-            timestamp=item.get("timestamp"),
-            escalated=item.get("escalated"),
-            language=item.get("language", "en"),
+    history = []
+    for item in items:
+        confidence = (
+            float(item["confidence"])
+            if item.get("confidence") is not None
+            else None
         )
-        for item in items
-    ]
+        sources = _citable_sources(item.get("sources") or [], confidence)
+        history.append(
+            HistoryTurn(
+                question=item.get("question"),
+                answer=item.get("answer"),
+                sources=sources,
+                links=_citation_links(sources),
+                confidence=confidence,
+                timestamp=item.get("timestamp"),
+                escalated=item.get("escalated"),
+                language=item.get("language", "en"),
+            )
+        )
     return api_response(
         HttpStatus.OK,
         HistoryResponse(sessionId=session_id, history=history),

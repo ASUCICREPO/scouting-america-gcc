@@ -74,6 +74,32 @@ describe('Bedrock data source chunking', () => {
 });
 
 describe('Grounded response generation controls', () => {
+  test('grants the chat handler access to sign private knowledge-base sources', () => {
+    const functions = Object.values(template.findResources('AWS::Lambda::Function'));
+    const chatFunction = functions.find(
+      (resource) => resource.Properties?.FunctionName === 'GCC-ChatHandler',
+    );
+    expect(chatFunction?.Properties?.Environment?.Variables?.KB_BUCKET).toEqual({
+      Ref: expect.stringContaining('KnowledgeBaseBucket'),
+    });
+
+    const chatRoleLogicalId = chatFunction?.Properties?.Role?.['Fn::GetAtt']?.[0];
+    expect(chatRoleLogicalId).toBeDefined();
+    const policies = Object.values(template.findResources('AWS::IAM::Policy'));
+    const chatPolicies = policies.filter((policy) =>
+      JSON.stringify(policy.Properties?.Roles).includes(chatRoleLogicalId),
+    );
+    const statements = chatPolicies.flatMap(
+      (policy) => policy.Properties?.PolicyDocument?.Statement || [],
+    );
+    const sourceRead = statements.find((statement) => {
+      const actions = Array.isArray(statement.Action) ? statement.Action : [statement.Action];
+      return actions.some((action: string) => action?.startsWith('s3:GetObject'))
+        && JSON.stringify(statement.Resource).includes('KnowledgeBaseBucket');
+    });
+    expect(sourceRead).toBeDefined();
+  });
+
   test('provisions immutable Prompt Management and Guardrail versions', () => {
     template.resourceCountIs('AWS::Bedrock::Prompt', 1);
     template.resourceCountIs('AWS::Bedrock::PromptVersion', 1);

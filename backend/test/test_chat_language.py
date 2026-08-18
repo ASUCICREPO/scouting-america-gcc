@@ -4,6 +4,7 @@ import importlib.util
 import json
 import os
 import unittest
+import urllib.parse
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -44,13 +45,14 @@ class FakeBedrockAgent:
 class FakeBedrockRetrieval:
     def __init__(self):
         self.requests = []
+        self.score = 0.8
 
     def retrieve(self, **kwargs):
         self.requests.append(kwargs)
         return {
             "retrievalResults": [{
-                "location": {"s3Location": {"uri": "s3://approved/source.pdf"}},
-                "score": 0.8,
+                "location": {"s3Location": {"uri": "s3://approved/documents/source.pdf"}},
+                "score": self.score,
                 "content": {"text": "Approved source text"},
             }]
         }
@@ -88,6 +90,16 @@ class FakeSqs:
         return {"MessageId": "message-1"}
 
 
+class FakeS3:
+    def __init__(self):
+        self.presign_requests = []
+
+    def generate_presigned_url(self, operation, **kwargs):
+        self.presign_requests.append((operation, kwargs))
+        key = urllib.parse.quote(kwargs["Params"]["Key"], safe="/")
+        return f"https://signed.example/{key}"
+
+
 def load_chat_module():
     os.environ.update({
         "AWS_DEFAULT_REGION": "us-east-1",
@@ -95,6 +107,7 @@ def load_chat_module():
         "KB_ID": "kb-test",
         "MODEL_ARN": "model-test",
         "CHAT_LOGS_TABLE": "chat-test",
+        "KB_BUCKET": "approved",
         "GUARDRAIL_ID": "guardrail-test",
         "GUARDRAIL_VERSION": "1",
         "PROMPT_ATTACK_GUARDRAIL_ID": "prompt-attack-guardrail-test",
@@ -112,11 +125,13 @@ def load_chat_module():
     retrieval = FakeBedrockRetrieval()
     runtime = FakeBedrockRuntime()
     sqs = FakeSqs()
+    s3 = FakeS3()
 
     clients = {
         "bedrock-agent": agent,
         "bedrock-agent-runtime": retrieval,
         "bedrock-runtime": runtime,
+        "s3": s3,
         "sqs": sqs,
     }
 
@@ -127,22 +142,24 @@ def load_chat_module():
         "boto3.resource", return_value=FakeDynamoResource(table)
     ):
         spec.loader.exec_module(module)
-    return module, retrieval, runtime, table, sqs
+    return module, retrieval, runtime, table, sqs, s3
 
 
 class ChatLanguageTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.module, cls.retrieval, cls.runtime, cls.table, cls.sqs = load_chat_module()
+        cls.module, cls.retrieval, cls.runtime, cls.table, cls.sqs, cls.s3 = load_chat_module()
 
     def setUp(self):
         self.retrieval.requests.clear()
+        self.retrieval.score = 0.8
         self.runtime.requests.clear()
         self.runtime.guardrail_requests.clear()
         self.runtime.prompt_attack_detected = False
         self.table.items.clear()
         self.sqs.messages.clear()
         self.sqs.error = None
+        self.s3.presign_requests.clear()
 
     def test_spanish_prompt_requires_spanish_only(self):
         chunk = self.module.RetrievedChunk(
@@ -175,7 +192,11 @@ class ChatLanguageTests(unittest.TestCase):
         self.assertEqual(len(self.runtime.requests), 1)
         generated_prompt = self.runtime.requests[0]["messages"][0]["content"][0]["text"]
         self.assertIn("Approved source text", generated_prompt)
-        self.assertEqual(body["sources"], ["s3://approved/source.pdf"])
+        self.assertEqual(body["sources"], ["s3://approved/documents/source.pdf"])
+        self.assertEqual(body["links"], [{
+            "title": "source.pdf",
+            "url": "https://signed.example/documents/source.pdf",
+        }])
         self.assertEqual(body["confidence"], 0.8)
         self.assertEqual(body["language"], "es")
         self.assertTrue(body["sessionToken"])
@@ -184,6 +205,53 @@ class ChatLanguageTests(unittest.TestCase):
             self.table.items[-1]["chunkScores"][0]["source"],
             body["sources"][0],
         )
+
+    def test_pdf_citation_is_signed_for_inline_viewing(self):
+        link = self.module._citation_link(
+            "s3://approved/documents/Handbooks/Camp%20Guide.pdf",
+        )
+
+        self.assertEqual(link.title, "Camp Guide.pdf")
+        operation, request = self.s3.presign_requests[-1]
+        self.assertEqual(operation, "get_object")
+        self.assertEqual(request["ExpiresIn"], 900)
+        self.assertEqual(request["Params"], {
+            "Bucket": "approved",
+            "Key": "documents/Handbooks/Camp Guide.pdf",
+            "ResponseContentDisposition": (
+                "inline; filename*=UTF-8''Camp%20Guide.pdf"
+            ),
+            "ResponseContentType": "application/pdf",
+        })
+
+    def test_low_confidence_response_does_not_expose_retrieved_sources(self):
+        self.retrieval.score = 0.5
+
+        result = self.module.handle_chat({
+            "body": json.dumps({"question": "Unknown topic"})
+        })
+
+        body = json.loads(result["body"])
+        self.assertEqual(result["statusCode"], 200)
+        self.assertEqual(body["confidence"], 0.5)
+        self.assertTrue(body["escalated"])
+        self.assertEqual(body["sources"], [])
+        self.assertEqual(body["links"], [])
+        self.assertEqual(
+            self.table.items[-1]["sources"],
+            ["s3://approved/documents/source.pdf"],
+        )
+        self.assertEqual(self.s3.presign_requests, [])
+
+    def test_citation_signing_rejects_unapproved_s3_locations(self):
+        sources = [
+            "s3://another-bucket/documents/private.pdf",
+            "s3://approved/uploads/not-a-kb-source.pdf",
+            "https://example.org/source.pdf",
+        ]
+
+        self.assertEqual(self.module._citation_links(sources), [])
+        self.assertEqual(self.s3.presign_requests, [])
 
     def test_generation_applies_versioned_guardrail(self):
         self.module.handle_chat({
@@ -307,6 +375,8 @@ class ChatLanguageTests(unittest.TestCase):
                 "timestamp": f"2026-07-29T00:{index:02d}:00.000Z",
                 "question": f"Question {index}",
                 "answer": f"Answer {index}",
+                "sources": ["s3://approved/documents/history.pdf"],
+                "confidence": 0.8,
                 "language": "en",
             })
 
@@ -320,6 +390,33 @@ class ChatLanguageTests(unittest.TestCase):
         self.assertEqual(len(body["history"]), self.module.MAX_SESSION_TURNS)
         self.assertEqual(body["history"][0]["question"], "Question 5")
         self.assertEqual(body["history"][-1]["question"], f"Question {total - 1}")
+        self.assertEqual(body["history"][0]["links"], [{
+            "title": "history.pdf",
+            "url": "https://signed.example/documents/history.pdf",
+        }])
+
+    def test_history_suppresses_low_confidence_citations(self):
+        token = "session-secret"
+        self.table.items.append({
+            "sessionId": "session-1",
+            "sessionTokenHash": self.module._token_hash(token),
+            "timestamp": "2026-07-29T00:00:00.000Z",
+            "question": "Unknown topic",
+            "answer": "No approved information was found.",
+            "sources": ["s3://approved/documents/unrelated.pdf"],
+            "confidence": 0.5,
+            "language": "en",
+        })
+
+        result = self.module.get_history({
+            "headers": {"X-Session-Token": token},
+            "pathParameters": {"sessionId": "session-1"},
+        })
+
+        turn = json.loads(result["body"])["history"][0]
+        self.assertEqual(turn["sources"], [])
+        self.assertEqual(turn["links"], [])
+        self.assertEqual(self.s3.presign_requests, [])
 
     def test_cors_is_scoped_to_the_public_distribution(self):
         result = self.module.handle_chat({

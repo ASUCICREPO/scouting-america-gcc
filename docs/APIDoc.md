@@ -81,6 +81,12 @@ Spanish example:
   "sources": [
     "s3://demo-gcc-knowledge-base-data-123456789012/documents/Camp Geronimo Map.pdf"
   ],
+  "links": [
+    {
+      "title": "Camp Geronimo Map.pdf",
+      "url": "https://signed-s3-url.example/..."
+    }
+  ],
   "confidence": 0.8234,
   "sessionId": "5901a24e-d15b-4f10-8c1f-example",
   "sessionToken": "high-entropy-anonymous-bearer-token",
@@ -93,7 +99,8 @@ Spanish example:
 | Field | Type | Description |
 | --- | --- | --- |
 | `answer` | string | Markdown-formatted model response |
-| `sources` | string[] | Unique S3 URIs for the exact chunks used to generate the answer |
+| `sources` | string[] | Unique S3 URIs returned only when average retrieval confidence meets the configured threshold |
+| `links` | object[] | Browser links for those confidence-qualified documents; each URL expires after 15 minutes |
 | `confidence` | number | Average of up to five retrieval scores; `0.3` fallback if unavailable |
 | `sessionId` | string | Conversation identifier |
 | `sessionToken` | string | Anonymous bearer credential; persist securely with the local session |
@@ -133,6 +140,12 @@ X-Session-Token: ANONYMOUS_SESSION_TOKEN
       "question": "What can you tell me about Camp Geronimo?",
       "answer": "## Camp Geronimo\n\n...",
       "sources": ["s3://bucket/documents/example.pdf"],
+      "links": [
+        {
+          "title": "example.pdf",
+          "url": "https://signed-s3-url.example/..."
+        }
+      ],
       "confidence": 0.8234,
       "timestamp": "2026-07-15T16:42:18.123Z",
       "escalated": false,
@@ -141,6 +154,8 @@ X-Session-Token: ANONYMOUS_SESSION_TOKEN
   ]
 }
 ```
+
+History responses generate fresh 15-minute document links from stored source identifiers only when that turn met the configured confidence threshold.
 
 An unknown session or invalid bearer credential returns `403` without revealing whether the session exists.
 

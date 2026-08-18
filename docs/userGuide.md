@@ -59,7 +59,7 @@ Voice behavior depends on browser support and device permissions. Typing remains
 
 ### Review Sources
 
-When the knowledge base returns source documents, the response includes source references. Use sources to identify the approved GCC or Scouting America material behind an answer.
+When the knowledge base returns source documents, the response includes source cards. Select a card to open the approved GCC or Scouting America document in a new browser tab. For security, document links expire after 15 minutes; reopening a saved conversation generates fresh links.
 
 GCC Chat can make mistakes. Verify dates, prices, safety requirements, policies, and official procedures against the cited document or with GCC staff before acting.
 
