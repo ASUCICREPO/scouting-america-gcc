@@ -99,8 +99,8 @@ Spanish example:
 | Field | Type | Description |
 | --- | --- | --- |
 | `answer` | string | Markdown-formatted model response |
-| `sources` | string[] | Unique S3 URIs for the exact chunks used to generate the answer |
-| `links` | object[] | Browser links for approved retrieved documents; each URL expires after 15 minutes |
+| `sources` | string[] | Unique S3 URIs returned only when average retrieval confidence meets the configured threshold |
+| `links` | object[] | Browser links for those confidence-qualified documents; each URL expires after 15 minutes |
 | `confidence` | number | Average of up to five retrieval scores; `0.3` fallback if unavailable |
 | `sessionId` | string | Conversation identifier |
 | `sessionToken` | string | Anonymous bearer credential; persist securely with the local session |
@@ -155,7 +155,7 @@ X-Session-Token: ANONYMOUS_SESSION_TOKEN
 }
 ```
 
-History responses generate fresh 15-minute document links from the stored source identifiers.
+History responses generate fresh 15-minute document links from stored source identifiers only when that turn met the configured confidence threshold.
 
 An unknown session or invalid bearer credential returns `403` without revealing whether the session exists.
 

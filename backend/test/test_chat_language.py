@@ -45,13 +45,14 @@ class FakeBedrockAgent:
 class FakeBedrockRetrieval:
     def __init__(self):
         self.requests = []
+        self.score = 0.8
 
     def retrieve(self, **kwargs):
         self.requests.append(kwargs)
         return {
             "retrievalResults": [{
                 "location": {"s3Location": {"uri": "s3://approved/documents/source.pdf"}},
-                "score": 0.8,
+                "score": self.score,
                 "content": {"text": "Approved source text"},
             }]
         }
@@ -151,6 +152,7 @@ class ChatLanguageTests(unittest.TestCase):
 
     def setUp(self):
         self.retrieval.requests.clear()
+        self.retrieval.score = 0.8
         self.runtime.requests.clear()
         self.runtime.guardrail_requests.clear()
         self.runtime.prompt_attack_detected = False
@@ -221,6 +223,25 @@ class ChatLanguageTests(unittest.TestCase):
             ),
             "ResponseContentType": "application/pdf",
         })
+
+    def test_low_confidence_response_does_not_expose_retrieved_sources(self):
+        self.retrieval.score = 0.5
+
+        result = self.module.handle_chat({
+            "body": json.dumps({"question": "Unknown topic"})
+        })
+
+        body = json.loads(result["body"])
+        self.assertEqual(result["statusCode"], 200)
+        self.assertEqual(body["confidence"], 0.5)
+        self.assertTrue(body["escalated"])
+        self.assertEqual(body["sources"], [])
+        self.assertEqual(body["links"], [])
+        self.assertEqual(
+            self.table.items[-1]["sources"],
+            ["s3://approved/documents/source.pdf"],
+        )
+        self.assertEqual(self.s3.presign_requests, [])
 
     def test_citation_signing_rejects_unapproved_s3_locations(self):
         sources = [
@@ -355,6 +376,7 @@ class ChatLanguageTests(unittest.TestCase):
                 "question": f"Question {index}",
                 "answer": f"Answer {index}",
                 "sources": ["s3://approved/documents/history.pdf"],
+                "confidence": 0.8,
                 "language": "en",
             })
 
@@ -372,6 +394,29 @@ class ChatLanguageTests(unittest.TestCase):
             "title": "history.pdf",
             "url": "https://signed.example/documents/history.pdf",
         }])
+
+    def test_history_suppresses_low_confidence_citations(self):
+        token = "session-secret"
+        self.table.items.append({
+            "sessionId": "session-1",
+            "sessionTokenHash": self.module._token_hash(token),
+            "timestamp": "2026-07-29T00:00:00.000Z",
+            "question": "Unknown topic",
+            "answer": "No approved information was found.",
+            "sources": ["s3://approved/documents/unrelated.pdf"],
+            "confidence": 0.5,
+            "language": "en",
+        })
+
+        result = self.module.get_history({
+            "headers": {"X-Session-Token": token},
+            "pathParameters": {"sessionId": "session-1"},
+        })
+
+        turn = json.loads(result["body"])["history"][0]
+        self.assertEqual(turn["sources"], [])
+        self.assertEqual(turn["links"], [])
+        self.assertEqual(self.s3.presign_requests, [])
 
     def test_cors_is_scoped_to_the_public_distribution(self):
         result = self.module.handle_chat({

@@ -398,6 +398,13 @@ def _citation_links(sources: list[str]) -> list[CitationLink]:
     return links
 
 
+def _citable_sources(sources: list[str], confidence: float | None) -> list[str]:
+    """Expose citations only when retrieval met the configured confidence bar."""
+    if confidence is None or confidence < CONFIDENCE_THRESHOLD:
+        return []
+    return sources
+
+
 def prompt_attack_detected(question: str) -> bool:
     """Screen only untrusted user text, before retrieval or prompt rendering."""
     result = bedrock_runtime.apply_guardrail(
@@ -538,7 +545,6 @@ def handle_chat(event: dict[str, Any]) -> dict[str, Any]:
     answer, stop_reason = generate_answer(request.question, request.language, chunks, request.session_id)
 
     sources = list(dict.fromkeys(chunk.source for chunk in chunks if chunk.source != "unknown"))
-    links = _citation_links(sources)
     chunk_scores = [
         ChunkScore(
             source=chunk.source,
@@ -552,6 +558,8 @@ def handle_chat(event: dict[str, Any]) -> dict[str, Any]:
         if chunks
         else 0.3
     )
+    cited_sources = _citable_sources(sources, confidence)
+    links = _citation_links(cited_sources)
 
     escalate, reason = check_escalation(request.question, answer, confidence)
     if stop_reason == "guardrail_intervened":
@@ -591,7 +599,7 @@ def handle_chat(event: dict[str, Any]) -> dict[str, Any]:
         HttpStatus.OK,
         ChatResponse(
             answer=answer,
-            sources=sources,
+            sources=cited_sources,
             links=links,
             confidence=confidence,
             sessionId=session_id,
@@ -674,19 +682,26 @@ def get_history(event: dict[str, Any]) -> dict[str, Any]:
     # The descending bounded query returns the most recent turns first; restore
     # chronological order for the browser transcript.
     items = list(reversed(result.get("Items", [])))
-    history = [
-        HistoryTurn(
-            question=item.get("question"),
-            answer=item.get("answer"),
-            sources=item.get("sources"),
-            links=_citation_links(item.get("sources") or []),
-            confidence=float(item["confidence"]) if item.get("confidence") is not None else None,
-            timestamp=item.get("timestamp"),
-            escalated=item.get("escalated"),
-            language=item.get("language", "en"),
+    history = []
+    for item in items:
+        confidence = (
+            float(item["confidence"])
+            if item.get("confidence") is not None
+            else None
         )
-        for item in items
-    ]
+        sources = _citable_sources(item.get("sources") or [], confidence)
+        history.append(
+            HistoryTurn(
+                question=item.get("question"),
+                answer=item.get("answer"),
+                sources=sources,
+                links=_citation_links(sources),
+                confidence=confidence,
+                timestamp=item.get("timestamp"),
+                escalated=item.get("escalated"),
+                language=item.get("language", "en"),
+            )
+        )
     return api_response(
         HttpStatus.OK,
         HistoryResponse(sessionId=session_id, history=history),
