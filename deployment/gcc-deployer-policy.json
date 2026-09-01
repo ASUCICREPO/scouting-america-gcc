@@ -91,8 +91,40 @@
     {
       "Sid": "ApplicationOutputs",
       "Effect": "Allow",
-      "Action": "cloudformation:DescribeStacks",
-      "Resource": "arn:aws:cloudformation:<REGION>:<ACCOUNT_ID>:stack/GrandCanyonCouncilChatbot/*"
+      "Action": [
+        "cloudformation:DescribeStackResources",
+        "cloudformation:DescribeStacks",
+        "cloudformation:ListStackResources"
+      ],
+      "Resource": [
+        "arn:aws:cloudformation:<REGION>:<ACCOUNT_ID>:stack/GrandCanyonCouncilChatbot/*",
+        "arn:aws:cloudformation:<REGION>:<ACCOUNT_ID>:stack/ScoutingAmericaChatbot/*"
+      ]
+    },
+    {
+      "Sid": "ApplicationResourcePreflight",
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetBucketLocation",
+        "s3:ListBucket"
+      ],
+      "Resource": [
+        "arn:aws:s3:::gcc-document-store-<ACCOUNT_ID>",
+        "arn:aws:s3:::*-gcc-document-store-<ACCOUNT_ID>",
+        "arn:aws:s3:::gcc-knowledge-base-data-<ACCOUNT_ID>",
+        "arn:aws:s3:::*-gcc-knowledge-base-data-<ACCOUNT_ID>",
+        "arn:aws:s3:::gcc-chat-audit-archive-<ACCOUNT_ID>",
+        "arn:aws:s3:::*-gcc-chat-audit-archive-<ACCOUNT_ID>"
+      ]
+    },
+    {
+      "Sid": "ApplicationRolePreflight",
+      "Effect": "Allow",
+      "Action": "iam:GetRole",
+      "Resource": [
+        "arn:aws:iam::<ACCOUNT_ID>:role/GCC-BedrockKB-Role",
+        "arn:aws:iam::<ACCOUNT_ID>:role/*-GCC-BedrockKB-Role"
+      ]
     },
     {
       "Sid": "InitialCognitoAdministrator",

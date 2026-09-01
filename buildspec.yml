@@ -4,6 +4,18 @@ version: 0.2
 # deploy.sh uploads the reviewed Git commit as an S3 source archive, creates or
 # updates the CodeBuild project, and supplies the environment variables below.
 
+env:
+  exported-variables:
+    - RESOLVED_STACK_NAME
+    - CHAT_API_URL
+    - DASHBOARD_API_URL
+    - USER_POOL_ID
+    - CLIENT_ID
+    - DOCUMENT_BUCKET
+    - KB_BUCKET
+    - FRONTEND_URL
+    - OPERATIONS_DASHBOARD
+
 phases:
   install:
     runtime-versions:
@@ -16,10 +28,16 @@ phases:
 
   pre_build:
     commands:
+      - echo "Running deployment contract tests"
+      - bash "$CODEBUILD_SRC_DIR/deployment/tests/stack-resolution.test.sh"
+      - bash "$CODEBUILD_SRC_DIR/deployment/tests/deployment-contract.test.sh"
       - echo "Running backend unit tests"
       # Unit assertions target the canonical unprefixed template. The actual
       # deployment keeps the project-supplied RESOURCE_PREFIX below.
       - RESOURCE_PREFIX='' CDK_TEST_SKIP_PYTHON_BUNDLING=true npm test -- --runInBand
+      - echo "Resolving and validating the existing GCC stack"
+      - RESOLVED_STACK_NAME="$(bash "$CODEBUILD_SRC_DIR/deployment/aws-stack-preflight.sh")"
+      - printf '%s\n' "$RESOLVED_STACK_NAME" > "$CODEBUILD_SRC_DIR/.gcc-resolved-stack"
       - echo "Bootstrapping the target account and Region"
       - >-
         npx cdk bootstrap
@@ -29,9 +47,11 @@ phases:
 
   build:
     commands:
-      - echo "Deploying the GrandCanyonCouncilChatbot CDK stack"
+      - export STACK_NAME="$(cat "$CODEBUILD_SRC_DIR/.gcc-resolved-stack")"
+      - export RESOLVED_STACK_NAME="$STACK_NAME"
+      - echo "Deploying the $STACK_NAME CDK stack"
       - cd "$CODEBUILD_SRC_DIR/backend"
-      - npx cdk deploy GrandCanyonCouncilChatbot --require-approval never
+      - npx cdk deploy "$STACK_NAME" --require-approval never
       - |
         set -eu
 
@@ -47,9 +67,15 @@ phases:
         DASHBOARD_API_URL="$(stack_output DashboardApiUrl)"
         USER_POOL_ID="$(stack_output UserPoolId)"
         CLIENT_ID="$(stack_output UserPoolClientId)"
+        DOCUMENT_BUCKET="$(stack_output DocumentStoreBucket)"
+        KB_BUCKET="$(stack_output KnowledgeBaseBucket)"
         FRONTEND_BUCKET="$(stack_output FrontendBucket)"
         FRONTEND_DIST_ID="$(stack_output FrontendDistributionId)"
         FRONTEND_URL="$(stack_output FrontendUrl)"
+        OPERATIONS_DASHBOARD="$(stack_output OperationsDashboardName)"
+
+        export CHAT_API_URL DASHBOARD_API_URL USER_POOL_ID CLIENT_ID
+        export DOCUMENT_BUCKET KB_BUCKET FRONTEND_URL OPERATIONS_DASHBOARD
 
         test -n "$CHAT_API_URL"
         test "$CHAT_API_URL" != "None"

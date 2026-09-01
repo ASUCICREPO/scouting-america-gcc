@@ -78,13 +78,13 @@ See the [Development Guide](./docs/developmentGuide.md) for the complete workflo
 
 ## Deployment
 
-The deployment script installs dependencies, deploys the `GrandCanyonCouncilChatbot` CDK stack, writes the frontend environment, builds the static export, publishes it to one private S3 origin, and invalidates the CloudFront distribution. The public chat is served at `/`; administrators sign in at `/admin` and use the protected application under `/dashboard`.
+The deployment script installs dependencies, safely detects either the current `GrandCanyonCouncilChatbot` stack or the legacy `ScoutingAmericaChatbot` stack, writes the frontend environment, builds the static export, publishes it to one private S3 origin, and invalidates the CloudFront distribution. The public chat is served at `/`; administrators sign in at `/admin` and use the protected application under `/dashboard`.
 
 ```bash
 RESOURCE_PREFIX=demo ./deploy.sh
 ```
 
-Always use the same `RESOURCE_PREFIX` when updating an existing prefixed environment. Deployment changes AWS resources and should be run only by an authorized operator after review. See the [Deployment Guide](./docs/deploymentGuide.md) before deploying or removing infrastructure.
+Always use the same `RESOURCE_PREFIX` when updating an existing prefixed environment. If both supported stack names exist, pass the verified owner with `--stack-name`; otherwise the script resolves it automatically. Deployment changes AWS resources and should be run only by an authorized operator after review. See the [Deployment Guide](./docs/deploymentGuide.md) before deploying or removing infrastructure.
 
 ## Documentation
 

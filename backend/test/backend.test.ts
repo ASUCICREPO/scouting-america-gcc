@@ -398,7 +398,19 @@ describe('Public chat abuse protection', () => {
   });
 });
 
-describe('CloudFront static route rewriting', () => {
+  describe('CloudFront static route rewriting', () => {
+    test('preserves generated CloudFront names for the legacy unprefixed environment', () => {
+      const originAccessControls = template.findResources('AWS::CloudFront::OriginAccessControl');
+      const responseHeadersPolicies = template.findResources('AWS::CloudFront::ResponseHeadersPolicy');
+      const functions = template.findResources('AWS::CloudFront::Function');
+
+      expect(Object.values(originAccessControls)[0].Properties.OriginAccessControlConfig.Name)
+        .not.toBe('GCC-Frontend-OAC');
+      expect(Object.values(responseHeadersPolicies)[0].Properties.ResponseHeadersPolicyConfig.Name)
+        .not.toBe('GCC-SecurityHeaders');
+      expect(Object.values(functions)[0].Properties.Name).not.toBe('GCC-RouteRewrite');
+    });
+
   test('hosts the public chat and protected dashboard on one distribution', () => {
     template.resourceCountIs('AWS::CloudFront::Distribution', 1);
     template.resourceCountIs('AWS::CloudFront::Function', 1);
