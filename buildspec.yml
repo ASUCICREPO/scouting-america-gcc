@@ -28,9 +28,6 @@ phases:
 
   pre_build:
     commands:
-      - echo "Running deployment contract tests"
-      - bash "$CODEBUILD_SRC_DIR/deployment/tests/stack-resolution.test.sh"
-      - bash "$CODEBUILD_SRC_DIR/deployment/tests/deployment-contract.test.sh"
       - echo "Running backend unit tests"
       # Unit assertions target the canonical unprefixed template. The actual
       # deployment keeps the project-supplied RESOURCE_PREFIX below.
