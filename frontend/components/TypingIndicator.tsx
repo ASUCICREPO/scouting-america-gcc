@@ -12,14 +12,14 @@ export default function TypingIndicator() {
           overflow: "hidden",
           display: "flex",
           alignItems: "center",
-          justifyContent: "center",
+          justifyContent: "flex-start",
         }}
       >
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
-          src="/gcc-emblem.jpg"
-          alt="Grand Canyon Council"
-          style={{ width: "100%", height: "100%", objectFit: "cover", borderRadius: "50%" }}
+          src="/gcc-compass-logo.png"
+          alt="GCC Compass"
+          style={{ width: "auto", maxWidth: "none", height: "100%", flexShrink: 0 }}
         />
       </div>
       <span style={{ fontSize: 14, color: "#5a5a72" }}>{t.chat.thinking}</span>

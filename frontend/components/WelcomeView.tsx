@@ -16,18 +16,17 @@ export default function WelcomeView({ onChipClick }: WelcomeViewProps) {
         style={{
           width: 88,
           height: 87,
-          borderRadius: "50%",
           overflow: "hidden",
           display: "flex",
           alignItems: "center",
-          justifyContent: "center",
+          justifyContent: "flex-start",
         }}
       >
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
-          src="/gcc-emblem.jpg"
-          alt="Grand Canyon Council"
-          style={{ width: "100%", height: "100%", objectFit: "cover" }}
+          src="/gcc-compass-logo.png"
+          alt="GCC Compass"
+          style={{ width: "auto", maxWidth: "none", height: "100%", flexShrink: 0 }}
         />
       </div>
 

@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import Image from "next/image";
 import { X, Download, SquareArrowUp } from "lucide-react";
 import { useLanguage } from "@/context/LanguageContext";
 
@@ -115,11 +114,10 @@ export default function PwaInstallBanner() {
     >
       <div className="pwa-banner-content">
         <div className="pwa-banner-icon">
-          <Image
-            src="/gcc-emblem.jpg"
-            alt="Grand Canyon Council"
-            width={40}
-            height={40}
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src="/gcc-compass-logo.png"
+            alt="GCC Compass"
           />
         </div>
         <div className="pwa-banner-text">

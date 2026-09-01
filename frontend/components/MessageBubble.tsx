@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { ThumbsUp, ThumbsDown, Copy, Volume2, VolumeX, ExternalLink, ChevronRight } from "lucide-react";
+import { Fragment, useState } from "react";
+import { ThumbsUp, ThumbsDown, Copy, Volume2, VolumeX, ChevronRight } from "lucide-react";
 import { ChatMessage } from "@/lib/api";
 import MarkdownContent from "./MarkdownContent";
 import { useLanguage } from "@/context/LanguageContext";
@@ -21,6 +21,7 @@ export default function MessageBubble({
   const { language, t } = useLanguage();
   const [copied, setCopied] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
+  const sourceLinks = message.links ?? [];
 
   const handleCopy = async () => {
     try {
@@ -59,25 +60,6 @@ export default function MessageBubble({
       {/* Response text (rendered as markdown) */}
       <MarkdownContent content={message.content} className="ai-response-body" />
 
-      {/* Link cards */}
-      {message.links && message.links.length > 0 && (
-        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-          {message.links.map((link, idx) => (
-            <a
-              key={idx}
-              href={link.url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="link-card"
-            >
-              <ExternalLink size={15} className="link-card-icon" />
-              <span className="link-card-text">{link.title}</span>
-              <ChevronRight size={13} className="link-card-arrow" />
-            </a>
-          ))}
-        </div>
-      )}
-
       {/* Suggestion chips */}
       {message.suggestions && message.suggestions.length > 0 && (
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
@@ -93,6 +75,27 @@ export default function MessageBubble({
             </button>
           ))}
         </div>
+      )}
+
+      {/* Source citations: one inline, comma-separated line of document links */}
+      {sourceLinks.length > 0 && (
+        <p className="source-line">
+          <span className="source-label">{t.chat.sourceLabel}</span>{" "}
+          {sourceLinks.map((link, idx) => (
+            <Fragment key={`${link.url}-${idx}`}>
+              <a
+                href={link.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="source-link"
+                aria-label={`${link.title} - ${t.chat.sourceLinkHint}`}
+              >
+                {link.title}
+              </a>
+              {idx < sourceLinks.length - 1 && ", "}
+            </Fragment>
+          ))}
+        </p>
       )}
 
       {/* Feedback row */}

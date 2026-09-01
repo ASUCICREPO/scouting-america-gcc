@@ -98,7 +98,7 @@ export default function LoginPage() {
           <LanguageSwitcher compact className="login-language-switcher" />
           <div className="login-logo">
             <div className="login-gcc-logo">
-              <img src="/gcc-logo.png" alt="Grand Canyon Council" className="gcc-logo-img" />
+              <img src="/gcc-compass-logo.png" alt="GCC Compass" className="gcc-logo-img" />
             </div>
             <h1 className="login-title">{t.login.forgotTitle}</h1>
             <p className="login-subtitle">{forgotStep === 'email' ? t.login.resetEmailSubtitle : t.login.resetCodeSubtitle}</p>
@@ -150,7 +150,7 @@ export default function LoginPage() {
         <LanguageSwitcher compact className="login-language-switcher" />
         <div className="login-logo">
           <div className="login-gcc-logo">
-            <img src="/gcc-logo.png" alt="Grand Canyon Council" className="gcc-logo-img" />
+            <img src="/gcc-compass-logo.png" alt="GCC Compass" className="gcc-logo-img" />
           </div>
           <h1 className="login-title">{t.login.title}</h1>
           <p className="login-subtitle">{t.login.subtitle}</p>

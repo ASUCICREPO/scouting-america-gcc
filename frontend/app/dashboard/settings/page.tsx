@@ -164,7 +164,7 @@ export default function SettingsPage() {
                 <div className="appearance-row">
                   <div><h3 className="appearance-label">{t.adminSettings.companyLogo}</h3><p className="appearance-desc">{t.adminSettings.companyLogoDescription}</p></div>
                   <div className="logo-controls">
-                    <div className="logo-preview">{draftLogo ? <img src={draftLogo} alt="Logo" /> : <img src="/gcc-logo.png" alt="GCC Logo" />}</div>
+                    <div className="logo-preview">{draftLogo ? <img src={draftLogo} alt="Logo" /> : <img src="/gcc-compass-logo.png" alt="GCC Compass" />}</div>
                     <button className="btn-replace-logo" onClick={() => logoInputRef.current?.click()}>{t.adminSettings.replaceLogo}</button>
                     {draftLogo && <button className="btn-remove-logo" onClick={removeLogo}>{t.adminSettings.remove}</button>}
                     <input ref={logoInputRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handleLogoUpload} />

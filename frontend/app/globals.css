@@ -12,6 +12,9 @@
   --border-light: #e8e8e8;
   --border-suggestion: rgba(0, 0, 0, 0.08);
   --link-orange: #c6772d;
+  /* Source-citation links: light blue, held at >= 4.5:1 on --bg-input for WCAG AA. */
+  --citation-link: #2f6fb0;
+  --citation-link-hover: #1d5a97;
   --shadow-input: #f0a774;
   --font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
     sans-serif;
@@ -143,8 +146,9 @@ body {
 }
 
 .header-logo {
-  height: 41px;
-  width: 179px;
+  height: 36px;
+  width: auto;
+  max-width: 100%;
   object-fit: contain;
 }
 
@@ -516,41 +520,37 @@ body {
   margin-bottom: 0;
 }
 
-/* Link card */
-.link-card {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 11px 15px;
-  border: 1px solid var(--link-orange);
-  border-radius: 12px;
-  background: transparent;
-  cursor: pointer;
-  text-decoration: none;
-  transition: all 0.2s;
+/* Source citations - inline "Source: doc-a.pdf, doc-b.pdf" line */
+.source-line {
+  /* Tracks the user's chat font-size setting, one step down as secondary text. */
+  font-size: calc(var(--chat-font-size, 14px) - 1px);
+  font-weight: 400;
+  line-height: 1.45;
+  color: var(--text-secondary);
+  letter-spacing: 0.065px;
+  overflow-wrap: break-word;
 }
 
-.link-card:hover {
-  background: rgba(198, 119, 45, 0.05);
+.source-label {
+  font-style: italic;
 }
 
-.link-card-text {
-  flex: 1;
-  font-size: 14px;
-  font-weight: 500;
-  color: var(--primary-blue);
-  letter-spacing: -0.037px;
-  line-height: 18.75px;
+.source-link {
+  font-style: italic;
+  color: var(--citation-link);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  transition: color 0.2s;
 }
 
-.link-card-icon {
-  color: var(--link-orange);
-  flex-shrink: 0;
+.source-link:hover {
+  color: var(--citation-link-hover);
 }
 
-.link-card-arrow {
-  color: var(--text-muted);
-  flex-shrink: 0;
+.source-link:focus-visible {
+  outline: 2px solid var(--link-orange);
+  outline-offset: 2px;
+  border-radius: 2px;
 }
 
 /* Suggested follow-ups */
@@ -1585,9 +1585,10 @@ body {
 }
 
 .pwa-banner-icon img {
-  width: 100%;
+  width: auto;
+  max-width: none;
   height: 100%;
-  object-fit: cover;
+  flex-shrink: 0;
 }
 
 .pwa-banner-text {
@@ -1721,7 +1722,6 @@ body {
 .user-bubble,
 .welcome-subtitle,
 .suggestion-btn-text,
-.link-card-text,
 .faq-question-text,
 .faq-answer,
 .settings-row-text,
@@ -1746,6 +1746,8 @@ body {
   --border-light: #3a3a3a;
   --border-suggestion: rgba(255, 255, 255, 0.1);
   --link-orange: #e8a050;
+  --citation-link: #7fb6f0;
+  --citation-link-hover: #a5cdf7;
   --shadow-input: rgba(240, 167, 116, 0.2);
 }
 
@@ -1843,10 +1845,6 @@ body {
 [data-theme="dark"] .suggestion-btn {
   background: #2a2a2a;
   border-color: rgba(255, 255, 255, 0.08);
-}
-
-[data-theme="dark"] .link-card {
-  border-color: var(--link-orange);
 }
 
 [data-theme="dark"] .feedback-btn {
