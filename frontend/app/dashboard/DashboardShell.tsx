@@ -68,7 +68,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           {settings.companyLogo ? (
             <img src={settings.companyLogo} alt="Company Logo" className="dash-company-logo" />
           ) : (
-            <img src="/gcc-logo.png" alt="GCC" className="dash-sidebar-logo-img" />
+            <img src="/gcc-compass-logo.png" alt="GCC Compass" className="dash-sidebar-logo-img" />
           )}
         </div>
 

@@ -1,6 +1,6 @@
 {
-  "name": "GCC Chat",
-  "short_name": "GCC Chat",
+  "name": "GCC Compass",
+  "short_name": "GCC Compass",
   "description": "AI-powered assistant for Grand Canyon Council",
   "start_url": "/",
   "display": "standalone",

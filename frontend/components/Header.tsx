@@ -14,10 +14,9 @@ export default function Header({ onMenuClick }: HeaderProps) {
       <div className="header-left">
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
-          src="/gcc-logo.png"
-          alt="Grand Canyon Council"
+          src="/gcc-compass-logo.png"
+          alt="GCC Compass"
           className="header-logo"
-          style={{ height: 32, width: "auto" }}
         />
       </div>
       <button
