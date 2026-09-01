@@ -3,6 +3,7 @@ import * as cloudfront from 'aws-cdk-lib/aws-cloudfront';
 import * as origins from 'aws-cdk-lib/aws-cloudfront-origins';
 import * as s3 from 'aws-cdk-lib/aws-s3';
 import { Construct } from 'constructs';
+import { PREFIX } from '../config/environment';
 
 /**
  * Hosts the complete Next.js static export behind one CloudFront distribution.
@@ -28,6 +29,7 @@ export class FrontendHosting extends Construct {
     });
 
     const securityHeaders = new cloudfront.ResponseHeadersPolicy(this, 'SecurityHeaders', {
+      responseHeadersPolicyName: PREFIX ? `${PREFIX}GCC-SecurityHeaders` : undefined,
       comment: 'Security headers for the Grand Canyon Council frontend',
       securityHeadersBehavior: {
         contentTypeOptions: { override: true },
@@ -49,6 +51,7 @@ export class FrontendHosting extends Construct {
     });
 
     const routeRewrite = new cloudfront.Function(this, 'RouteRewrite', {
+      functionName: PREFIX ? `${PREFIX}GCC-RouteRewrite` : undefined,
       comment: 'Resolve Next.js static-export routes',
       runtime: cloudfront.FunctionRuntime.JS_2_0,
       code: cloudfront.FunctionCode.fromInline(`
@@ -70,10 +73,19 @@ function handler(event) {
       `),
     });
 
+    const siteOrigin = PREFIX
+      ? origins.S3BucketOrigin.withOriginAccessControl(this.siteBucket, {
+        originAccessControl: new cloudfront.S3OriginAccessControl(this, 'OriginAccessControl', {
+          originAccessControlName: `${PREFIX}GCC-Frontend-OAC`,
+          description: 'Private GCC frontend S3 origin',
+        }),
+      })
+      : origins.S3BucketOrigin.withOriginAccessControl(this.siteBucket);
+
     this.distribution = new cloudfront.Distribution(this, 'Distribution', {
       comment: 'Grand Canyon Council chatbot and admin dashboard',
       defaultBehavior: {
-        origin: origins.S3BucketOrigin.withOriginAccessControl(this.siteBucket),
+        origin: siteOrigin,
         viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
         cachePolicy: cloudfront.CachePolicy.CACHING_OPTIMIZED,
         responseHeadersPolicy: securityHeaders,

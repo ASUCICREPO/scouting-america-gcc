@@ -4,7 +4,7 @@ This guide describes reviewed deployments of GCC Chat to AWS. Deployment changes
 
 ## Deployment Model
 
-The repository deploys one CDK stack named `GrandCanyonCouncilChatbot`. The stack contains the backend, data stores, authentication, knowledge base, and static frontend hosting.
+The repository deploys one CDK stack containing the backend, data stores, authentication, knowledge base, and static frontend hosting. New environments use `GrandCanyonCouncilChatbot`; environments created by older releases may still be owned by `ScoutingAmericaChatbot`. `deploy.sh` detects and updates either supported name without replacing the environment.
 
 `deploy.sh` is a thin deployment orchestrator. It packages the reviewed Git commit, creates or updates the GCC deployment-support IAM resources and private source bucket, then starts one AWS CodeBuild job.
 
@@ -45,7 +45,9 @@ Confirm that Claude Haiku 4.5 through the configured inference profile and Titan
 
 ### AWS Permissions
 
-This convenience installer requires an administrator-capable AWS CLI identity in an approved sandbox. It creates a CodeBuild service role and attaches the AWS-managed `AdministratorAccess` policy so that CDK bootstrap and first deployment do not require iterative IAM additions. This permission model is intentionally sandbox-only and must be replaced with reviewed least-privilege roles before production use.
+Use either an approved administrator-capable AWS CLI identity or the scoped caller policy in `deployment/gcc-deployer-policy.json`. Replace `<ACCOUNT_ID>` and `<REGION>` before attaching that policy. The script maintains the separate CodeBuild deployment policy from `deployment/gcc-codebuild-policy.json`, but it cannot grant new permissions to the identity currently running it.
+
+Stack ownership and the read-only S3/IAM collision preflight run inside CodeBuild after its managed deployment policy is refreshed. This means the caller does not need broad application-infrastructure access merely to detect a legacy stack. Refresh the scoped caller policy when practical so operators can also run the direct diagnostic commands in this guide.
 
 ## Pre-Deployment Review
 
@@ -95,11 +97,27 @@ Rules:
 
 **Always reuse the same prefix when updating an existing environment.** Changing or omitting it changes physical resource names and can cause replacements, empty dashboards, missing chat history, bucket-name collisions, or retained duplicate data resources.
 
-The prefix does not change the CloudFormation stack name. This repository manages one `GrandCanyonCouncilChatbot` stack per account/region.
+The prefix does not change the CloudFormation stack name. Reuse both the original prefix and the existing stack owner when updating an environment.
 
 The three general-purpose application S3 buckets also receive the deploying
 12-digit AWS account ID automatically because the S3 namespace is global across
 AWS accounts. No bucket-name input is required from the deployer.
+
+### Existing Stack Compatibility
+
+With no stack flag, the CodeBuild preflight checks both supported names before CDK bootstrap or application deployment:
+
+- It updates the one existing healthy stack, including the legacy `ScoutingAmericaChatbot` name.
+- It uses `GrandCanyonCouncilChatbot` only when neither stack exists and the core named resources are also absent.
+- It stops if both stacks exist, a stack is in an unsafe status, or named buckets/roles exist without a deployable owning stack.
+
+If both supported stacks exist, first verify the owner, then choose it explicitly:
+
+```bash
+./deploy.sh --stack-name ScoutingAmericaChatbot
+```
+
+Do not delete retained buckets or tables merely to clear a name collision. Resolve ownership or plan an explicit CloudFormation resource import/migration.
 
 ### Frontend Origin And Routes
 
@@ -119,6 +137,7 @@ Optional flags:
 --region REGION
 --profile PROFILE
 --prefix PREFIX
+--stack-name GrandCanyonCouncilChatbot|ScoutingAmericaChatbot
 --admin-email EMAIL
 --admin-password PASSWORD
 --skip-admin
@@ -126,6 +145,8 @@ Optional flags:
 ```
 
 `RESOURCE_PREFIX=demo ./deploy.sh` and `./deploy.sh --prefix demo` are equivalent.
+
+Normally, omit `--stack-name`; it exists for the ambiguous case where both supported stacks are present. `STACK_NAME` can supply the same explicit override in an approved non-interactive workflow.
 
 ### Deploy With A Named Profile
 
@@ -182,8 +203,9 @@ The stack exports:
 Read them without changing the stack:
 
 ```bash
+STACK_NAME=GrandCanyonCouncilChatbot # or the legacy name reported by deploy.sh
 aws cloudformation describe-stacks \
-  --stack-name GrandCanyonCouncilChatbot \
+  --stack-name "$STACK_NAME" \
   --region us-west-2 \
   --query 'Stacks[0].Outputs' \
   --output table
@@ -194,8 +216,9 @@ aws cloudformation describe-stacks \
 ### Stack Status
 
 ```bash
+STACK_NAME=GrandCanyonCouncilChatbot # or the legacy name reported by deploy.sh
 aws cloudformation describe-stacks \
-  --stack-name GrandCanyonCouncilChatbot \
+  --stack-name "$STACK_NAME" \
   --region us-west-2 \
   --query 'Stacks[0].StackStatus' \
   --output text
@@ -208,8 +231,9 @@ Expected status after an update: `UPDATE_COMPLETE`. A first deployment ends at `
 `deploy.sh` submits an invalidation but does not wait for it to finish. Retrieve the distribution output and inspect the newest invalidation:
 
 ```bash
+STACK_NAME=GrandCanyonCouncilChatbot # or the legacy name reported by deploy.sh
 FRONTEND_DIST_ID=$(aws cloudformation describe-stacks \
-  --stack-name GrandCanyonCouncilChatbot \
+  --stack-name "$STACK_NAME" \
   --region us-west-2 \
   --query "Stacks[0].Outputs[?OutputKey=='FrontendDistributionId'].OutputValue" \
   --output text)
@@ -228,8 +252,9 @@ Open `FrontendUrl` and verify `/` loads the public chat. Open `/admin` and verif
 ### Public Chat Contract
 
 ```bash
+STACK_NAME=GrandCanyonCouncilChatbot # or the legacy name reported by deploy.sh
 CHAT_API=$(aws cloudformation describe-stacks \
-  --stack-name GrandCanyonCouncilChatbot \
+  --stack-name "$STACK_NAME" \
   --region us-west-2 \
   --query "Stacks[0].Outputs[?OutputKey=='ChatApiUrl'].OutputValue" \
   --output text)
@@ -280,8 +305,9 @@ Use this only when intentionally omitting the frontend publish:
 cd backend
 npm ci
 npm test
-npx cdk synth
-RESOURCE_PREFIX=demo npx cdk deploy GrandCanyonCouncilChatbot --require-approval never
+export STACK_NAME=GrandCanyonCouncilChatbot # or the verified legacy stack name
+RESOURCE_PREFIX=demo npx cdk synth "$STACK_NAME"
+RESOURCE_PREFIX=demo npx cdk deploy "$STACK_NAME" --require-approval never
 ```
 
 Set `RESOURCE_PREFIX` on synthesis and deployment. A backend-only deployment does not regenerate `frontend/.env.local`, rebuild the static export, sync S3, or invalidate CloudFront.
@@ -296,9 +322,9 @@ Set `RESOURCE_PREFIX` on synthesis and deployment. A backend-only deployment doe
 
 ### Resource Already Exists
 
-**Cause:** The deployment used a different prefix, no prefix, or a retained explicit-name resource already exists.
+**Cause:** The deployment used a different stack name, a different prefix, no prefix, or a retained explicit-name resource already exists.
 
-**Action:** Stop and identify the existing environment. Do not delete a bucket or table simply to make deployment pass. Compare the intended prefix with the stack template and retained resources, then choose an approved migration or the original prefix.
+**Action:** Stop and identify the existing environment. The current script checks both supported stack names and its core fixed-name buckets/role before mutating deployment support resources. Do not delete a bucket or table simply to make deployment pass. Compare the intended stack and prefix with the retained resources, then choose the verified existing stack or an approved import/migration.
 
 ### Dashboard Opens The Public Home Page
 
@@ -342,15 +368,17 @@ Destruction is irreversible for non-retained resources and can make the frontend
 Preview the target first:
 
 ```bash
+STACK_NAME=GrandCanyonCouncilChatbot # or the verified legacy stack name
 aws sts get-caller-identity
-aws cloudformation describe-stacks --stack-name GrandCanyonCouncilChatbot --region us-west-2
+aws cloudformation describe-stacks --stack-name "$STACK_NAME" --region us-west-2
 ```
 
 The CDK destroy command is:
 
 ```bash
 cd backend
-RESOURCE_PREFIX=demo npx cdk destroy GrandCanyonCouncilChatbot
+export STACK_NAME=GrandCanyonCouncilChatbot # or the verified legacy stack name
+RESOURCE_PREFIX=demo npx cdk destroy "$STACK_NAME"
 ```
 
 The document buckets, chat and analytics tables, and Cognito User Pool use `RETAIN`, so stack destruction does not constitute a full data deletion. The static frontend bucket is auto-deleted. Inventory and back up retained data before any separately approved manual cleanup.

@@ -9,6 +9,7 @@
 #
 # Usage:
 #   ./deploy.sh [--region us-west-2] [--profile gcc-sandbox] [--prefix demo]
+#               [--stack-name GrandCanyonCouncilChatbot]
 #               [--admin-email you@example.org] [--admin-password 'Pass@123']
 #               [--skip-admin] [--yes]
 #
@@ -16,7 +17,9 @@
 # the scoped policy in deployment/gcc-deployer-policy.json.
 set -euo pipefail
 
-STACK_NAME="GrandCanyonCouncilChatbot"
+STACK_NAME="${STACK_NAME:-}"
+STACK_NAME_EXPLICIT="false"
+[[ -n "$STACK_NAME" ]] && STACK_NAME_EXPLICIT="true"
 REGION="${AWS_REGION:-${AWS_DEFAULT_REGION:-}}"
 REGION_SET_BY_FLAG="false"
 PROFILE=""
@@ -28,6 +31,9 @@ ASSUME_YES="false"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TEMP_DIR=""
+
+# shellcheck source=deployment/stack-resolution.sh
+source "$SCRIPT_DIR/deployment/stack-resolution.sh"
 
 if [[ -t 1 ]]; then
   RED=$'\033[0;31m'; GREEN=$'\033[0;32m'; YELLOW=$'\033[0;33m'; BLUE=$'\033[0;34m'; NC=$'\033[0m'
@@ -58,6 +64,8 @@ while [[ $# -gt 0 ]]; do
       require_value "$1" "${2:-}"; PROFILE="$2"; shift 2;;
     --prefix)
       require_value "$1" "${2:-}"; RESOURCE_PREFIX="$2"; shift 2;;
+    --stack-name)
+      require_value "$1" "${2:-}"; STACK_NAME="$2"; STACK_NAME_EXPLICIT="true"; shift 2;;
     --admin-email)
       require_value "$1" "${2:-}"; ADMIN_EMAIL="$2"; shift 2;;
     --admin-password)
@@ -90,6 +98,9 @@ if [[ -n "$RESOURCE_PREFIX" ]]; then
     || die "Prefix must be 26 characters or fewer for S3 bucket names"
 fi
 [[ "$REGION" =~ ^[a-z0-9-]+$ ]] || die "Invalid AWS Region: $REGION"
+if [[ -n "$STACK_NAME" ]] && ! gcc_is_supported_stack_name "$STACK_NAME"; then
+  die "Unsupported stack name '$STACK_NAME'. Use $GCC_CURRENT_STACK_NAME or $GCC_LEGACY_STACK_NAME."
+fi
 
 command -v aws >/dev/null || die "AWS CLI not found"
 command -v git >/dev/null || die "Git not found"
@@ -123,12 +134,15 @@ DEPLOYMENT_POLICY_FILE="$SCRIPT_DIR/deployment/gcc-codebuild-policy.json"
 SOURCE_BUCKET="gcc-chatbot-deploy-${ACCOUNT_ID}-${REGION}"
 SOURCE_KEY="${NAME_PREFIX}releases/$(date -u +%Y%m%dT%H%M%SZ)-${DEPLOY_COMMIT:0:12}.zip"
 LOG_GROUP="/aws/codebuild/${PROJECT_NAME}"
+REQUESTED_STACK_NAME=""
+[[ "$STACK_NAME_EXPLICIT" == "true" ]] && REQUESTED_STACK_NAME="$STACK_NAME"
 
 echo
 echo "AWS sandbox deployment target"
 echo "  Caller:   $CALLER_ARN"
 echo "  Account:  $ACCOUNT_ID"
 echo "  Region:   $REGION"
+echo "  Stack:    ${REQUESTED_STACK_NAME:-<auto-detect in CodeBuild>}"
 echo "  Commit:   $DEPLOY_COMMIT"
 echo "  Prefix:   ${RESOURCE_PREFIX:-<none>}"
 echo "  Policy:   $DEPLOYMENT_POLICY_ARN"
@@ -215,7 +229,7 @@ else
 fi
 ok "Deployment policy ready: $DEPLOYMENT_POLICY_ARN"
 
-info "Creating or updating the administrator-capable CodeBuild service role"
+info "Creating or updating the scoped CodeBuild service role"
 if aws_cli iam get-role --role-name "$ROLE_NAME" >/dev/null 2>&1; then
   aws_cli iam update-assume-role-policy \
     --role-name "$ROLE_NAME" \
@@ -322,7 +336,7 @@ PROJECT_JSON="$(cat <<JSON
       { "name": "CDK_DEFAULT_REGION", "value": "${REGION}", "type": "PLAINTEXT" },
       { "name": "CDK_DEFAULT_ACCOUNT", "value": "${ACCOUNT_ID}", "type": "PLAINTEXT" },
       { "name": "RESOURCE_PREFIX", "value": "${RESOURCE_PREFIX}", "type": "PLAINTEXT" },
-      { "name": "STACK_NAME", "value": "${STACK_NAME}", "type": "PLAINTEXT" },
+      { "name": "REQUESTED_STACK_NAME", "value": "${REQUESTED_STACK_NAME}", "type": "PLAINTEXT" },
       { "name": "DEPLOYMENT_POLICY_ARN", "value": "${DEPLOYMENT_POLICY_ARN}", "type": "PLAINTEXT" }
     ]
   },
@@ -410,21 +424,29 @@ fi
   || die "CodeBuild deployment ended with status $BUILD_STATUS. Review $LOG_GROUP / $LOG_STREAM."
 ok "CodeBuild deployment succeeded"
 
-get_output() {
-  aws_cli cloudformation describe-stacks \
-    --stack-name "$STACK_NAME" \
-    --query "Stacks[0].Outputs[?OutputKey=='$1'].OutputValue" \
-    --output text
+FINAL_BUILD_JSON="$(aws_cli codebuild batch-get-builds --ids "$BUILD_ID" --output json)"
+get_exported_value() {
+  jq -r --arg name "$1" \
+    '[.builds[0].exportedEnvironmentVariables[]? | select(.name == $name) | .value] | first // empty' \
+    <<<"$FINAL_BUILD_JSON"
 }
 
-CHAT_API_URL="$(get_output ChatApiUrl)"
-DASHBOARD_API_URL="$(get_output DashboardApiUrl)"
-USER_POOL_ID="$(get_output UserPoolId)"
-CLIENT_ID="$(get_output UserPoolClientId)"
-DOCUMENT_BUCKET="$(get_output DocumentStoreBucket)"
-KB_BUCKET="$(get_output KnowledgeBaseBucket)"
-FRONTEND_URL="$(get_output FrontendUrl)"
-OPERATIONS_DASHBOARD="$(get_output OperationsDashboardName)"
+STACK_NAME="$(get_exported_value RESOLVED_STACK_NAME)"
+CHAT_API_URL="$(get_exported_value CHAT_API_URL)"
+DASHBOARD_API_URL="$(get_exported_value DASHBOARD_API_URL)"
+USER_POOL_ID="$(get_exported_value USER_POOL_ID)"
+CLIENT_ID="$(get_exported_value CLIENT_ID)"
+DOCUMENT_BUCKET="$(get_exported_value DOCUMENT_BUCKET)"
+KB_BUCKET="$(get_exported_value KB_BUCKET)"
+FRONTEND_URL="$(get_exported_value FRONTEND_URL)"
+OPERATIONS_DASHBOARD="$(get_exported_value OPERATIONS_DASHBOARD)"
+
+for required_value in \
+  "$STACK_NAME" "$CHAT_API_URL" "$DASHBOARD_API_URL" "$USER_POOL_ID" \
+  "$CLIENT_ID" "$DOCUMENT_BUCKET" "$KB_BUCKET" "$FRONTEND_URL" "$OPERATIONS_DASHBOARD"; do
+  [[ -n "$required_value" && "$required_value" != "None" ]] \
+    || die "CodeBuild succeeded but did not export all deployment outputs"
+done
 
 if [[ "$SKIP_ADMIN" != "true" ]]; then
   info "Creating or updating initial administrator: $ADMIN_EMAIL"

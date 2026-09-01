@@ -46,6 +46,7 @@
         "arn:aws:iam::*:role/GCC-*",
         "arn:aws:iam::*:role/*-GCC-*",
         "arn:aws:iam::*:role/GrandCanyonCouncilChatbot-*",
+        "arn:aws:iam::*:role/ScoutingAmericaChatbot-*",
         "arn:aws:iam::*:role/cdk-*",
         "arn:aws:iam::*:role/gcc-codebuild-deployment-role",
         "arn:aws:iam::*:role/*-gcc-codebuild-deployment-role"
@@ -94,7 +95,9 @@
         "arn:aws:s3:::*-gcc-*",
         "arn:aws:s3:::*-gcc-*/*",
         "arn:aws:s3:::grandcanyoncouncilchatbot-*",
-        "arn:aws:s3:::grandcanyoncouncilchatbot-*/*"
+        "arn:aws:s3:::grandcanyoncouncilchatbot-*/*",
+        "arn:aws:s3:::scoutingamericachatbot-*",
+        "arn:aws:s3:::scoutingamericachatbot-*/*"
       ]
     },
     {
@@ -155,6 +158,7 @@
         "cloudwatch:DescribeAlarms",
         "cloudwatch:GetDashboard",
         "cloudwatch:ListDashboards",
+        "cloudwatch:ListTagsForResource",
         "cloudwatch:PutDashboard",
         "cloudwatch:PutMetricAlarm",
         "cloudwatch:TagResource",

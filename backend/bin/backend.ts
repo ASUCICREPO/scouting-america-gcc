@@ -3,7 +3,17 @@ import * as cdk from 'aws-cdk-lib';
 import { GrandCanyonCouncilChatbot } from '../lib/backend-stack';
 
 const app = new cdk.App();
-new GrandCanyonCouncilChatbot(app, 'GrandCanyonCouncilChatbot', {
+const supportedStackNames = new Set([
+  'GrandCanyonCouncilChatbot',
+  'ScoutingAmericaChatbot',
+]);
+const stackName = process.env.STACK_NAME || 'GrandCanyonCouncilChatbot';
+
+if (!supportedStackNames.has(stackName)) {
+  throw new Error(`Unsupported STACK_NAME: ${stackName}`);
+}
+
+new GrandCanyonCouncilChatbot(app, stackName, {
   /* If you don't specify 'env', this stack will be environment-agnostic.
    * Account/Region-dependent features and context lookups will not work,
    * but a single synthesized template can be deployed anywhere. */
