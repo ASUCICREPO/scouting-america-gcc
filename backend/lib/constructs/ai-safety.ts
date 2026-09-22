@@ -112,6 +112,7 @@ export class AiSafety extends Construct {
           text: {
             text: promptText,
             inputVariables: [
+              { name: 'current_date' },
               { name: 'language_instruction' },
               { name: 'retrieval_context' },
               { name: 'question' },
