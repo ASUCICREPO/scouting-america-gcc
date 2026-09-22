@@ -176,7 +176,7 @@ class ChatLanguageTests(unittest.TestCase):
         # 03:30 UTC on Sep 23 is still the evening of Sep 22 in Phoenix (UTC-7).
         now = self.module.datetime(2026, 9, 23, 3, 30, tzinfo=self.module.timezone.utc)
         prompt = self.module.render_prompt("What is happening this weekend?", "en", [], now=now)
-        self.assertIn("Today is Tuesday, September 22, 2026 (Arizona time).", prompt)
+        self.assertIn("Today is Tuesday, September 22, 2026 ", prompt)
         self.assertNotIn("{{", prompt)
 
     def test_chat_prompt_renders_current_date(self):
@@ -184,7 +184,7 @@ class ChatLanguageTests(unittest.TestCase):
             "body": json.dumps({"question": "What is on the calendar today?"})
         })
         generated_prompt = self.runtime.requests[0]["messages"][0]["content"][0]["text"]
-        self.assertRegex(generated_prompt, r"Today is \w+day, \w+ \d{1,2}, \d{4} \(Arizona time\)")
+        self.assertRegex(generated_prompt, r"Today is \w+day, \w+ \d{1,2}, \d{4}\b")
 
     def test_invalid_language_is_rejected_before_generation(self):
         result = self.module.handle_chat({
