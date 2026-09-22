@@ -14,7 +14,7 @@ import os
 import secrets
 import urllib.parse
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from enum import IntEnum
 from functools import lru_cache
@@ -57,6 +57,9 @@ MAX_SESSION_ID_LENGTH = 128
 MAX_SESSION_TURNS = max(1, int(os.environ.get("MAX_SESSION_TURNS", "50")))
 CITATION_URL_TTL_SECONDS = 15 * 60
 PROMPT_PATH = Path(__file__).parent / "templates" / "chat_prompt.j2"
+# The council operates in Arizona, which does not observe daylight saving time,
+# so a fixed UTC-7 offset is exact and avoids depending on tzdata in Lambda.
+COUNCIL_TIMEZONE = timezone(timedelta(hours=-7), "America/Phoenix")
 # This template produces a plain-text model prompt, not HTML. HTML autoescape
 # would corrupt quoted source material without preventing prompt injection.
 jinja = Environment(autoescape=False, undefined=StrictUndefined)  # nosec B701
@@ -309,14 +312,22 @@ def _retrieval_context(chunks: list[RetrievedChunk]) -> str:
     return "\n\n".join(sections)
 
 
+def _current_date(now: datetime | None = None) -> str:
+    """Today's council-local date so the model can resolve "today" or "this weekend"."""
+    local = (now or datetime.now(timezone.utc)).astimezone(COUNCIL_TIMEZONE)
+    return f"{local:%A}, {local:%B} {local.day}, {local.year}"
+
+
 def render_prompt(
     question: str,
     language: Literal["en", "es"],
     chunks: list[RetrievedChunk],
+    now: datetime | None = None,
 ) -> str:
     """Render values as data; Jinja does not evaluate syntax inside those values."""
     template = jinja.from_string(get_prompt_template())
     return template.render(
+        current_date=_current_date(now),
         language_instruction=_language_instruction(language),
         retrieval_context=_retrieval_context(chunks),
         question=question,

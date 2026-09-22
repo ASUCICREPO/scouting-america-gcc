@@ -1,3 +1,6 @@
+import * as crypto from 'crypto';
+import * as fs from 'fs';
+import * as path from 'path';
 import * as cdk from 'aws-cdk-lib';
 import { Template, Match } from 'aws-cdk-lib/assertions';
 import { GrandCanyonCouncilChatbot } from '../lib/backend-stack';
@@ -98,6 +101,26 @@ describe('Grounded response generation controls', () => {
         && JSON.stringify(statement.Resource).includes('KnowledgeBaseBucket');
     });
     expect(sourceRead).toBeDefined();
+  });
+
+  test('declares every chat prompt template variable in Prompt Management', () => {
+    const prompt = Object.values(template.findResources('AWS::Bedrock::Prompt'))[0];
+    const text = prompt.Properties.Variants[0].TemplateConfiguration.Text;
+    const used = new Set([...text.Text.matchAll(/\{\{\s*(\w+)\s*\}\}/g)].map((m) => m[1]));
+    const declared = new Set(text.InputVariables.map((v: { Name: string }) => v.Name));
+    expect(used).toContain('current_date');
+    expect([...used].sort()).toEqual([...declared].sort());
+  });
+
+  test('publishes a new prompt version whenever the template changes', () => {
+    const promptText = fs.readFileSync(
+      path.join(__dirname, '../lambda/chat-handler/templates/chat_prompt.j2'),
+      'utf8',
+    );
+    const hash = crypto.createHash('sha256').update(promptText).digest('hex').slice(0, 12);
+    template.hasResourceProperties('AWS::Bedrock::PromptVersion', {
+      Description: Match.stringLikeRegexp(`template ${hash}`),
+    });
   });
 
   test('provisions immutable Prompt Management and Guardrail versions', () => {

@@ -1,3 +1,4 @@
+import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as cdk from 'aws-cdk-lib';
@@ -112,6 +113,7 @@ export class AiSafety extends Construct {
           text: {
             text: promptText,
             inputVariables: [
+              { name: 'current_date' },
               { name: 'language_instruction' },
               { name: 'retrieval_context' },
               { name: 'question' },
@@ -120,9 +122,13 @@ export class AiSafety extends Construct {
         },
       }],
     });
+    // A prompt version snapshots the draft only when the version resource is
+    // created. Keying its description to the template content forces a new
+    // version (and a new PROMPT_VERSION for the Lambda) whenever the prompt changes.
+    const promptHash = crypto.createHash('sha256').update(promptText).digest('hex').slice(0, 12);
     const promptVersion = new bedrock.CfnPromptVersion(this, 'ChatPromptVersion', {
       promptArn: prompt.attrArn,
-      description: 'Immutable production prompt version used by the GCC chat Lambda',
+      description: `Immutable production prompt version used by the GCC chat Lambda (template ${promptHash})`,
     });
 
     this.guardrailId = responseGuardrail.attrGuardrailId;
