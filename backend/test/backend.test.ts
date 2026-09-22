@@ -100,6 +100,15 @@ describe('Grounded response generation controls', () => {
     expect(sourceRead).toBeDefined();
   });
 
+  test('declares every chat prompt template variable in Prompt Management', () => {
+    const prompt = Object.values(template.findResources('AWS::Bedrock::Prompt'))[0];
+    const text = prompt.Properties.Variants[0].TemplateConfiguration.Text;
+    const used = new Set([...text.Text.matchAll(/\{\{\s*(\w+)\s*\}\}/g)].map((m) => m[1]));
+    const declared = new Set(text.InputVariables.map((v: { Name: string }) => v.Name));
+    expect(used).toContain('current_date');
+    expect([...used].sort()).toEqual([...declared].sort());
+  });
+
   test('provisions immutable Prompt Management and Guardrail versions', () => {
     template.resourceCountIs('AWS::Bedrock::Prompt', 1);
     template.resourceCountIs('AWS::Bedrock::PromptVersion', 1);
