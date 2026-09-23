@@ -52,7 +52,7 @@ The interface does not perform machine translation at render time. English and S
 4. At-least-once S3 `ObjectCreated` events enter an encrypted standard SQS queue. Two Lambda workers use S3 version IDs and idempotent batch tokens to tolerate duplicate or out-of-order notifications.
 5. Each worker verifies the server-created manifest, stored metadata, size, binary signature, UTF-8 text, and Office ZIP structure. Invalid objects move to a private seven-day `quarantine/` prefix; accepted objects retain the same relative path below the knowledge-base `documents/` prefix.
 6. When every expected object reaches a terminal state, the worker publishes one message to a FIFO queue. One message group serializes `StartIngestionJob`; a batch waits and retries while the shared data source already has an active job.
-7. Bedrock incrementally processes changed objects, applies semantic chunking (maximum 800 tokens), creates Titan embeddings, and stores vectors in the S3 Vectors index.
+7. Bedrock incrementally processes changed objects. Claude Haiku 4.5 reads each PDF page (including scanned pages) guided by `lib/config/kb-parsing-prompt.txt`, which rewrites calendar grids as one dated line per event; other formats use Bedrock's standard text extraction. Bedrock then applies semantic chunking (maximum 800 tokens), creates Titan embeddings, and stores vectors in the S3 Vectors index.
 8. The dashboard derives each document's `ready`, `indexing`, `pending`, or `failed` state from recent ingestion jobs.
 
 Bulk deletion removes both raw uploads and their knowledge-base copies, then sends one request through the same FIFO synchronization path so obsolete vectors are removed without competing ingestion jobs.
@@ -174,7 +174,7 @@ backend/lib/
 - IAM grants are scoped to the application tables, buckets, secret, and Lambda where resource ARNs are available.
 - Upload and delete paths are validated against `uploads/`; traversal, ambiguous segments, duplicates, and control characters are rejected.
 - Presigned uploads/downloads expire after five minutes. Upload policies bind the exact object key, extension-compatible MIME type, byte size, and server-created batch ID; downloads are forced to attachments.
-- The document worker verifies stored metadata, byte limits, file signatures, UTF-8 text, and Office container structure before an object can enter the knowledge-base bucket. The allow-list is restricted to CSV, PDF, TXT, DOCX, and XLSX formats supported by the configured default parser.
+- The document worker verifies stored metadata, byte limits, file signatures, UTF-8 text, and Office container structure before an object can enter the knowledge-base bucket. The allow-list is restricted to CSV, PDF, TXT, DOCX, and XLSX formats supported by the configured foundation-model parser.
 - Existing public sessions require a high-entropy bearer credential for continuation, history, and feedback.
 - Bedrock Guardrails evaluates response generation, and the production prompt is an immutable Prompt Management version.
 - Chat inserts stream to an object-locked S3 audit archive.
@@ -229,13 +229,13 @@ These limitations are intentional pilot tradeoffs, not production security recom
 
 **Tradeoff:** S3 Vectors has service-specific metadata constraints. Bedrock text and metadata fields are configured as non-filterable so chunks fit within the vector metadata limits.
 
-### Bedrock-Native Parsing And Semantic Chunking
+### Bedrock Foundation-Model Parsing And Semantic Chunking
 
-**Decision:** Copy source documents into an S3 data source and let Bedrock parse and semantically chunk them at up to 800 tokens.
+**Decision:** Copy source documents into an S3 data source and let Bedrock parse them with a foundation model (Claude Haiku 4.5 and a checked-in parsing prompt), then semantically chunk them at up to 800 tokens.
 
-**Rationale:** This removes custom parsing infrastructure and preserves coherent context better than whole-document or fixed-size chunks.
+**Rationale:** This removes custom parsing infrastructure and preserves coherent context better than whole-document or fixed-size chunks. Bedrock's default parser only extracts embedded text: it rejected scanned PDFs and flattened calendar grids so dates lost their weekdays. A model reading each page indexes scans and keeps each calendar event with its date and weekday.
 
-**Tradeoff:** Ingestion jobs operate on the data source, so per-document dashboard status is derived heuristically from job timestamps.
+**Tradeoff:** Parsing adds model cost per ingested page (roughly half a cent per page with Haiku 4.5) and makes ingestion slower. Parsing settings are create-only, so changing the model or prompt replaces the data source; the data source is named from a hash of those settings and a custom resource starts a full re-ingest after replacement. Ingestion jobs operate on the data source, so per-document dashboard status is derived heuristically from job timestamps.
 
 ### Explicit Bilingual Contract
 
