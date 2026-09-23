@@ -34,6 +34,9 @@ export const CONFIG = {
   // Bedrock
   MODEL_ID: 'us.anthropic.claude-haiku-4-5-20251001-v1:0',
   EMBEDDING_MODEL_ID: 'amazon.titan-embed-text-v2:0',
+  // Reads each page (including scanned PDFs and calendar grids) during KB
+  // ingestion. Must be a model Bedrock accepts as a foundation-model parser.
+  KB_PARSING_MODEL_ID: 'us.anthropic.claude-haiku-4-5-20251001-v1:0',
 
   // Thresholds
   CONFIDENCE_THRESHOLD: 0.7,
