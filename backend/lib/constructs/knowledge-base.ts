@@ -6,6 +6,7 @@ import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as bedrock from 'aws-cdk-lib/aws-bedrock';
 import * as s3vectors from 'aws-cdk-lib/aws-s3vectors';
+import * as cr from 'aws-cdk-lib/custom-resources';
 import { Construct } from 'constructs';
 import { CONFIG, PREFIX } from '../config/environment';
 
@@ -203,6 +204,34 @@ export class KnowledgeBase extends Construct {
 
     // Bedrock checks the parsing model permissions when the data source is created.
     dataSource.node.addDependency(kbRole);
+
+    // A new or replaced data source starts empty (the original's vectors are
+    // deleted with it), so index every existing document right away instead of
+    // waiting for the next upload. Keyed to the data source ID, this runs on
+    // the first deploy and again whenever the data source is replaced. A sync
+    // that is already running covers the same documents, so a conflict is fine.
+    const startIngestion: cr.AwsSdkCall = {
+      service: 'bedrock-agent',
+      action: 'StartIngestionJob',
+      parameters: {
+        knowledgeBaseId: kb.attrKnowledgeBaseId,
+        dataSourceId: dataSource.attrDataSourceId,
+        description: 'Full sync after the data source was created or replaced',
+      },
+      physicalResourceId: cr.PhysicalResourceId.of(dataSource.attrDataSourceId),
+      ignoreErrorCodesMatching: 'ConflictException',
+    };
+    new cr.AwsCustomResource(this, 'InitialIngestion', {
+      onCreate: startIngestion,
+      onUpdate: startIngestion,
+      policy: cr.AwsCustomResourcePolicy.fromStatements([
+        new iam.PolicyStatement({
+          actions: ['bedrock:StartIngestionJob'],
+          resources: [kb.attrKnowledgeBaseArn],
+        }),
+      ]),
+      installLatestAwsSdk: false,
+    });
 
     // Export the KB ID so Chat Handler can use it
     this.knowledgeBaseId = kb.attrKnowledgeBaseId;
