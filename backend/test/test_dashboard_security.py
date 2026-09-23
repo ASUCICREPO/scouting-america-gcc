@@ -311,6 +311,36 @@ class DashboardSecurityTests(unittest.TestCase):
         message = json.loads(self.sqs.messages[0]["MessageBody"])
         self.assertEqual(message["type"], "document_change_sync")
 
+    def test_bulk_delete_removes_the_matching_knowledge_base_copies(self):
+        keys = ["uploads/A/one.pdf", "uploads/B/two.pdf"]
+        self.module.delete_document({"body": json.dumps({"keys": keys})})
+
+        raw_delete, kb_delete = self.s3.delete_requests
+        self.assertEqual(raw_delete["Bucket"], "document-bucket")
+        self.assertEqual(kb_delete["Bucket"], "kb-bucket")
+        self.assertEqual(
+            kb_delete["Delete"]["Objects"],
+            [{"Key": "documents/A/one.pdf"}, {"Key": "documents/B/two.pdf"}],
+        )
+
+    def test_bulk_delete_reports_a_failed_knowledge_base_copy(self):
+        keys = ["uploads/A/one.pdf", "uploads/B/two.pdf"]
+        original = self.s3.delete_objects
+
+        def fail_kb_copy(**kwargs):
+            original(**kwargs)
+            if kwargs["Bucket"] == "kb-bucket":
+                return {"Errors": [{"Key": "documents/B/two.pdf", "Code": "AccessDenied"}]}
+            return {"Errors": []}
+
+        with patch.object(self.s3, "delete_objects", side_effect=fail_kb_copy):
+            result = self.module.delete_document({"body": json.dumps({"keys": keys})})
+
+        body = json.loads(result["body"])
+        self.assertEqual(body["status"], "partial")
+        self.assertEqual(body["deletedKeys"], ["uploads/A/one.pdf"])
+        self.assertEqual(body["failedKeys"], ["uploads/B/two.pdf"])
+
 
 if __name__ == "__main__":
     unittest.main()
