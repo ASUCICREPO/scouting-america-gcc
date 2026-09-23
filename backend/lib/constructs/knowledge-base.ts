@@ -1,8 +1,12 @@
+import * as crypto from 'crypto';
+import * as fs from 'fs';
+import * as path from 'path';
 import * as cdk from 'aws-cdk-lib';
 import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as bedrock from 'aws-cdk-lib/aws-bedrock';
 import * as s3vectors from 'aws-cdk-lib/aws-s3vectors';
+import * as cr from 'aws-cdk-lib/custom-resources';
 import { Construct } from 'constructs';
 import { CONFIG, PREFIX } from '../config/environment';
 
@@ -60,6 +64,18 @@ export class KnowledgeBase extends Construct {
     kbRole.addToPolicy(new iam.PolicyStatement({
       actions: ['bedrock:InvokeModel'],
       resources: [`arn:aws:bedrock:${cdk.Aws.REGION}::foundation-model/${CONFIG.EMBEDDING_MODEL_ID}`],
+    }));
+
+    // The foundation-model parser invokes the parsing model through its
+    // cross-region inference profile, which can route to any US region.
+    const parsingModelArn = `arn:aws:bedrock:${cdk.Aws.REGION}:${cdk.Aws.ACCOUNT_ID}:inference-profile/${CONFIG.KB_PARSING_MODEL_ID}`;
+    const parsingFoundationModelId = CONFIG.KB_PARSING_MODEL_ID.replace(/^[a-z]+\./, '');
+    kbRole.addToPolicy(new iam.PolicyStatement({
+      actions: ['bedrock:InvokeModel', 'bedrock:GetInferenceProfile'],
+      resources: [
+        parsingModelArn,
+        `arn:aws:bedrock:*::foundation-model/${parsingFoundationModelId}`,
+      ],
     }));
 
     // Bedrock needs S3 Vectors permissions to store and query vector embeddings
@@ -132,9 +148,36 @@ export class KnowledgeBase extends Construct {
     // Ensure IAM policies are fully created before KB validates the S3 Vectors connection
     kb.node.addDependency(kbRole);
 
+    // The default parser only extracts embedded text: it rejects scanned PDFs
+    // and flattens calendar grids so dates lose their weekdays. A foundation
+    // model reads each page instead, guided by kb-parsing-prompt.txt.
+    // Normalize line endings so a Windows checkout neither changes the prompt
+    // Bedrock receives nor forces a data-source replacement.
+    const parsingPromptText = fs.readFileSync(
+      path.join(__dirname, '../config/kb-parsing-prompt.txt'),
+      'utf8',
+    ).replace(/\r\n/g, '\n');
+    const parsingConfiguration: bedrock.CfnDataSource.ParsingConfigurationProperty = {
+      parsingStrategy: 'BEDROCK_FOUNDATION_MODEL',
+      bedrockFoundationModelConfiguration: {
+        modelArn: parsingModelArn,
+        parsingPrompt: { parsingPromptText },
+      },
+    };
+    // Parsing settings are create-only, so any change replaces the data source.
+    // CloudFormation creates the replacement before deleting the original, and
+    // names must be unique within a knowledge base, so derive the name from the
+    // parsing settings. (The model ARN token resolves per region; the model ID
+    // and prompt are what vary between deployments.)
+    const parsingHash = crypto.createHash('sha256')
+      .update(CONFIG.KB_PARSING_MODEL_ID)
+      .update(parsingPromptText)
+      .digest('hex')
+      .slice(0, 8);
+
     // Data source — tells the KB where to find documents (S3 bucket with chunks)
     const dataSource = new bedrock.CfnDataSource(this, 'S3DataSource', {
-      name: `${PREFIX}GCC-Documents-S3`,
+      name: `${PREFIX}GCC-Documents-S3-${parsingHash}`,
       description: 'Processed document chunks from the GCC document store',
       knowledgeBaseId: kb.attrKnowledgeBaseId,
       dataSourceConfiguration: {
@@ -145,6 +188,7 @@ export class KnowledgeBase extends Construct {
         },
       },
       vectorIngestionConfiguration: {
+        parsingConfiguration,
         // Semantic chunking splits by meaning boundaries for better context coherence.
         // Max 800 tokens per chunk keeps vectors within S3 Vectors metadata limits.
         chunkingConfiguration: {
@@ -156,6 +200,37 @@ export class KnowledgeBase extends Construct {
           },
         },
       },
+    });
+
+    // Bedrock checks the parsing model permissions when the data source is created.
+    dataSource.node.addDependency(kbRole);
+
+    // A new or replaced data source starts empty (the original's vectors are
+    // deleted with it), so index every existing document right away instead of
+    // waiting for the next upload. Keyed to the data source ID, this runs on
+    // the first deploy and again whenever the data source is replaced. A sync
+    // that is already running covers the same documents, so a conflict is fine.
+    const startIngestion: cr.AwsSdkCall = {
+      service: 'bedrock-agent',
+      action: 'StartIngestionJob',
+      parameters: {
+        knowledgeBaseId: kb.attrKnowledgeBaseId,
+        dataSourceId: dataSource.attrDataSourceId,
+        description: 'Full sync after the data source was created or replaced',
+      },
+      physicalResourceId: cr.PhysicalResourceId.of(dataSource.attrDataSourceId),
+      ignoreErrorCodesMatching: 'ConflictException',
+    };
+    new cr.AwsCustomResource(this, 'InitialIngestion', {
+      onCreate: startIngestion,
+      onUpdate: startIngestion,
+      policy: cr.AwsCustomResourcePolicy.fromStatements([
+        new iam.PolicyStatement({
+          actions: ['bedrock:StartIngestionJob'],
+          resources: [kb.attrKnowledgeBaseArn],
+        }),
+      ]),
+      installLatestAwsSdk: false,
     });
 
     // Export the KB ID so Chat Handler can use it

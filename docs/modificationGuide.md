@@ -188,6 +188,15 @@ The handler checks the combined question and answer. Safety matches produce high
 
 Before adding keywords, test false positives in both languages.
 
+### Change Document Parsing
+
+Bedrock parses documents with a foundation model configured in `knowledge-base.ts`:
+
+- Model: `CONFIG.KB_PARSING_MODEL_ID` in `lib/config/environment.ts` (a cross-region inference profile; Bedrock accepts only certain models as parsers, for example it rejects Claude Sonnet 5)
+- Prompt: `lib/config/kb-parsing-prompt.txt`, including the calendar rules that write one dated line per event
+
+Parsing settings are create-only. Changing the model or the prompt replaces the Bedrock data source on the next deploy: the old data source and its vectors are deleted, the new one is named from a hash of the settings, and a custom resource starts a full ingestion. Every document is re-parsed, so expect model cost for all pages and answers with missing documents until that ingestion job finishes. Test prompt changes on a throwaway data source before deploying.
+
 ### Change Chunking
 
 Semantic chunking is configured in `knowledge-base.ts`:
