@@ -76,6 +76,62 @@ describe('Bedrock data source chunking', () => {
   });
 });
 
+describe('Bedrock data source parsing', () => {
+  const dataSource = () => Object.values(template.findResources('AWS::Bedrock::DataSource'))[0];
+  const parsingPrompt = () => fs.readFileSync(
+    path.join(__dirname, '../lib/config/kb-parsing-prompt.txt'),
+    'utf8',
+  ).replace(/\r\n/g, '\n');
+
+  // Regression test: the default parser flattened calendar grids (dates lost
+  // their weekdays) and rejected image-only PDFs.
+  test('parses documents with the foundation-model parser and prompt', () => {
+    const parsing = dataSource().Properties.VectorIngestionConfiguration.ParsingConfiguration;
+    expect(parsing.ParsingStrategy).toBe('BEDROCK_FOUNDATION_MODEL');
+    const config = parsing.BedrockFoundationModelConfiguration;
+    expect(JSON.stringify(config.ModelArn)).toContain(
+      'inference-profile/us.anthropic.claude-haiku-4-5-20251001-v1:0',
+    );
+    expect(config.ParsingPrompt.ParsingPromptText).toBe(parsingPrompt());
+  });
+
+  // Parsing settings are create-only; a replacement must not reuse the name.
+  test('names the data source after its parsing settings', () => {
+    const hash = crypto.createHash('sha256')
+      .update('us.anthropic.claude-haiku-4-5-20251001-v1:0')
+      .update(parsingPrompt())
+      .digest('hex')
+      .slice(0, 8);
+    expect(dataSource().Properties.Name).toBe(`GCC-Documents-S3-${hash}`);
+  });
+
+  test('lets the KB role invoke the parsing model through its inference profile', () => {
+    const policies = Object.entries(template.findResources('AWS::IAM::Policy'))
+      .filter(([logicalId]) => logicalId.startsWith('KnowledgeBaseKBRole'));
+    const statements = policies.flatMap(([, policy]) => policy.Properties.PolicyDocument.Statement);
+    const parsing = statements.find((statement) =>
+      JSON.stringify(statement.Resource).includes('inference-profile/us.anthropic.claude-haiku-4-5'),
+    );
+    expect(parsing.Action).toEqual(['bedrock:InvokeModel', 'bedrock:GetInferenceProfile']);
+    expect(JSON.stringify(parsing.Resource)).toContain(
+      'arn:aws:bedrock:*::foundation-model/anthropic.claude-haiku-4-5-20251001-v1:0',
+    );
+  });
+
+  test('starts a full ingestion whenever the data source is created or replaced', () => {
+    const [ingestion] = Object.values(template.findResources('Custom::AWS'))
+      .filter((resource) => JSON.stringify(resource.Properties.Create).includes('StartIngestionJob'));
+    expect(ingestion).toBeDefined();
+    const dataSourceLogicalId = Object.keys(template.findResources('AWS::Bedrock::DataSource'))[0];
+    for (const phase of ['Create', 'Update']) {
+      const call = JSON.stringify(ingestion.Properties[phase]);
+      expect(call).toContain('\\"action\\":\\"StartIngestionJob\\"');
+      expect(call).toContain('ConflictException');
+      expect(call).toContain(dataSourceLogicalId);
+    }
+  });
+});
+
 describe('Grounded response generation controls', () => {
   test('grants the chat handler access to sign private knowledge-base sources', () => {
     const functions = Object.values(template.findResources('AWS::Lambda::Function'));
