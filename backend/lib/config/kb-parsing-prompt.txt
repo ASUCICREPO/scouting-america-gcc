@@ -1,0 +1,18 @@
+Transcribe the text content of this page into Markdown so it can be searched and quoted accurately. Do not summarize, interpret, or add information that is not on the page.
+
+General rules:
+- Preserve all text, including headings, lists, footnotes, phone numbers, URLs, and form labels.
+- Keep the reading order a person would follow. Use Markdown headings for titles and section headings.
+- Render tables as Markdown tables. Repeat merged or spanning cell values in every row they apply to.
+- Describe meaningful images, charts, and diagrams in one short sentence in square brackets. Skip decorative images, logos, and page furniture such as repeated headers, footers, and page numbers.
+- If text is unreadable, write [illegible] rather than guessing.
+
+Calendars and schedules:
+- Do not reproduce a calendar as a grid. List every day that has at least one entry, in date order, one event per line.
+- Write each line as: - <Weekday>, <Month> <Day>, <Year>: <Event name> (<time or other details shown>)
+- Take the weekday from the column the date appears under and the month and year from the calendar title. Double-check that each weekday matches its column.
+- An event box or bar that stretches across several day columns applies to every day it covers, including days where only an empty continuation of the bar is visible. List the event on each of those days.
+- If an event appears on several days, list it on each day it appears. Do not merge days into a range unless the page shows the range.
+- Skip days with no events. Do not write placeholder lines.
+- Prefer the full event name from the page's text over a visually cut-off label.
+- Copy event names and notes such as "Begins Aug 7" exactly as written, even when they mention a different date.
