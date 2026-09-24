@@ -767,7 +767,8 @@ def delete_document(event):
     if len(set(keys)) != len(keys):
         return respond(HttpStatus.BAD_REQUEST, {"message": "Duplicate document keys are not allowed"})
 
-    kb_keys = {f"documents/{key[len('uploads/')]}": key for key in keys}
+    # uploads/<path> is copied to documents/<path> in the knowledge-base bucket.
+    kb_keys = {key: "documents/" + key[len("uploads/"):] for key in keys}
 
     def delete_from_bucket(bucket, object_keys):
         try:
@@ -781,10 +782,10 @@ def delete_document(event):
             return set(object_keys)
 
     raw_failures = delete_from_bucket(DOCUMENT_BUCKET, keys)
-    kb_failures = delete_from_bucket(KB_BUCKET, list(kb_keys))
+    kb_failures = delete_from_bucket(KB_BUCKET, list(kb_keys.values()))
     failed_keys = [
         key for key in keys
-        if key in raw_failures or f"documents/{key[len('uploads/'):]}" in kb_failures
+        if key in raw_failures or kb_keys[key] in kb_failures
     ]
     deleted_keys = [key for key in keys if key not in failed_keys]
 
