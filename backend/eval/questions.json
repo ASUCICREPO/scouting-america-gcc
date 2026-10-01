@@ -289,6 +289,69 @@
     "tags": ["handbook", "fact", "spanish"]
   },
   {
+    "id": "casual-wood-badge",
+    "question": "When is Wood Badge?",
+    "language": "en",
+    "source": "report.pdf",
+    "retrieval": ["Wood Badge"],
+    "answer": ["sep(t(ember)?)?\\.? 18\\b", "\\b20\\b"],
+    "tags": ["calendar", "casual"]
+  },
+  {
+    "id": "casual-wood-badge-past",
+    "question": "Has Wood Badge already happened?",
+    "language": "en",
+    "source": "report.pdf",
+    "retrieval": ["Wood Badge"],
+    "answer": ["sep(t(ember)?)?\\.? 18\\b"],
+    "tags": ["calendar", "casual"]
+  },
+  {
+    "id": "casual-camporee",
+    "question": "when's the fall camporee",
+    "language": "en",
+    "source": "report.pdf",
+    "retrieval": ["Maverick Fall Camporee"],
+    "answer": ["sep(t(ember)?)?\\.? 25\\b", "\\b27\\b"],
+    "tags": ["calendar", "casual", "multi-day"]
+  },
+  {
+    "id": "casual-bb-shoot",
+    "question": "Is there a BB gun shoot in September?",
+    "language": "en",
+    "source": "report.pdf",
+    "retrieval": ["Rifle/BB"],
+    "answer": ["sep(t(ember)?)?\\.? 19\\b"],
+    "tags": ["calendar", "casual"]
+  },
+  {
+    "id": "casual-popcorn-pickup",
+    "question": "When can our unit pick up popcorn?",
+    "language": "en",
+    "source": "report.pdf",
+    "retrieval": ["Popcorn"],
+    "answer": ["sep(t(ember)?)?\\.? 10\\b", "\\b11\\b"],
+    "tags": ["calendar", "casual"]
+  },
+  {
+    "id": "casual-cub-family-camp",
+    "question": "Is there a family camp for Cub Scouts?",
+    "language": "en",
+    "source": "report.pdf",
+    "retrieval": ["Camp Kaibab"],
+    "answer": ["kaibab", "sep(t(ember)?)?\\.? 18\\b"],
+    "tags": ["calendar", "casual"]
+  },
+  {
+    "id": "casual-lnt-trainer",
+    "question": "how long is LNT trainer",
+    "language": "en",
+    "source": "OutdoorEthicsGuide.pdf",
+    "retrieval": ["16-hour"],
+    "answer": ["16[- ]hours?"],
+    "tags": ["handbook", "casual"]
+  },
+  {
     "id": "none-geronimo-camp-fee",
     "question": "How much does a week of summer camp at Camp Geronimo cost in 2027?",
     "language": "en",
