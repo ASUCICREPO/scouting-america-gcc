@@ -1,0 +1,319 @@
+[
+  {
+    "id": "cal-scout-leader-night-weekday",
+    "question": "What day of the week is Arizona Scout Leader Night?",
+    "language": "en",
+    "source": "report.pdf",
+    "retrieval": ["Arizona Scout Leader Night"],
+    "answer": ["thursday", "sep(t(ember)?)?\\.? 3\\b"],
+    "forbid": ["wednesday, sep(t(ember)?)?\\.? 3\\b"],
+    "tags": ["calendar", "weekday"]
+  },
+  {
+    "id": "cal-wood-badge-dates",
+    "question": "When is the 2026 Wood Badge adult leadership training?",
+    "language": "en",
+    "source": "report.pdf",
+    "retrieval": ["Wood Badge"],
+    "answer": ["sep(t(ember)?)?\\.? 18\\b", "\\b20\\b"],
+    "tags": ["calendar", "multi-day", "exact-name"]
+  },
+  {
+    "id": "cal-camp-kaibab-dates",
+    "question": "What dates is Camp Kaibab Cub Scout Family Camp?",
+    "language": "en",
+    "source": "report.pdf",
+    "retrieval": ["Camp Kaibab"],
+    "answer": ["sep(t(ember)?)?\\.? 18\\b", "\\b20\\b"],
+    "tags": ["calendar", "multi-day", "exact-name"]
+  },
+  {
+    "id": "cal-camporee-dates",
+    "question": "When is the Maverick Fall Camporee?",
+    "language": "en",
+    "source": "report.pdf",
+    "retrieval": ["Maverick Fall Camporee"],
+    "answer": ["sep(t(ember)?)?\\.? 25\\b", "\\b27\\b"],
+    "tags": ["calendar", "multi-day", "exact-name"]
+  },
+  {
+    "id": "cal-oa-lodge-dates",
+    "question": "When is the 2026 OA Lodge Induction Experience fall weekend?",
+    "language": "en",
+    "source": "report.pdf",
+    "retrieval": ["OA Lodge Induction"],
+    "answer": ["sep(t(ember)?)?\\.? 11\\b", "\\b13\\b"],
+    "tags": ["calendar", "multi-day", "exact-name"]
+  },
+  {
+    "id": "cal-iols-baloo-dates",
+    "question": "When is the IOLS / BALOO combined training?",
+    "language": "en",
+    "source": "report.pdf",
+    "retrieval": ["IOLS"],
+    "answer": ["sep(t(ember)?)?\\.? 26\\b", "\\b27\\b"],
+    "tags": ["calendar", "multi-day", "exact-name"]
+  },
+  {
+    "id": "cal-saturday-sep-26",
+    "question": "What events are on the calendar for Saturday, September 26, 2026?",
+    "language": "en",
+    "source": "report.pdf",
+    "retrieval": ["Archery Open Shoot"],
+    "answer": ["iols", "introduction to leadership", "archery"],
+    "tags": ["calendar", "by-date"]
+  },
+  {
+    "id": "cal-sep-15",
+    "question": "What is happening on September 15, 2026?",
+    "language": "en",
+    "source": "report.pdf",
+    "retrieval": ["American Indian Culture"],
+    "answer": ["american indian culture", "artificial intelligence"],
+    "tags": ["calendar", "by-date"]
+  },
+  {
+    "id": "cal-rifle-bb-shoot",
+    "question": "When is the September Rifle/BB Open Shoot?",
+    "language": "en",
+    "source": "report.pdf",
+    "retrieval": ["Rifle/BB"],
+    "answer": ["saturday", "sep(t(ember)?)?\\.? 19\\b"],
+    "tags": ["calendar", "exact-name"]
+  },
+  {
+    "id": "cal-labor-day",
+    "question": "What date is Labor Day on the council calendar?",
+    "language": "en",
+    "source": "report.pdf",
+    "retrieval": ["Labor Day"],
+    "answer": ["monday", "sep(t(ember)?)?\\.? 7\\b"],
+    "tags": ["calendar", "exact-name"]
+  },
+  {
+    "id": "cal-coaches-huddle",
+    "question": "When is the Coaches Huddle?",
+    "language": "en",
+    "source": "report.pdf",
+    "retrieval": ["Coaches Huddle"],
+    "answer": ["thursday", "sep(t(ember)?)?\\.? 10\\b"],
+    "tags": ["calendar", "exact-name"]
+  },
+  {
+    "id": "cal-popcorn-distribution",
+    "question": "When is the 2026 Popcorn Show and Sell distribution?",
+    "language": "en",
+    "source": "report.pdf",
+    "retrieval": ["Popcorn"],
+    "answer": ["sep(t(ember)?)?\\.? 10\\b", "\\b11\\b"],
+    "tags": ["calendar", "multi-day", "exact-name"]
+  },
+  {
+    "id": "cal-mbc-training",
+    "question": "When is Merit Badge Counselor Training?",
+    "language": "en",
+    "source": "report.pdf",
+    "retrieval": ["Merit Badge Counselor"],
+    "answer": ["tuesday", "sep(t(ember)?)?\\.? 8\\b"],
+    "tags": ["calendar", "exact-name"]
+  },
+  {
+    "id": "cal-troop-advancement",
+    "question": "When is the Introduction to Troop Advancement session?",
+    "language": "en",
+    "source": "report.pdf",
+    "retrieval": ["Troop Advancement"],
+    "answer": ["tuesday", "sep(t(ember)?)?\\.? 1\\b"],
+    "tags": ["calendar", "exact-name"]
+  },
+  {
+    "id": "cal-scoutbook-plus",
+    "question": "When are the Scoutbook Plus intro sessions for packs and for troops?",
+    "language": "en",
+    "source": "report.pdf",
+    "retrieval": ["Scoutbook Plus"],
+    "answer": ["sep(t(ember)?)?\\.? 2\\b", "\\b3\\b", "pack", "troop"],
+    "tags": ["calendar", "exact-name"]
+  },
+  {
+    "id": "cal-scouting-heritage",
+    "question": "When does the Scouting Heritage online clinic start?",
+    "language": "en",
+    "source": "report.pdf",
+    "retrieval": ["Scouting Heritage"],
+    "answer": ["sep(t(ember)?)?\\.? 28\\b"],
+    "tags": ["calendar", "exact-name"]
+  },
+  {
+    "id": "cal-reading-mb",
+    "question": "When does the Reading virtual merit badge begin?",
+    "language": "en",
+    "source": "report.pdf",
+    "retrieval": ["Reading Virtual"],
+    "answer": ["sep(t(ember)?)?\\.? 30\\b"],
+    "tags": ["calendar", "exact-name"]
+  },
+  {
+    "id": "cal-es-camporee",
+    "question": "¿Cuándo es el Maverick Fall Camporee?",
+    "language": "es",
+    "source": "report.pdf",
+    "retrieval": ["Maverick Fall Camporee"],
+    "answer": ["\\b25\\b", "\\b27\\b", "septiembre"],
+    "tags": ["calendar", "multi-day", "spanish"]
+  },
+  {
+    "id": "cal-es-scout-leader-night",
+    "question": "¿Qué día de la semana es Arizona Scout Leader Night?",
+    "language": "es",
+    "source": "report.pdf",
+    "retrieval": ["Arizona Scout Leader Night"],
+    "answer": ["jueves", "\\b3\\b"],
+    "tags": ["calendar", "weekday", "spanish"]
+  },
+  {
+    "id": "oeg-leadership-ranks",
+    "question": "Which ranks can use the outdoor ethics guide position for their leadership requirement?",
+    "language": "en",
+    "source": "OutdoorEthicsGuide.pdf",
+    "retrieval": ["Star, Life, and Eagle"],
+    "answer": ["star", "life", "eagle"],
+    "tags": ["handbook"]
+  },
+  {
+    "id": "oeg-outdoor-code",
+    "question": "What does the Outdoor Code say?",
+    "language": "en",
+    "source": "OutdoorEthicsGuide.pdf",
+    "retrieval": ["conservation-minded"],
+    "answer": ["clean in my outdoor manners", "careful with fire", "considerate in the outdoors", "conservation[- ]minded"],
+    "tags": ["handbook", "list"]
+  },
+  {
+    "id": "oeg-outdoor-code-year",
+    "question": "When was the Outdoor Code added to the Boy Scout Handbook?",
+    "language": "en",
+    "source": "OutdoorEthicsGuide.pdf",
+    "retrieval": ["1955"],
+    "answer": ["1955"],
+    "tags": ["handbook", "fact"]
+  },
+  {
+    "id": "oeg-lnt-principles",
+    "question": "What are the seven principles of Leave No Trace?",
+    "language": "en",
+    "source": "OutdoorEthicsGuide.pdf",
+    "retrieval": ["Durable Surfaces", "Dispose of Waste"],
+    "answer": ["plan ahead", "durable surfaces", "dispose of waste", "leave what you find", "campfire", "respect wildlife", "other visitors"],
+    "tags": ["handbook", "list"]
+  },
+  {
+    "id": "oeg-tread-lightly",
+    "question": "What are the Tread Lightly! principles?",
+    "language": "en",
+    "source": "OutdoorEthicsGuide.pdf",
+    "retrieval": ["Avoid sensitive areas"],
+    "answer": ["travel responsibly", "rights of others", "educate yourself", "sensitive areas", "do your part"],
+    "tags": ["handbook", "list"]
+  },
+  {
+    "id": "oeg-wolf-focus",
+    "question": "Which outdoor ethics principles do Wolf Cub Scouts focus on?",
+    "language": "en",
+    "source": "OutdoorEthicsGuide.pdf",
+    "retrieval": ["Wolf", "Respect Wildlife"],
+    "answer": ["careful with fire", "respect wildlife"],
+    "tags": ["handbook", "fact"]
+  },
+  {
+    "id": "oeg-lnt-trainer-length",
+    "question": "How long is the Leave No Trace Trainer course?",
+    "language": "en",
+    "source": "OutdoorEthicsGuide.pdf",
+    "retrieval": ["16-hour"],
+    "answer": ["16[- ]hours?"],
+    "tags": ["handbook", "fact"]
+  },
+  {
+    "id": "oeg-master-educator-length",
+    "question": "How long is the Leave No Trace Master Educator course?",
+    "language": "en",
+    "source": "OutdoorEthicsGuide.pdf",
+    "retrieval": ["Master Educator course"],
+    "answer": ["(five|5)[- ]days?"],
+    "tags": ["handbook", "fact"]
+  },
+  {
+    "id": "oeg-meet-within-days",
+    "question": "How soon after rank advancement should the outdoor ethics guide meet with Scouts?",
+    "language": "en",
+    "source": "OutdoorEthicsGuide.pdf",
+    "retrieval": ["within 30 days"],
+    "answer": ["\\b30 days\\b"],
+    "tags": ["handbook", "fact"]
+  },
+  {
+    "id": "oeg-replaced-role",
+    "question": "Which older troop position did the outdoor ethics guide replace?",
+    "language": "en",
+    "source": "OutdoorEthicsGuide.pdf",
+    "retrieval": ["Leave No Trace trainer"],
+    "answer": ["leave no trace trainer"],
+    "tags": ["handbook", "fact"]
+  },
+  {
+    "id": "oeg-lnt-adopted-year",
+    "question": "In what year did the BSA adopt Leave No Trace?",
+    "language": "en",
+    "source": "OutdoorEthicsGuide.pdf",
+    "retrieval": ["1993"],
+    "answer": ["1993"],
+    "tags": ["handbook", "fact"]
+  },
+  {
+    "id": "oeg-tenderfoot-1c",
+    "question": "What does Tenderfoot requirement 1c ask Scouts to do for outdoor ethics?",
+    "language": "en",
+    "source": "OutdoorEthicsGuide.pdf",
+    "retrieval": ["Tenderfoot 1c"],
+    "answer": ["outdoor code", "(campout|outing)"],
+    "tags": ["handbook", "fact"]
+  },
+  {
+    "id": "oeg-es-outdoor-code-year",
+    "question": "¿En qué año se agregó el Outdoor Code al manual de Boy Scouts?",
+    "language": "es",
+    "source": "OutdoorEthicsGuide.pdf",
+    "retrieval": ["1955"],
+    "answer": ["1955"],
+    "tags": ["handbook", "fact", "spanish"]
+  },
+  {
+    "id": "none-geronimo-camp-fee",
+    "question": "How much does a week of summer camp at Camp Geronimo cost in 2027?",
+    "language": "en",
+    "source": null,
+    "tags": ["out-of-scope", "hard-negative"]
+  },
+  {
+    "id": "none-refund-policy",
+    "question": "What is the council's refund policy for cancelled campouts?",
+    "language": "en",
+    "source": null,
+    "tags": ["out-of-scope"]
+  },
+  {
+    "id": "none-scout-executive",
+    "question": "Who is the Scout Executive of the Grand Canyon Council?",
+    "language": "en",
+    "source": null,
+    "tags": ["out-of-scope"]
+  },
+  {
+    "id": "none-es-membership-fee",
+    "question": "¿Cuánto cuesta la membresía anual de Scouting America?",
+    "language": "es",
+    "source": null,
+    "tags": ["out-of-scope", "spanish"]
+  }
+]
