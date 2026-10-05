@@ -563,16 +563,17 @@ def get_negative_feedback(event):
 
 
 def get_feedback(event):
-    """List every chat turn that received a thumbs up/down.
+    """List chat turns for the conversation feedback table.
 
     Query params:
-      - filter: 'positive' | 'negative' | 'all' (default 'all')
+      - filter: 'positive' | 'negative' | 'all' (default 'all'). 'all' returns
+        every turn in the chat history, rated or not.
       - limit, offset: pagination
-    Each row is a single rated turn; the dashboard opens the full session and
+    Each row is a single turn; the dashboard opens the full session and
     highlights this turn using (sessionId, messageId=timestamp).
     """
     filter_val = (_qs(event, "filter", "all") or "all").lower()
-    wanted = {"positive", "negative"}
+    wanted = None
     if filter_val == "positive":
         wanted = {"positive"}
     elif filter_val == "negative":
@@ -581,14 +582,14 @@ def get_feedback(event):
     limit = min(int(_qs(event, "limit", "50")), 200)
     offset = int(_qs(event, "offset", "0"))
 
-    chat_items = scan_with_time_filter(chat_table, 90)
-    rated = sorted(
-        (i for i in chat_items if i.get("feedback") in wanted),
+    chat_items = scan_with_time_filter(chat_table)
+    turns = sorted(
+        (i for i in chat_items if wanted is None or i.get("feedback") in wanted),
         key=lambda i: i.get("timestamp") or "",
         reverse=True,
     )
-    total = len(rated)
-    paginated = rated[offset:offset + limit]
+    total = len(turns)
+    paginated = turns[offset:offset + limit]
     conversations = [
         {
             "sessionId": i.get("sessionId"),
@@ -608,7 +609,7 @@ def get_feedback(event):
     ]
     body = {"total": total, "offset": offset, "limit": limit, "filter": filter_val, "conversations": conversations}
     if total == 0:
-        body["note"] = "No feedback has been submitted yet"
+        body["note"] = "No conversations yet" if wanted is None else "No feedback has been submitted yet"
     return respond(HttpStatus.OK, body)
 
 
