@@ -357,10 +357,12 @@ export default function OverviewPage() {
                   <span className="language-badge">{conv.language === 'es' ? t.dashboard.spanishShort : t.dashboard.englishShort}</span>
                 </span>
                 <span className="fb-td fb-col-feedback">
-                  <span className={`fb-badge ${conv.feedback}`}>
+                  <span className={`fb-badge ${conv.feedback ?? 'unrated'}`}>
                     {conv.feedback === 'positive'
                       ? <><ThumbsUp size={11} /> {t.dashboard.up}</>
-                      : <><ThumbsDown size={11} /> {t.dashboard.down}</>}
+                      : conv.feedback === 'negative'
+                        ? <><ThumbsDown size={11} /> {t.dashboard.down}</>
+                        : t.dashboard.notRated}
                   </span>
                 </span>
                 <span className="fb-td fb-col-date">
@@ -374,7 +376,7 @@ export default function OverviewPage() {
               </div>
             ))
           ) : (
-            <div className="empty-state">{t.dashboard.noFeedback}</div>
+            <div className="empty-state">{feedbackFilter === 'all' ? t.dashboard.noConversations : t.dashboard.noFeedback}</div>
           )}
         </div>
         {feedbackTotal > FEEDBACK_PER_PAGE && (

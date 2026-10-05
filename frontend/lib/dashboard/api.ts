@@ -175,7 +175,7 @@ export interface FeedbackConversation {
   userId?: string;
   question: string;
   answer: string;
-  feedback: FeedbackValue;
+  feedback: FeedbackValue | null;
   confidence: number;
   sources: string[];
   escalated: boolean;
@@ -194,7 +194,7 @@ export interface SessionTurn {
   language: 'en' | 'es';
 }
 
-/** List chat turns that received a thumbs up/down. filter: 'all' | 'positive' | 'negative'. */
+/** List chat turns. filter: 'all' (every turn, rated or not) | 'positive' | 'negative'. */
 export async function getFeedbackConversations(
   filter: 'all' | FeedbackValue = 'all',
   limit: number = 50,
