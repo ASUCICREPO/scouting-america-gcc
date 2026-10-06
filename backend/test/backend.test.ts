@@ -4,6 +4,7 @@ import * as path from 'path';
 import * as cdk from 'aws-cdk-lib';
 import { Template, Match } from 'aws-cdk-lib/assertions';
 import { GrandCanyonCouncilChatbot } from '../lib/backend-stack';
+import { SYSTEM_PROMPT } from '../lib/config/system-prompt';
 
 let template: Template;
 
@@ -169,11 +170,7 @@ describe('Grounded response generation controls', () => {
   });
 
   test('publishes a new prompt version whenever the template changes', () => {
-    const promptText = fs.readFileSync(
-      path.join(__dirname, '../lambda/chat-handler/templates/chat_prompt.j2'),
-      'utf8',
-    );
-    const hash = crypto.createHash('sha256').update(promptText).digest('hex').slice(0, 12);
+    const hash = crypto.createHash('sha256').update(SYSTEM_PROMPT).digest('hex').slice(0, 12);
     template.hasResourceProperties('AWS::Bedrock::PromptVersion', {
       Description: Match.stringLikeRegexp(`template ${hash}`),
     });

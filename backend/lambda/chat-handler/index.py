@@ -12,13 +12,13 @@ import hmac
 import json
 import os
 import secrets
+import time
 import urllib.parse
 import uuid
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from enum import IntEnum
 from functools import lru_cache
-from pathlib import Path
 from typing import Any, Literal
 
 import boto3
@@ -33,6 +33,7 @@ bedrock_runtime = boto3.client("bedrock-runtime")
 ddb = boto3.resource("dynamodb")
 s3 = boto3.client("s3")
 sqs = boto3.client("sqs")
+ssm = boto3.client("ssm")
 
 # Environment set by the CDK construct.
 KB_ID = os.environ["KB_ID"]
@@ -49,6 +50,8 @@ ESCALATION_QUEUE_URL = os.environ["ESCALATION_QUEUE_URL"]
 CONFIDENCE_THRESHOLD = float(os.environ.get("CONFIDENCE_THRESHOLD", "0.7"))
 SAFETY_KEYWORDS = json.loads(os.environ.get("SAFETY_KEYWORDS", "[]"))
 ALLOWED_ORIGIN = os.environ["ALLOWED_ORIGIN"]
+# SSM parameter holding the admin-edited personality prompt; absent means none.
+PERSONALITY_PARAMETER = os.environ["PERSONALITY_PARAMETER"]
 
 chat_table = ddb.Table(CHAT_LOGS_TABLE)
 
@@ -56,7 +59,8 @@ MAX_QUESTION_LENGTH = 4000
 MAX_SESSION_ID_LENGTH = 128
 MAX_SESSION_TURNS = max(1, int(os.environ.get("MAX_SESSION_TURNS", "50")))
 CITATION_URL_TTL_SECONDS = 15 * 60
-PROMPT_PATH = Path(__file__).parent / "templates" / "chat_prompt.j2"
+# Admin personality edits reach warm Lambdas within this many seconds.
+PERSONALITY_CACHE_SECONDS = 60
 # The council operates in Arizona, which does not observe daylight saving time,
 # so a fixed UTC-7 offset is exact and avoids depending on tzdata in Lambda.
 COUNCIL_TIMEZONE = timezone(timedelta(hours=-7), "America/Phoenix")
@@ -267,23 +271,37 @@ def _session_at_capacity(session_id: str) -> bool:
 @lru_cache(maxsize=1)
 def get_prompt_template() -> str:
     """Fetch and cache the immutable Prompt Management template."""
-    try:
-        result = bedrock_agent.get_prompt(
-            promptIdentifier=PROMPT_ID,
-            promptVersion=PROMPT_VERSION,
+    result = bedrock_agent.get_prompt(
+        promptIdentifier=PROMPT_ID,
+        promptVersion=PROMPT_VERSION,
+    )
+    for variant in result.get("variants", []):
+        text = (
+            (variant.get("templateConfiguration") or {})
+            .get("text", {})
+            .get("text")
         )
-        for variant in result.get("variants", []):
-            text = (
-                (variant.get("templateConfiguration") or {})
-                .get("text", {})
-                .get("text")
-            )
-            if text:
-                return text
-        raise ValueError("Prompt version contains no text variant")
-    except Exception as error:  # noqa: BLE001 - local version is a deployment-safe fallback
-        print(f"Prompt Management lookup failed; using packaged prompt: {error}")
-        return PROMPT_PATH.read_text(encoding="utf-8")
+        if text:
+            return text
+    raise ValueError("Prompt version contains no text variant")
+
+
+_personality_cache: dict[str, Any] = {"value": "", "expires": 0.0}
+
+
+def get_personality_prompt() -> str:
+    """Return the admin personality prompt, cached briefly across invocations."""
+    if time.monotonic() < _personality_cache["expires"]:
+        return _personality_cache["value"]
+    try:
+        value = ssm.get_parameter(Name=PERSONALITY_PARAMETER)["Parameter"]["Value"].strip()
+    except ssm.exceptions.ParameterNotFound:
+        value = ""
+    except Exception as error:  # noqa: BLE001 - keep answering with the last known value
+        print(f"Personality prompt lookup failed; using cached value: {error}")
+        value = _personality_cache["value"]
+    _personality_cache.update(value=value, expires=time.monotonic() + PERSONALITY_CACHE_SECONDS)
+    return value
 
 
 def _language_instruction(language: Literal["en", "es"]) -> str:
@@ -328,6 +346,7 @@ def render_prompt(
     template = jinja.from_string(get_prompt_template())
     return template.render(
         current_date=_current_date(now),
+        personality_prompt=get_personality_prompt(),
         language_instruction=_language_instruction(language),
         retrieval_context=_retrieval_context(chunks),
         question=question,

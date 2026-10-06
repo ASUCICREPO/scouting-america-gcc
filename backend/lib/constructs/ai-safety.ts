@@ -1,10 +1,9 @@
 import * as crypto from 'crypto';
-import * as fs from 'fs';
-import * as path from 'path';
 import * as cdk from 'aws-cdk-lib';
 import * as bedrock from 'aws-cdk-lib/aws-bedrock';
 import { Construct } from 'constructs';
 import { CONFIG, PREFIX } from '../config/environment';
+import { SYSTEM_PROMPT } from '../config/system-prompt';
 
 /**
  * Versioned Bedrock controls used by response generation.
@@ -91,10 +90,7 @@ export class AiSafety extends Construct {
       },
     );
 
-    const promptText = fs.readFileSync(
-      path.join(__dirname, '../../lambda/chat-handler/templates/chat_prompt.j2'),
-      'utf8',
-    );
+    const promptText = SYSTEM_PROMPT;
     const prompt = new bedrock.CfnPrompt(this, 'ChatPrompt', {
       name: `${PREFIX}gcc-chat-grounded-response`,
       description: 'Grounded bilingual response prompt for the GCC volunteer support chatbot',
@@ -114,6 +110,7 @@ export class AiSafety extends Construct {
             text: promptText,
             inputVariables: [
               { name: 'current_date' },
+              { name: 'personality_prompt' },
               { name: 'language_instruction' },
               { name: 'retrieval_context' },
               { name: 'question' },
