@@ -9,7 +9,7 @@ import * as iam from 'aws-cdk-lib/aws-iam';
 import * as logs from 'aws-cdk-lib/aws-logs';
 import { Construct } from 'constructs';
 import * as path from 'path';
-import { PREFIX } from '../config/environment';
+import { CONFIG, PREFIX } from '../config/environment';
 
 export interface DashboardApiProps {
   /** ChatLogs table (read-only) — powers usage/faq/confidence/feedback metrics */
@@ -66,6 +66,7 @@ export class DashboardApi extends Construct {
         DATA_SOURCE_ID: props.dataSourceId,
         DOCUMENT_SYNC_QUEUE_URL: props.documentSyncQueue.queueUrl,
         ALLOWED_ORIGIN: props.allowedOrigin,
+        PERSONALITY_PARAMETER: CONFIG.PERSONALITY_PARAMETER,
       },
       logGroup: new logs.LogGroup(this, 'DashboardLogs', {
         retention: logs.RetentionDays.ONE_MONTH,
@@ -95,6 +96,10 @@ export class DashboardApi extends Construct {
       actions: ['bedrock:ListIngestionJobs'],
       resources: [`arn:aws:bedrock:*:*:knowledge-base/${props.knowledgeBaseId}`],
     }));
+    this.function.addToRolePolicy(new iam.PolicyStatement({
+      actions: ['ssm:GetParameter', 'ssm:PutParameter', 'ssm:DeleteParameter'],
+      resources: [`arn:aws:ssm:${cdk.Aws.REGION}:${cdk.Aws.ACCOUNT_ID}:parameter${CONFIG.PERSONALITY_PARAMETER}`],
+    }));
 
     // ─── API Gateway (Cognito-authenticated, throttled) ───
     this.api = new apigateway.RestApi(this, 'DashboardApi', {
@@ -107,7 +112,7 @@ export class DashboardApi extends Construct {
       },
       defaultCorsPreflightOptions: {
         allowOrigins: [props.allowedOrigin],
-        allowMethods: ['GET', 'POST', 'DELETE', 'OPTIONS'],
+        allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
         allowHeaders: ['Content-Type', 'Authorization'],
       },
     });
@@ -134,6 +139,10 @@ export class DashboardApi extends Construct {
     dashboard.addResource('negative-feedback').addMethod('GET', integration, authMethodOptions);
     dashboard.addResource('feedback').addMethod('GET', integration, authMethodOptions);
     dashboard.addResource('session').addMethod('GET', integration, authMethodOptions);
+
+    const personality = dashboard.addResource('personality');
+    personality.addMethod('GET', integration, authMethodOptions);
+    personality.addMethod('PUT', integration, authMethodOptions);
 
     const faq = dashboard.addResource('faq');
     faq.addMethod('GET', integration, authMethodOptions);

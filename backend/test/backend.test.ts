@@ -566,7 +566,7 @@ describe('Origin and session hardening', () => {
       )
       .map(([, resource]) => resource.Properties);
 
-    expect(methods).toHaveLength(14);
+    expect(methods).toHaveLength(16);
     for (const method of methods) {
       expect(method.AuthorizationType).toBe('COGNITO_USER_POOLS');
       expect(method.AuthorizerId).toBeDefined();
