@@ -1077,6 +1077,55 @@ html, body {
   margin-top: 8px;
 }
 
+/* Personality prompt */
+.personality-card {
+  background: #fff;
+  border-radius: 10px;
+  padding: 24px 30px;
+  margin-top: 24px;
+}
+
+.personality-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: #003f87;
+  margin: 0 0 6px;
+}
+
+.personality-description {
+  font-size: 13px;
+  color: #5a5a72;
+  margin: 0 0 14px;
+  line-height: 1.5;
+}
+
+.personality-input {
+  width: 100%;
+  padding: 10px 13px;
+  border: 1px solid #e0e8f1;
+  border-radius: 6px;
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.5;
+  resize: vertical;
+  outline: none;
+}
+
+.personality-input:focus { border-color: #005696; }
+.personality-input::placeholder { color: #999; }
+
+.personality-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.personality-count { font-size: 12px; color: #5a5a72; }
+.personality-actions { display: flex; gap: 8px; }
+.personality-actions button:disabled { opacity: 0.5; cursor: not-allowed; }
+
 
 /* Date Dropdown */
 .date-dropdown-wrapper {

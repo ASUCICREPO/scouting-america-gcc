@@ -120,6 +120,20 @@ export async function deleteDocuments(
   });
 }
 
+/** The admin personality prompt injected into the chatbot's base prompt. */
+export async function getPersonalityPrompt(): Promise<{ prompt: string }> {
+  return fetchApi('/dashboard/personality');
+}
+
+/** Save the personality prompt; an empty string removes it. */
+export async function savePersonalityPrompt(prompt: string): Promise<{ prompt: string }> {
+  return fetchApi('/dashboard/personality', undefined, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ prompt }),
+  });
+}
+
 /**
  * Request a size-enforced presigned POST policy for a document upload.
  *
