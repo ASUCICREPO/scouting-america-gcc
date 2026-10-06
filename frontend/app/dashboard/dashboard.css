@@ -1892,6 +1892,7 @@ html, body {
 .fb-row {
   display: flex;
   align-items: center;
+  gap: 24px;
   padding: 12px 4px;
 }
 .fb-header-row { border-bottom: 1px solid rgba(0, 63, 135, 0.12); }
@@ -1907,12 +1908,12 @@ html, body {
 }
 .fb-td { font-size: 13px; color: #0d1526; }
 
-.fb-col-num { width: 44px; }
-.fb-col-question { flex: 1; padding-right: 16px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.fb-col-language { width: 76px; }
-.fb-col-feedback { width: 120px; }
-.fb-col-date { width: 150px; color: #5a5a72; }
-.fb-col-action { width: 48px; text-align: center; }
+.fb-col-num { width: 28px; flex-shrink: 0; }
+.fb-col-question { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fb-col-language { width: 72px; flex-shrink: 0; }
+.fb-col-feedback { width: 100px; flex-shrink: 0; }
+.fb-col-date { width: 130px; flex-shrink: 0; color: #5a5a72; }
+.fb-col-action { width: 40px; flex-shrink: 0; display: flex; justify-content: center; }
 
 .fb-badge {
   display: inline-flex;
@@ -1925,6 +1926,7 @@ html, body {
 }
 .fb-badge.positive { background: #e6f4ea; color: #1e7e42; }
 .fb-badge.negative { background: #fdecea; color: #c5221f; }
+.fb-badge.unrated { background: #f1f3f4; color: #5f6368; }
 
 .language-badge {
   display: inline-flex;
@@ -2046,6 +2048,7 @@ html, body {
 }
 [data-theme="dark"] .fb-badge.positive { background: rgba(30,126,66,0.2); color: #6ee7a0; }
 [data-theme="dark"] .fb-badge.negative { background: rgba(197,34,31,0.2); color: #f2a5a2; }
+[data-theme="dark"] .fb-badge.unrated { background: #2a2a2a; color: #9aa0a6; }
 [data-theme="dark"] .language-badge { background: #2a2a2a; border-color: #3a3a3a; color: #8fc9f0; }
 [data-theme="dark"] .session-turn.highlight .session-bubble.assistant { border-color: #c6772d; }
 
