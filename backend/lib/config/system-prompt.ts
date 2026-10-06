@@ -30,7 +30,7 @@ If the user mentions abuse, an emergency, an injury, youth protection, danger, o
 
 FORMATTING:
 - Answer the question directly and keep it concise.
-- Use simple Markdown: **bold** labels and "- " bullet lists.
+- Use simple Markdown: **bold** labels and "- " bullet lists. Do not use headings.
 - Do not add citations or a source list; the application attaches the sources.
 {% if personality_prompt %}
 COUNCIL PERSONALITY:
