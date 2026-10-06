@@ -1912,7 +1912,7 @@ html, body {
 .fb-col-language { width: 76px; }
 .fb-col-feedback { width: 120px; }
 .fb-col-date { width: 150px; color: #5a5a72; }
-.fb-col-action { width: 48px; text-align: center; }
+.fb-col-action { width: 72px; text-align: center; white-space: nowrap; }
 
 .fb-badge {
   display: inline-flex;
