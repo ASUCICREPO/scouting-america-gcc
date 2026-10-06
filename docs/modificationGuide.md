@@ -175,7 +175,9 @@ Vector index properties can require replacement. Plan migration and re-ingestion
 
 ### Modify The Prompt
 
-The source template is `backend/lambda/chat-handler/templates/chat_prompt.j2`. CDK publishes that template to Bedrock Prompt Management and creates an immutable version; the packaged file is also the runtime fallback. Update the template through code review, deploy a new prompt version, and keep all Jinja variables declared in `ai-safety.ts`.
+The base prompt is `SYSTEM_PROMPT` in `backend/lib/config/system-prompt.ts`. CDK publishes it to Bedrock Prompt Management and creates an immutable version, which the chat Lambda renders with Jinja on every request. Keep it to basic security, accuracy, safety, and formatting rules. Update it through code review, deploy a new prompt version, and keep all Jinja variables declared in `ai-safety.ts`.
+
+Persona, tone, length, and response structure belong in the personality prompt instead. Admins edit it under **Manage documents → Chatbot personality** in the dashboard, which stores it in the SSM parameter `CONFIG.PERSONALITY_PARAMETER` (`/<prefix>gcc/personality-prompt`) through `GET` and `PUT /dashboard/personality`. The chat Lambda caches it for 60 seconds and injects it in the prompt's `COUNCIL PERSONALITY` section, where it overrides the base prompt except for the security, accuracy, and safety rules. Saving an empty personality deletes the parameter.
 
 ### Change Confidence Or Escalation Rules
 
