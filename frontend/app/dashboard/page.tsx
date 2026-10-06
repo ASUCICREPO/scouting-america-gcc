@@ -346,7 +346,7 @@ export default function OverviewPage() {
             <span className="fb-th fb-col-language">{t.dashboard.language}</span>
             <span className="fb-th fb-col-feedback">{t.dashboard.feedback}</span>
             <span className="fb-th fb-col-date">{t.dashboard.date}</span>
-            <span className="fb-th fb-col-action">{t.dashboard.viewChat}</span>
+            <span className="fb-th fb-col-action">{t.dashboard.view}</span>
           </div>
           {feedback.length > 0 ? (
             feedback.map((conv, i) => (
