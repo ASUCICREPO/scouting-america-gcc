@@ -1892,6 +1892,7 @@ html, body {
 .fb-row {
   display: flex;
   align-items: center;
+  gap: 24px;
   padding: 12px 4px;
 }
 .fb-header-row { border-bottom: 1px solid rgba(0, 63, 135, 0.12); }
@@ -1907,12 +1908,12 @@ html, body {
 }
 .fb-td { font-size: 13px; color: #0d1526; }
 
-.fb-col-num { width: 44px; }
-.fb-col-question { flex: 1; padding-right: 16px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.fb-col-language { width: 76px; }
-.fb-col-feedback { width: 120px; }
-.fb-col-date { width: 150px; color: #5a5a72; }
-.fb-col-action { width: 48px; text-align: center; white-space: nowrap; }
+.fb-col-num { width: 28px; flex-shrink: 0; }
+.fb-col-question { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fb-col-language { width: 72px; flex-shrink: 0; }
+.fb-col-feedback { width: 100px; flex-shrink: 0; }
+.fb-col-date { width: 130px; flex-shrink: 0; color: #5a5a72; }
+.fb-col-action { width: 40px; flex-shrink: 0; display: flex; justify-content: center; }
 
 .fb-badge {
   display: inline-flex;
