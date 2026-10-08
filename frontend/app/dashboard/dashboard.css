@@ -1078,18 +1078,12 @@ html, body {
 }
 
 /* Personality prompt */
+.personality-page { padding: 24px; }
+
 .personality-card {
   background: #fff;
   border-radius: 10px;
   padding: 24px 30px;
-  margin-top: 24px;
-}
-
-.personality-title {
-  font-size: 16px;
-  font-weight: 600;
-  color: #003f87;
-  margin: 0 0 6px;
 }
 
 .personality-description {

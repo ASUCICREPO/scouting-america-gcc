@@ -119,6 +119,7 @@ const english = {
   dashboard: {
     navOverview: "Overview",
     navDocuments: "Manage documents",
+    navPersonality: "Chatbot personality",
     notifications: "Notifications",
     profile: "Profile",
     settings: "Settings",
@@ -428,6 +429,7 @@ const spanish: TranslationShape<typeof english> = {
   dashboard: {
     navOverview: "Resumen",
     navDocuments: "Administrar documentos",
+    navPersonality: "Personalidad del chatbot",
     notifications: "Notificaciones",
     profile: "Perfil",
     settings: "Configuración",

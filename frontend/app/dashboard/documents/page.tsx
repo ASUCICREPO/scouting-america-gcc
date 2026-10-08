@@ -9,9 +9,7 @@ import {
   DocumentStatus,
   getDocumentDownloadUrl,
   getDocuments,
-  getPersonalityPrompt,
   PresignedDocumentUpload,
-  savePersonalityPrompt,
 } from '@/lib/dashboard/api';
 import { Search, Paperclip, Upload, FolderUp, Trash2, Download, FileText, ChevronLeft, ChevronRight, AlertTriangle } from 'lucide-react';
 import { toast } from 'sonner';
@@ -471,8 +469,6 @@ export default function DocumentsPage() {
         )}
       </div>
 
-      <PersonalityCard />
-
       <ConfirmDialog
         isOpen={deleteKeys.length > 0}
         title={deleteTitle}
@@ -488,70 +484,5 @@ export default function DocumentsPage() {
         busy={deleting}
       />
     </div>
-  );
-}
-
-// Matches the dashboard Lambda's limit (SSM standard parameters hold 4 KB).
-const MAX_PERSONALITY_CHARS = 2000;
-
-function PersonalityCard() {
-  const { t } = useLanguage();
-  const [prompt, setPrompt] = useState('');
-  const [saved, setSaved] = useState('');
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-
-  useEffect(() => {
-    getPersonalityPrompt()
-      .then(({ prompt: value }) => { setPrompt(value); setSaved(value); })
-      .catch(() => toast.error(t.personality.loadFailed))
-      .finally(() => setLoading(false));
-    // Load once; the language toggle should not refetch.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  async function save(value: string) {
-    setSaving(true);
-    try {
-      const { prompt: stored } = await savePersonalityPrompt(value);
-      setPrompt(stored);
-      setSaved(stored);
-      toast.success(stored ? t.personality.saved : t.personality.cleared);
-    } catch {
-      toast.error(t.personality.saveFailed);
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  const busy = loading || saving;
-  return (
-    <section className="personality-card">
-      <h2 className="personality-title">{t.personality.title}</h2>
-      <p className="personality-description">{t.personality.description}</p>
-      <textarea
-        className="personality-input"
-        value={prompt}
-        onChange={e => setPrompt(e.target.value)}
-        placeholder={t.personality.placeholder}
-        maxLength={MAX_PERSONALITY_CHARS}
-        rows={7}
-        disabled={busy}
-        aria-label={t.personality.title}
-      />
-      <div className="personality-footer">
-        <span className="personality-count">
-          {formatText(t.personality.characters, { count: prompt.length, max: MAX_PERSONALITY_CHARS })}
-        </span>
-        <div className="personality-actions">
-          <button className="bulk-btn" onClick={() => save('')} disabled={busy || !saved}>
-            {t.personality.clear}
-          </button>
-          <button className="btn-attachment" onClick={() => save(prompt)} disabled={busy || prompt.trim() === saved}>
-            {saving ? t.personality.saving : t.personality.save}
-          </button>
-        </div>
-      </div>
-    </section>
   );
 }
