@@ -7,7 +7,7 @@ import { useLanguage } from '@/context/LanguageContext';
 import { formatText } from '@/lib/i18n';
 
 // Matches the dashboard Lambda's limit (SSM standard parameters hold 4 KB).
-const MAX_PERSONALITY_CHARS = 2000;
+const MAX_PERSONALITY_CHARS = 4000;
 
 export default function PersonalityPage() {
   const { t } = useLanguage();

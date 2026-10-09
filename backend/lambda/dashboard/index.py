@@ -46,9 +46,11 @@ MAX_FILE_SIZE_BYTES = 50_000_000
 MAX_UPLOAD_BATCH_FILES = 500
 UPLOAD_BATCH_TTL_SECONDS = 7 * 24 * 60 * 60
 UPLOAD_BATCH_ID_RE = re.compile(r"^[a-f0-9]{32}$")
-# The personality prompt lives in a standard-tier SSM parameter (4 KB limit).
-MAX_PERSONALITY_CHARS = 2000
-MAX_PERSONALITY_BYTES = 4096
+# The personality prompt lives in an SSM parameter. Intelligent-Tiering keeps it
+# standard (4 KB) and only moves it to advanced (8 KB) when non-ASCII text
+# pushes 4000 characters past 4 KB.
+MAX_PERSONALITY_CHARS = 4000
+MAX_PERSONALITY_BYTES = 8192
 
 # Extension and MIME type are validated together. This is a conservative subset
 # of the formats handled by the configured default Bedrock parser. Active SVG,
@@ -990,7 +992,13 @@ def put_personality(event):
         )
 
     if prompt:
-        ssm.put_parameter(Name=PERSONALITY_PARAMETER, Value=prompt, Type="String", Overwrite=True)
+        ssm.put_parameter(
+            Name=PERSONALITY_PARAMETER,
+            Value=prompt,
+            Type="String",
+            Tier="Intelligent-Tiering",
+            Overwrite=True,
+        )
     else:
         try:
             ssm.delete_parameter(Name=PERSONALITY_PARAMETER)
