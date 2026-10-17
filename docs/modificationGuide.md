@@ -14,6 +14,7 @@ Start with the [Development Guide](./developmentGuide.md) for setup and tests. R
 | Public API client | `frontend/lib/api.ts` |
 | Admin API client/auth | `frontend/lib/dashboard/api.ts`, `frontend/lib/dashboard/auth.ts` |
 | Chat prompt, validation, confidence | `backend/lambda/chat-handler/index.py` |
+| Live event calendar lookups | `backend/lambda/chat-handler/calendar_events.py`, `CONFIG.EVENTS_FEED_URL` |
 | Dashboard metrics/documents | `backend/lambda/dashboard/index.py` |
 | Document ingestion | `backend/lambda/doc-processor/index.py` |
 | Escalation behavior | `backend/lambda/escalation-router/index.py` |
@@ -178,6 +179,12 @@ Vector index properties can require replacement. Plan migration and re-ingestion
 The base prompt is `SYSTEM_PROMPT` in `backend/lib/config/system-prompt.ts`. CDK publishes it to Bedrock Prompt Management and creates an immutable version, which the chat Lambda renders with Jinja on every request. Keep it to basic security, accuracy, safety, and formatting rules. Update it through code review, deploy a new prompt version, and keep all Jinja variables declared in `ai-safety.ts`.
 
 Persona, tone, length, and response structure belong in the personality prompt instead. Admins edit it on the **Chatbot personality** page in the dashboard sidebar, which stores it in the SSM parameter `CONFIG.PERSONALITY_PARAMETER` (`/<prefix>gcc/personality-prompt`) through `GET` and `PUT /dashboard/personality`. The chat Lambda caches it for 60 seconds and injects it in the prompt's `COUNCIL PERSONALITY` section, where it overrides the base prompt except for the security, accuracy, and safety rules. Saving an empty personality deletes the parameter.
+
+### Change The Event Calendar Feed
+
+The chat model reads the council calendar live through the `search_events` tool instead of indexing it into the Knowledge Base. The feed URL is `CONFIG.EVENTS_FEED_URL` in `backend/lib/config/environment.ts`; the current value is a Black Pug Software feed for org `BSA010`, filtered to events and meetings. To change the filter, open the calendar's Subscribe option at `scoutingevent.com/010`, choose the event types, and use the `.json` form of the generated `scoutcal.com` URL.
+
+`calendar_events.py` parses, filters, and formats the events; the tool definition and the call loop (`MAX_TOOL_CALLS`, `TOOL_TIME_BUDGET_SECONDS`) are in `index.py`, and the prompt's `CALENDAR` section says when to use it. The feed returns at most 300 records, so the Lambda logs `calendar_feed_cap_reached` when it hits that size. Feed failures log `calendar_feed_error`, fall back to the last copy read in the past 24 hours, and trigger the `GCC-CalendarFeed-Errors` alarm after three failures in 15 minutes. Set `EVENTS_FEED_URL` to an empty string to turn the tool off.
 
 ### Change Confidence Or Escalation Rules
 

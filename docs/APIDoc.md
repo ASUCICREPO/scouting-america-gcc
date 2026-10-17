@@ -100,8 +100,8 @@ Spanish example:
 | --- | --- | --- |
 | `answer` | string | Markdown-formatted model response |
 | `sources` | string[] | Unique S3 URIs returned only when average retrieval confidence meets the configured threshold |
-| `links` | object[] | Browser links for those confidence-qualified documents; each URL expires after 15 minutes |
-| `confidence` | number | Average of up to five retrieval scores; `0.3` fallback if unavailable |
+| `links` | object[] | Browser links for those confidence-qualified documents, each expiring after 15 minutes, followed by up to five event pages from the live calendar when the answer used it |
+| `confidence` | number | Average of up to five retrieval scores; `0.3` fallback if unavailable; at least `0.9` when a calendar lookup succeeded |
 | `sessionId` | string | Conversation identifier |
 | `sessionToken` | string | Anonymous bearer credential; persist securely with the local session |
 | `messageId` | string | Turn identifier and DynamoDB sort key; use for feedback |
@@ -155,7 +155,7 @@ X-Session-Token: ANONYMOUS_SESSION_TOKEN
 }
 ```
 
-History responses generate fresh 15-minute document links from stored source identifiers only when that turn met the configured confidence threshold.
+History responses generate fresh 15-minute document links from stored source identifiers only when that turn's retrieval confidence met the configured threshold, followed by any stored event links.
 
 An unknown session or invalid bearer credential returns `403` without revealing whether the session exists.
 
