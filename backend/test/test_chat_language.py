@@ -3,6 +3,7 @@
 import importlib.util
 import json
 import os
+import sys
 import unittest
 import urllib.parse
 from pathlib import Path
@@ -159,6 +160,8 @@ def load_chat_module():
     }
 
     module_path = Path(__file__).parents[1] / "lambda" / "chat-handler" / "index.py"
+    # Lambda puts the handler directory on sys.path for sibling modules.
+    sys.path.insert(0, str(module_path.parent))
     spec = importlib.util.spec_from_file_location("chat_handler_language_test", module_path)
     module = importlib.util.module_from_spec(spec)
     with patch("boto3.client", side_effect=lambda name: clients[name]), patch(
