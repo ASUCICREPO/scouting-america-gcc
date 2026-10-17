@@ -35,9 +35,17 @@ export interface ChatHandlerProps {
 
 export class ChatHandler extends Construct {
   public readonly function: lambda.Function;
+  public readonly logGroup: logs.LogGroup;
 
   constructor(scope: Construct, id: string, props: ChatHandlerProps) {
     super(scope, id);
+
+    // Bound log retention — chat logs may incidentally contain user-entered
+    // content, so they shouldn't be kept indefinitely.
+    this.logGroup = new logs.LogGroup(this, 'ChatHandlerLogs', {
+      retention: logs.RetentionDays.ONE_MONTH,
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+    });
 
     // The Lambda function that handles volunteer chat requests
     // (Python 3.13; boto3 comes from the runtime, app dependencies from a layer).
@@ -71,12 +79,7 @@ export class ChatHandler extends Construct {
         PERSONALITY_PARAMETER: CONFIG.PERSONALITY_PARAMETER,
         EVENTS_FEED_URL: CONFIG.EVENTS_FEED_URL,
       },
-      // Bound log retention — chat logs may incidentally contain user-entered
-      // content, so they shouldn't be kept indefinitely.
-      logGroup: new logs.LogGroup(this, 'ChatHandlerLogs', {
-        retention: logs.RetentionDays.ONE_MONTH,
-        removalPolicy: cdk.RemovalPolicy.DESTROY,
-      }),
+      logGroup: this.logGroup,
     });
 
     // Grant permissions: read/write to ChatLogs table
