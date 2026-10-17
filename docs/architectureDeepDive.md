@@ -30,11 +30,12 @@ The frontend is a static export. Display preferences and the anonymous chat-sess
 3. API Gateway invokes the Python 3.13 chat-handler Lambda.
 4. The Lambda validates the typed request and, for existing sessions, compares the bearer-token hash with the stored session hash.
 5. The Lambda retrieves up to five chunks once from the Bedrock Knowledge Base. Those exact chunks, plus the admin personality prompt from SSM Parameter Store, are rendered through the immutable Prompt Management version and sent to Claude Haiku 4.5 through `Converse`; Bedrock Guardrails evaluates the generation input and output.
-6. The Lambda averages the returned retrieval scores. A missing score set falls back to confidence `0.3`.
-7. Safety keywords or confidence below `0.7` trigger the escalation-router Lambda asynchronously.
-8. The turn is written to DynamoDB and returned with a session ID, anonymous session token, message ID, exact sources, confidence, escalation flag, and language.
-9. A DynamoDB stream copies the original delivered turn into an object-locked S3 audit archive.
-10. History and feedback calls require both the session ID and anonymous bearer token, preventing access through a guessed or leaked ID alone.
+6. For event and date questions the model can call the `search_events` tool, at most twice per question. The Lambda reads the council's public calendar feed (`CONFIG.EVENTS_FEED_URL`, cached in memory for 15 minutes), filters upcoming events by date range and keyword in code, and returns up to 10 events with Arizona-time dates and weekdays already written out. The model then answers from those results, and the event pages are returned as links.
+7. The Lambda averages the returned retrieval scores. A missing score set falls back to confidence `0.3`. When a calendar lookup succeeds, the confidence is at least `0.9`; document links still depend on the retrieval score alone.
+8. Safety keywords or confidence below `0.7` trigger the escalation-router Lambda asynchronously.
+9. The turn is written to DynamoDB and returned with a session ID, anonymous session token, message ID, exact sources, confidence, escalation flag, and language.
+10. A DynamoDB stream copies the original delivered turn into an object-locked S3 audit archive.
+11. History and feedback calls require both the session ID and anonymous bearer token, preventing access through a guessed or leaked ID alone.
 
 ### Bilingual Flow
 
