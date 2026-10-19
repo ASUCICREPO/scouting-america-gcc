@@ -205,7 +205,7 @@ See the [Architecture Deep Dive](./architectureDeepDive.md) for exact services, 
 
 #### Grounded Chat
 
-The chat Lambda retrieves once and sends those exact chunks to Claude through `Converse`. Answer context, attached sources, confidence, and the audit record therefore agree. Bedrock Guardrails evaluates generation, and the versioned Jinja template is managed through Bedrock Prompt Management with a packaged fallback.
+The chat Lambda retrieves once and sends those exact chunks to Claude through `Converse`. Answer context, attached sources, confidence, and the audit record therefore agree. Bedrock Guardrails evaluates generation, and the base prompt in `system-prompt.ts` is versioned through Bedrock Prompt Management, with an admin-editable personality prompt injected from SSM Parameter Store.
 
 #### Bilingual Support
 

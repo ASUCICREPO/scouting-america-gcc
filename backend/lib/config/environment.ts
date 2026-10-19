@@ -27,6 +27,10 @@ export const CONFIG = {
   // IAM
   KB_ROLE_NAME: `${PREFIX}GCC-BedrockKB-Role`,
 
+  // SSM parameter holding the admin-edited personality prompt. The dashboard
+  // creates it on first save; the chat Lambda treats a missing one as empty.
+  PERSONALITY_PARAMETER: `/${PREFIX}gcc/personality-prompt`,
+
   // SNS/SES
   STAFF_ALERT_TOPIC: `${PREFIX}gcc-staff-alerts`,
   STAFF_EMAIL: 'staff@grandcanyonbsa.org',

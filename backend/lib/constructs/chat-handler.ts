@@ -68,6 +68,7 @@ export class ChatHandler extends Construct {
         CONFIDENCE_THRESHOLD: CONFIG.CONFIDENCE_THRESHOLD.toString(),
         SAFETY_KEYWORDS: JSON.stringify(CONFIG.SAFETY_KEYWORDS),
         MAX_SESSION_TURNS: CONFIG.PUBLIC_CHAT_MAX_SESSION_TURNS.toString(),
+        PERSONALITY_PARAMETER: CONFIG.PERSONALITY_PARAMETER,
       },
       // Bound log retention — chat logs may incidentally contain user-entered
       // content, so they shouldn't be kept indefinitely.
@@ -92,6 +93,12 @@ export class ChatHandler extends Construct {
         'bedrock:GetPrompt',
       ],
       resources: ['*'], // KB resources are account-wide
+    }));
+
+    // Read the admin personality prompt that is injected into the base prompt.
+    this.function.addToRolePolicy(new iam.PolicyStatement({
+      actions: ['ssm:GetParameter'],
+      resources: [`arn:aws:ssm:${cdk.Aws.REGION}:${cdk.Aws.ACCOUNT_ID}:parameter${CONFIG.PERSONALITY_PARAMETER}`],
     }));
 
     // Enqueue safety/low-confidence events without coupling chat latency to

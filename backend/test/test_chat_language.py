@@ -37,9 +37,30 @@ class FakeDynamoResource:
         return self.table
 
 
+SYSTEM_PROMPT_TS = Path(__file__).parents[1] / "lib" / "config" / "system-prompt.ts"
+
+
 class FakeBedrockAgent:
+    """Serves the base prompt from system-prompt.ts, as Prompt Management would."""
+
     def get_prompt(self, **_kwargs):
-        raise RuntimeError("Use packaged prompt in unit tests")
+        source = SYSTEM_PROMPT_TS.read_text(encoding="utf-8")
+        text = source.split("export const SYSTEM_PROMPT = `", 1)[1].rsplit("`;", 1)[0]
+        return {"variants": [{"templateConfiguration": {"text": {"text": text}}}]}
+
+
+class FakeSsm:
+    class exceptions:  # noqa: N801 - mirrors boto3
+        class ParameterNotFound(Exception):
+            pass
+
+    def __init__(self):
+        self.value = None
+
+    def get_parameter(self, **_kwargs):
+        if self.value is None:
+            raise self.exceptions.ParameterNotFound()
+        return {"Parameter": {"Value": self.value}}
 
 
 class FakeBedrockRetrieval:
@@ -119,6 +140,7 @@ def load_chat_module():
         "SAFETY_KEYWORDS": json.dumps(["emergency", "emergencia"]),
         "ALLOWED_ORIGIN": "https://public.example",
         "MAX_SESSION_TURNS": "50",
+        "PERSONALITY_PARAMETER": "/test/personality-prompt",
     })
     table = FakeTable()
     agent = FakeBedrockAgent()
@@ -133,6 +155,7 @@ def load_chat_module():
         "bedrock-runtime": runtime,
         "s3": s3,
         "sqs": sqs,
+        "ssm": FakeSsm(),
     }
 
     module_path = Path(__file__).parents[1] / "lambda" / "chat-handler" / "index.py"

@@ -29,7 +29,7 @@ The frontend is a static export. Display preferences and the anonymous chat-sess
 2. The frontend sends `POST /chat` with `question` and `language`. Existing sessions also send `sessionId` plus the server-issued `X-Session-Token`.
 3. API Gateway invokes the Python 3.13 chat-handler Lambda.
 4. The Lambda validates the typed request and, for existing sessions, compares the bearer-token hash with the stored session hash.
-5. The Lambda retrieves up to five chunks once from the Bedrock Knowledge Base. Those exact chunks are rendered through the immutable Prompt Management version and sent to Claude Haiku 4.5 through `Converse`; Bedrock Guardrails evaluates the generation input and output.
+5. The Lambda retrieves up to five chunks once from the Bedrock Knowledge Base. Those exact chunks, plus the admin personality prompt from SSM Parameter Store, are rendered through the immutable Prompt Management version and sent to Claude Haiku 4.5 through `Converse`; Bedrock Guardrails evaluates the generation input and output.
 6. The Lambda averages the returned retrieval scores. A missing score set falls back to confidence `0.3`.
 7. Safety keywords or confidence below `0.7` trigger the escalation-router Lambda asynchronously.
 8. The turn is written to DynamoDB and returned with a session ID, anonymous session token, message ID, exact sources, confidence, escalation flag, and language.
