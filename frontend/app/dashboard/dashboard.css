@@ -1078,46 +1078,200 @@ html, body {
 }
 
 /* Personality prompt */
-.personality-page { padding: 24px; }
+.personality-page { padding: 40px 24px 24px; }
+
+.personality-header { margin-bottom: 26px; }
+
+.personality-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 14px;
+  color: #191c1e;
+}
+
+.personality-subtitle {
+  margin: 13px 0 0 26px;
+  font-size: 16px;
+  line-height: 24px;
+  letter-spacing: 0.4px;
+  color: #6c7380;
+}
 
 .personality-card {
+  display: flex;
+  flex-direction: column;
   background: #fff;
-  border-radius: 10px;
-  padding: 24px 30px;
+  border: 1px solid #e3e6eb;
+  border-radius: 14px;
+  overflow: hidden;
 }
 
-.personality-description {
-  font-size: 13px;
-  color: #5a5a72;
-  margin: 0 0 14px;
-  line-height: 1.5;
+.personality-body {
+  display: flex;
+  flex-direction: column;
+  gap: 23px;
+  padding: 24px;
 }
+
+.personality-card-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.personality-card-title { margin: 0; font-size: 18px; font-weight: 600; line-height: 1.2; color: #202938; }
+.personality-card-subtitle { margin: 6px 0 0; font-size: 13px; color: #6c7380; }
+
+.personality-status {
+  padding: 5px 9px;
+  border-radius: 100px;
+  background: rgba(0, 63, 135, 0.06);
+  font-size: 11px;
+  font-weight: 500;
+  color: #0e5ea1;
+  white-space: nowrap;
+}
+
+.personality-section { display: flex; flex-direction: column; gap: 10px; }
+
+.personality-label {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 16.8px;
+  color: #202938;
+}
+
+.personality-presets { display: flex; gap: 10px; }
+
+.personality-preset {
+  flex: 1 0 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 12px;
+  border: 1px solid #e3e6eb;
+  border-radius: 8px;
+  background: #fff;
+  color: #202938;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.personality-preset:hover:not(:disabled) { border-color: #e5c8b3; }
+.personality-preset:disabled { cursor: not-allowed; opacity: 0.6; }
+.personality-preset.selected { background: #fbf3ec; border-color: #e5c8b3; color: #a15d36; }
+
+.personality-preset-icons {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  margin-bottom: 3px;
+}
+
+.personality-preset-name { font-size: 14px; font-weight: 500; line-height: 16.8px; }
+.personality-preset-hint { font-size: 11px; color: #6c7380; }
+
+.personality-editor-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.personality-reset {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  font-size: 12px;
+  color: #6c7380;
+  cursor: pointer;
+}
+
+.personality-reset:hover:not(:disabled) { color: #202938; }
+.personality-reset:disabled { cursor: not-allowed; opacity: 0.6; }
+
+.personality-hint { margin: 0; font-size: 13px; line-height: 1.45; color: #6c7380; }
 
 .personality-input {
   width: 100%;
-  padding: 10px 13px;
-  border: 1px solid #e0e8f1;
-  border-radius: 6px;
+  height: 413px;
+  min-height: 258px;
+  padding: 17px;
+  border: 1px solid #e5c8b3;
+  border-radius: 8px;
+  background: #fff;
+  color: #202938;
   font: inherit;
-  font-size: 13px;
-  line-height: 1.5;
+  font-size: 16px;
+  line-height: 24px;
+  letter-spacing: 0.4px;
   resize: vertical;
   outline: none;
 }
 
-.personality-input:focus { border-color: #005696; }
-.personality-input::placeholder { color: #999; }
+.personality-input:focus { border-color: #c6752c; }
+.personality-input::placeholder { color: #979797; }
+
+.personality-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 12px;
+  color: #6c7380;
+}
 
 .personality-footer {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  margin-top: 12px;
+  padding: 18px 24px;
+  border-top: 1px solid #e3e6eb;
 }
 
-.personality-count { font-size: 12px; color: #5a5a72; }
-.personality-actions { display: flex; gap: 8px; }
+.personality-note {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #6c7380;
+}
+
+.personality-actions { display: flex; gap: 10px; }
+
+.personality-clear,
+.personality-save {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 42px;
+  padding: 0 16px;
+  border-radius: 8px;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.personality-clear { border: 1px solid #e3e6eb; background: #fff; color: #202938; }
+.personality-save { border: 1px solid #c6752c; background: #c6752c; color: #fff; }
 .personality-actions button:disabled { opacity: 0.5; cursor: not-allowed; }
 
 
@@ -1740,6 +1894,16 @@ html, body {
 [data-theme="dark"] .dash-sidebar { background: #1e1e1e; border-color: #2e2e2e; }
 [data-theme="dark"] .dash-header { background: #1e1e1e; border-color: #2e2e2e; }
 [data-theme="dark"] .dash-main { background: #121212; }
+[data-theme="dark"] .personality-title,
+[data-theme="dark"] .personality-card-title,
+[data-theme="dark"] .personality-label { color: #fff; }
+[data-theme="dark"] .personality-card { background: #1e1e1e; border-color: #2e2e2e; }
+[data-theme="dark"] .personality-footer { border-color: #2e2e2e; }
+[data-theme="dark"] .personality-preset { background: #1e1e1e; border-color: #3a3a3a; color: #e0e0e0; }
+[data-theme="dark"] .personality-preset.selected { background: rgba(198, 117, 44, 0.15); border-color: #c6752c; color: #f0b98a; }
+[data-theme="dark"] .personality-input { background: #121212; border-color: #3a3a3a; color: #e0e0e0; }
+[data-theme="dark"] .personality-clear { background: #1e1e1e; border-color: #3a3a3a; color: #e0e0e0; }
+[data-theme="dark"] .personality-status { background: rgba(110, 168, 230, 0.15); color: #9cc6f0; }
 [data-theme="dark"] .dash-content { background: #121212; }
 [data-theme="dark"] .dash-nav-item { color: #b0b0b0; }
 [data-theme="dark"] .dash-nav-item:hover { background: #2a2a2a; }
