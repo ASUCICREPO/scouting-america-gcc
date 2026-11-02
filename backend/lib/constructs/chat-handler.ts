@@ -35,9 +35,17 @@ export interface ChatHandlerProps {
 
 export class ChatHandler extends Construct {
   public readonly function: lambda.Function;
+  public readonly logGroup: logs.LogGroup;
 
   constructor(scope: Construct, id: string, props: ChatHandlerProps) {
     super(scope, id);
+
+    // Bound log retention — chat logs may incidentally contain user-entered
+    // content, so they shouldn't be kept indefinitely.
+    this.logGroup = new logs.LogGroup(this, 'ChatHandlerLogs', {
+      retention: logs.RetentionDays.ONE_MONTH,
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+    });
 
     // The Lambda function that handles volunteer chat requests
     // (Python 3.13; boto3 comes from the runtime, app dependencies from a layer).
@@ -46,7 +54,7 @@ export class ChatHandler extends Construct {
       runtime: lambda.Runtime.PYTHON_3_13,
       handler: 'index.handler',
       code: lambda.Code.fromAsset(path.join(__dirname, '../../lambda/chat-handler')),
-      timeout: cdk.Duration.seconds(30), // Bedrock calls can take a few seconds
+      timeout: cdk.Duration.seconds(30), // up to three Bedrock calls when the model looks up events
       memorySize: 512,
       // This is both a reservation and a hard ceiling. Public traffic cannot
       // consume the account concurrency needed by admin and ingestion workers.
@@ -69,13 +77,9 @@ export class ChatHandler extends Construct {
         SAFETY_KEYWORDS: JSON.stringify(CONFIG.SAFETY_KEYWORDS),
         MAX_SESSION_TURNS: CONFIG.PUBLIC_CHAT_MAX_SESSION_TURNS.toString(),
         PERSONALITY_PARAMETER: CONFIG.PERSONALITY_PARAMETER,
+        EVENTS_FEED_URL: CONFIG.EVENTS_FEED_URL,
       },
-      // Bound log retention — chat logs may incidentally contain user-entered
-      // content, so they shouldn't be kept indefinitely.
-      logGroup: new logs.LogGroup(this, 'ChatHandlerLogs', {
-        retention: logs.RetentionDays.ONE_MONTH,
-        removalPolicy: cdk.RemovalPolicy.DESTROY,
-      }),
+      logGroup: this.logGroup,
     });
 
     // Grant permissions: read/write to ChatLogs table
