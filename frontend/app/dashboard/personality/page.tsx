@@ -1,8 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import type { LucideIcon } from 'lucide-react';
-import { BriefcaseBusiness, Check, ChevronRight, CircleCheck, Clock3, ListFilter, RotateCcw, Smile } from 'lucide-react';
+import { Check, ChevronRight, Clock3, RotateCcw } from 'lucide-react';
 import { toast } from 'sonner';
 import { getPersonalityPrompt, savePersonalityPrompt } from '@/lib/dashboard/api';
 import { useLanguage } from '@/context/LanguageContext';
@@ -10,13 +9,6 @@ import { formatText } from '@/lib/i18n';
 
 // Matches the dashboard Lambda's limit.
 const MAX_PERSONALITY_CHARS = 4000;
-
-type PresetKey = 'friendly' | 'concise' | 'professional';
-const PRESETS: { key: PresetKey; icon: LucideIcon }[] = [
-  { key: 'friendly', icon: Smile },
-  { key: 'concise', icon: ListFilter },
-  { key: 'professional', icon: BriefcaseBusiness },
-];
 
 export default function PersonalityPage() {
   const { t, language } = useLanguage();
@@ -50,7 +42,6 @@ export default function PersonalityPage() {
 
   const busy = loading || saving;
   const unsaved = !loading && prompt.trim() !== saved;
-  const presets = t.personality.presets;
   const locale = language === 'es' ? 'es-US' : 'en-US';
   return (
     <div className="personality-page">
@@ -72,32 +63,6 @@ export default function PersonalityPage() {
             {unsaved && <span className="personality-status">{t.personality.unsaved}</span>}
           </div>
 
-          <div className="personality-section">
-            <h3 className="personality-label">{t.personality.styleLabel}</h3>
-            <div className="personality-presets">
-              {PRESETS.map(({ key, icon: Icon }) => {
-                const selected = prompt === presets[key].prompt;
-                return (
-                  <button
-                    key={key}
-                    type="button"
-                    className={`personality-preset${selected ? ' selected' : ''}`}
-                    onClick={() => setPrompt(presets[key].prompt)}
-                    disabled={busy}
-                    aria-pressed={selected}
-                  >
-                    <span className="personality-preset-icons">
-                      <Icon size={17} aria-hidden="true" />
-                      {selected && <CircleCheck size={15} aria-hidden="true" />}
-                    </span>
-                    <span className="personality-preset-name">{presets[key].name}</span>
-                    <span className="personality-preset-hint">{presets[key].hint}</span>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
           <div className="personality-section personality-editor">
             <div className="personality-editor-heading">
               <label className="personality-label" htmlFor="personality-input">
@@ -105,12 +70,12 @@ export default function PersonalityPage() {
               </label>
               <button
                 type="button"
-                className="personality-reset"
-                onClick={() => setPrompt(presets.friendly.prompt)}
-                disabled={busy}
+                className="personality-link"
+                onClick={() => setPrompt(saved)}
+                disabled={busy || !unsaved}
               >
                 <RotateCcw size={13} aria-hidden="true" />
-                {t.personality.resetDefault}
+                {t.personality.reset}
               </button>
             </div>
             <p className="personality-hint">{t.personality.instructionsHint}</p>
@@ -119,7 +84,7 @@ export default function PersonalityPage() {
               className="personality-input"
               value={prompt}
               onChange={e => setPrompt(e.target.value)}
-              placeholder={presets.friendly.prompt}
+              placeholder={t.personality.placeholder}
               maxLength={MAX_PERSONALITY_CHARS}
               disabled={busy}
             />

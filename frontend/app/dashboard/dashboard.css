@@ -1147,40 +1147,6 @@ html, body {
   color: #202938;
 }
 
-.personality-presets { display: flex; gap: 10px; }
-
-.personality-preset {
-  flex: 1 0 0;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 4px;
-  padding: 12px;
-  border: 1px solid #e3e6eb;
-  border-radius: 8px;
-  background: #fff;
-  color: #202938;
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-
-.personality-preset:hover:not(:disabled) { border-color: #e5c8b3; }
-.personality-preset:disabled { cursor: not-allowed; opacity: 0.6; }
-.personality-preset.selected { background: #fbf3ec; border-color: #e5c8b3; color: #a15d36; }
-
-.personality-preset-icons {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  width: 100%;
-  margin-bottom: 3px;
-}
-
-.personality-preset-name { font-size: 14px; font-weight: 500; line-height: 16.8px; }
-.personality-preset-hint { font-size: 11px; color: #6c7380; }
-
 .personality-editor-heading {
   display: flex;
   align-items: center;
@@ -1188,7 +1154,7 @@ html, body {
   gap: 12px;
 }
 
-.personality-reset {
+.personality-link {
   display: flex;
   align-items: center;
   gap: 5px;
@@ -1201,8 +1167,8 @@ html, body {
   cursor: pointer;
 }
 
-.personality-reset:hover:not(:disabled) { color: #202938; }
-.personality-reset:disabled { cursor: not-allowed; opacity: 0.6; }
+.personality-link:hover:not(:disabled) { color: #202938; }
+.personality-link:disabled { cursor: not-allowed; opacity: 0.6; }
 
 .personality-hint { margin: 0; font-size: 13px; line-height: 1.45; color: #6c7380; }
 
@@ -1899,8 +1865,6 @@ html, body {
 [data-theme="dark"] .personality-label { color: #fff; }
 [data-theme="dark"] .personality-card { background: #1e1e1e; border-color: #2e2e2e; }
 [data-theme="dark"] .personality-footer { border-color: #2e2e2e; }
-[data-theme="dark"] .personality-preset { background: #1e1e1e; border-color: #3a3a3a; color: #e0e0e0; }
-[data-theme="dark"] .personality-preset.selected { background: rgba(198, 117, 44, 0.15); border-color: #c6752c; color: #f0b98a; }
 [data-theme="dark"] .personality-input { background: #121212; border-color: #3a3a3a; color: #e0e0e0; }
 [data-theme="dark"] .personality-clear { background: #1e1e1e; border-color: #3a3a3a; color: #e0e0e0; }
 [data-theme="dark"] .personality-status { background: rgba(110, 168, 230, 0.15); color: #9cc6f0; }
