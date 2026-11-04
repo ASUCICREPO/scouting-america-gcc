@@ -55,18 +55,11 @@ export default function PersonalityPage() {
 
       <section className="personality-card">
         <div className="personality-body">
-          <div className="personality-card-heading">
-            <div>
-              <h2 className="personality-card-title">{t.personality.cardTitle}</h2>
-              <p className="personality-card-subtitle">{t.personality.cardSubtitle}</p>
-            </div>
-            {unsaved && <span className="personality-status">{t.personality.unsaved}</span>}
-          </div>
-
           <div className="personality-section personality-editor">
             <div className="personality-editor-heading">
               <label className="personality-label" htmlFor="personality-input">
                 {t.personality.instructionsLabel}
+                {unsaved && <span className="personality-status">{t.personality.unsaved}</span>}
               </label>
               <button
                 type="button"

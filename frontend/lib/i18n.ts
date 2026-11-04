@@ -222,8 +222,6 @@ const english = {
   personality: {
     title: "Chatbot personality",
     subtitle: "Shape how GCC Compass sounds. Keep every answer grounded in your documents.",
-    cardTitle: "Customize personality",
-    cardSubtitle: "Give your chatbot a clear, consistent way to help.",
     unsaved: "Unsaved changes",
     placeholder: "e.g. You are a friendly, knowledgeable guide for Scout volunteers. Keep answers under 100 words and end with one helpful next step.",
     instructionsLabel: "Custom instructions",
@@ -540,8 +538,6 @@ const spanish: TranslationShape<typeof english> = {
   personality: {
     title: "Personalidad del chatbot",
     subtitle: "Define cómo suena GCC Compass. Cada respuesta se basa en sus documentos.",
-    cardTitle: "Personalizar la personalidad",
-    cardSubtitle: "Dé a su chatbot una forma clara y constante de ayudar.",
     unsaved: "Cambios sin guardar",
     placeholder: "p. ej. Eres un guía amable y bien informado para voluntarios Scout. Mantén las respuestas en menos de 100 palabras y termina con un siguiente paso útil.",
     instructionsLabel: "Instrucciones personalizadas",
