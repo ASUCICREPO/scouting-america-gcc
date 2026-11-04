@@ -104,6 +104,7 @@ def load_module():
         "DATA_SOURCE_ID": "data-source-id",
         "DOCUMENT_SYNC_QUEUE_URL": "https://sqs.example/sync.fifo",
         "ALLOWED_ORIGIN": "https://frontend.example",
+        "PERSONALITY_PARAMETER": "/test/personality-prompt",
     })
     fake_s3 = FakeS3()
     fake_sqs = FakeSqs()

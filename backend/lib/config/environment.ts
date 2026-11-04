@@ -27,6 +27,14 @@ export const CONFIG = {
   // IAM
   KB_ROLE_NAME: `${PREFIX}GCC-BedrockKB-Role`,
 
+  // SSM parameter holding the admin-edited personality prompt. The dashboard
+  // creates it on first save; the chat Lambda treats a missing one as empty.
+  PERSONALITY_PARAMETER: `/${PREFIX}gcc/personality-prompt`,
+
+  // Public council calendar feed (Black Pug Software, org BSA010), filtered to
+  // events and meetings. The chat model reads it through the search_events tool.
+  EVENTS_FEED_URL: 'https://scoutcal.com/22763.json',
+
   // SNS/SES
   STAFF_ALERT_TOPIC: `${PREFIX}gcc-staff-alerts`,
   STAFF_EMAIL: 'staff@grandcanyonbsa.org',

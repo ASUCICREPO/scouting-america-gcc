@@ -24,6 +24,7 @@ ddb = boto3.resource("dynamodb")
 s3 = boto3.client("s3")
 bedrock_agent = boto3.client("bedrock-agent")
 sqs = boto3.client("sqs")
+ssm = boto3.client("ssm")
 
 CHAT_LOGS_TABLE = os.environ["CHAT_LOGS_TABLE"]
 ANALYTICS_LOGS_TABLE = os.environ["ANALYTICS_LOGS_TABLE"]
@@ -34,6 +35,7 @@ KNOWLEDGE_BASE_ID = os.environ["KNOWLEDGE_BASE_ID"]
 DATA_SOURCE_ID = os.environ["DATA_SOURCE_ID"]
 DOCUMENT_SYNC_QUEUE_URL = os.environ["DOCUMENT_SYNC_QUEUE_URL"]
 ALLOWED_ORIGIN = os.environ["ALLOWED_ORIGIN"]
+PERSONALITY_PARAMETER = os.environ["PERSONALITY_PARAMETER"]
 
 chat_table = ddb.Table(CHAT_LOGS_TABLE)
 analytics_table = ddb.Table(ANALYTICS_LOGS_TABLE)
@@ -44,6 +46,11 @@ MAX_FILE_SIZE_BYTES = 50_000_000
 MAX_UPLOAD_BATCH_FILES = 500
 UPLOAD_BATCH_TTL_SECONDS = 7 * 24 * 60 * 60
 UPLOAD_BATCH_ID_RE = re.compile(r"^[a-f0-9]{32}$")
+# The personality prompt lives in an SSM parameter. Intelligent-Tiering keeps it
+# standard (4 KB) and only moves it to advanced (8 KB) when non-ASCII text
+# pushes 4000 characters past 4 KB.
+MAX_PERSONALITY_CHARS = 4000
+MAX_PERSONALITY_BYTES = 8192
 
 # Extension and MIME type are validated together. This is a conservative subset
 # of the formats handled by the configured default Bedrock parser. Active SVG,
@@ -97,7 +104,7 @@ def respond(status_code: HttpStatus, body):
             "Access-Control-Allow-Origin": ALLOWED_ORIGIN,
             "Vary": "Origin",
             "Access-Control-Allow-Headers": "Content-Type,Authorization",
-            "Access-Control-Allow-Methods": "GET,POST,DELETE,OPTIONS",
+            "Access-Control-Allow-Methods": "GET,POST,PUT,DELETE,OPTIONS",
         },
         body=json.dumps(body, default=_json_default),
     ).model_dump(by_alias=True)
@@ -958,6 +965,48 @@ def complete_upload_batch(event):
     })
 
 
+def get_personality(_event):
+    """Return the admin personality prompt, or an empty one if none is saved."""
+    try:
+        prompt = ssm.get_parameter(Name=PERSONALITY_PARAMETER)["Parameter"]["Value"]
+    except ssm.exceptions.ParameterNotFound:
+        prompt = ""
+    return respond(HttpStatus.OK, {"prompt": prompt})
+
+
+def put_personality(event):
+    """Save the admin personality prompt; an empty prompt removes it."""
+    try:
+        body = json.loads(event.get("body") or "{}")
+    except json.JSONDecodeError:
+        return respond(HttpStatus.BAD_REQUEST, {"message": "Request body must be valid JSON"})
+    prompt = body.get("prompt") if isinstance(body, dict) else None
+    if not isinstance(prompt, str):
+        return respond(HttpStatus.BAD_REQUEST, {"message": "prompt must be a string"})
+
+    prompt = prompt.strip()
+    if len(prompt) > MAX_PERSONALITY_CHARS or len(prompt.encode("utf-8")) > MAX_PERSONALITY_BYTES:
+        return respond(
+            HttpStatus.BAD_REQUEST,
+            {"message": f"prompt must be at most {MAX_PERSONALITY_CHARS} characters"},
+        )
+
+    if prompt:
+        ssm.put_parameter(
+            Name=PERSONALITY_PARAMETER,
+            Value=prompt,
+            Type="String",
+            Tier="Intelligent-Tiering",
+            Overwrite=True,
+        )
+    else:
+        try:
+            ssm.delete_parameter(Name=PERSONALITY_PARAMETER)
+        except ssm.exceptions.ParameterNotFound:
+            pass
+    return respond(HttpStatus.OK, {"prompt": prompt})
+
+
 # ── Route map + entrypoint ───────────────────────────────────────────────────
 
 ROUTES = {
@@ -973,10 +1022,14 @@ ROUTES = {
         "/dashboard/session": get_session,
         "/dashboard/documents": get_documents,
         "/dashboard/documents/download": get_document_download_url,
+        "/dashboard/personality": get_personality,
     },
     "POST": {
         "/dashboard/documents/upload": create_upload_batch,
         "/dashboard/documents/upload/complete": complete_upload_batch,
+    },
+    "PUT": {
+        "/dashboard/personality": put_personality,
     },
     "DELETE": {
         "/dashboard/documents": delete_document,

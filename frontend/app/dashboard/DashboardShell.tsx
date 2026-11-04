@@ -4,7 +4,7 @@ import { useEffect, useState, useRef, useSyncExternalStore } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import { getValidIdToken, logout, getUser } from '@/lib/dashboard/auth';
 import { useSettings } from '@/lib/dashboard/settings-context';
-import { LayoutDashboard, FileText, User, LogOut, Settings } from 'lucide-react';
+import { LayoutDashboard, FileText, MessageSquareText, User, LogOut, Settings } from 'lucide-react';
 import { useLanguage } from '@/context/LanguageContext';
 import LanguageSwitcher from '@/components/LanguageSwitcher';
 
@@ -53,6 +53,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const navItems = [
     { label: t.dashboard.navOverview, href: '/dashboard', icon: LayoutDashboard },
     { label: t.dashboard.navDocuments, href: '/dashboard/documents', icon: FileText },
+    { label: t.dashboard.navPersonality, href: '/dashboard/personality', icon: MessageSquareText },
   ];
 
   const isActive = (href: string) => {

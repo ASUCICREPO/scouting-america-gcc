@@ -2,6 +2,7 @@ import * as cdk from 'aws-cdk-lib';
 import * as cloudwatch from 'aws-cdk-lib/aws-cloudwatch';
 import * as actions from 'aws-cdk-lib/aws-cloudwatch-actions';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
+import * as logs from 'aws-cdk-lib/aws-logs';
 import * as sns from 'aws-cdk-lib/aws-sns';
 import * as sqs from 'aws-cdk-lib/aws-sqs';
 import { Construct } from 'constructs';
@@ -14,6 +15,7 @@ export interface ObservabilityProps {
   documentQueue: sqs.IQueue;
   escalationQueue: sqs.IQueue;
   publicChatFunction: lambda.IFunction;
+  publicChatLogGroup: logs.ILogGroup;
   publicApiBlockedRequests: cloudwatch.IMetric;
 }
 
@@ -98,6 +100,30 @@ export class Observability extends Construct {
       treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
     });
     publicChatVolumeAlarm.addAlarmAction(new actions.SnsAction(props.alertTopic));
+
+    // The chat Lambda logs calendar_feed_error when the live event calendar
+    // cannot be read; answers then fall back to a cached copy or say the
+    // calendar is unavailable.
+    const calendarFeedErrors = new logs.MetricFilter(this, 'CalendarFeedErrorFilter', {
+      logGroup: props.publicChatLogGroup,
+      filterPattern: logs.FilterPattern.literal('"calendar_feed_error"'),
+      metricNamespace: 'GCC',
+      metricName: `${PREFIX}CalendarFeedErrors`,
+      metricValue: '1',
+    });
+    const calendarFeedAlarm = new cloudwatch.Alarm(this, 'CalendarFeedErrorAlarm', {
+      alarmName: `${PREFIX}GCC-CalendarFeed-Errors`,
+      alarmDescription: 'The chat Lambda repeatedly failed to read the live event calendar feed.',
+      metric: calendarFeedErrors.metric({
+        period: cdk.Duration.minutes(15),
+        statistic: 'Sum',
+      }),
+      threshold: 3,
+      evaluationPeriods: 1,
+      datapointsToAlarm: 1,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+    });
+    calendarFeedAlarm.addAlarmAction(new actions.SnsAction(props.alertTopic));
 
     this.dashboard = new cloudwatch.Dashboard(this, 'OperationsDashboard', {
       dashboardName: `${PREFIX}GCC-Operations`,
