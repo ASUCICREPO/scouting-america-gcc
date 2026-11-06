@@ -193,7 +193,7 @@ Configuration lives in `backend/lib/config/environment.ts`:
 - `CONFIDENCE_THRESHOLD`: current value `0.7`
 - `SAFETY_KEYWORDS`: current English and Spanish keyword list
 
-The handler checks the combined question and answer. Safety matches produce high-severity events; low confidence produces medium severity. SNS is used for both, while SES is attempted only for high-severity safety events.
+The handler checks the combined question and answer. Safety matches produce high-severity events; low confidence and guardrail blocks produce medium severity. Every escalation sends one formatted email (HTML with a plain-text fallback) through SES from and to `STAFF_EMAIL`, so that address must be verified in SES in the deployment Region. The SNS staff alert topic carries only CloudWatch alarms, because SNS email is plain text only.
 
 Before adding keywords, test false positives in both languages.
 

@@ -49,8 +49,8 @@ export class GrandCanyonCouncilChatbot extends cdk.Stack {
     // Escalation Router (alerts staff when safety/low-confidence detected)
     // ---------------------------------------------------------------
     const escalationRouter = new EscalationRouter(this, 'EscalationRouter', {
-      staffAlertTopic: sharedResources.staffAlertTopic,
       analyticsLogsTable: sharedResources.analyticsLogsTable,
+      dashboardUrl: `${frontendOrigin}/dashboard`,
     });
 
     // ---------------------------------------------------------------
