@@ -131,7 +131,7 @@ export default function OverviewPage() {
       `Total Sessions,${summary.totalSessions}`,
       `${t.dashboard.avgConfidence},${summary.avgConfidence}`,
       `Avg Session Length,${summary.avgSessionLength}`,
-      `Escalation Rate,${summary.escalationRate}%`,
+      `Email Alert Rate,${summary.escalationRate}%`,
       `${t.dashboard.escalations},${summary.totalEscalations}`,
       '',
       t.dashboard.topFaq,
