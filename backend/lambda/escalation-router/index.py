@@ -1,8 +1,9 @@
 """Escalation Router — consumes queued alerts when a conversation needs staff
 attention (safety keywords, low confidence, or a response guardrail action).
 
-Publishes an SNS alert (always), emails staff for HIGH-severity/safety cases,
-and tracks retry-safe delivery state in the AnalyticsLogs table.
+Emails staff a formatted summary through SES for every escalation (SNS email
+is plain text only, so the staff alert topic is kept for system alarms) and
+tracks retry-safe delivery state in the AnalyticsLogs table.
 """
 
 import html
@@ -15,11 +16,9 @@ from decimal import Decimal
 import boto3
 from botocore.exceptions import ClientError
 
-sns_client = boto3.client("sns")
 ses_client = boto3.client("ses")
 dynamodb = boto3.resource("dynamodb")
 
-SNS_TOPIC_ARN = os.environ["SNS_TOPIC_ARN"]
 STAFF_EMAIL = os.environ["STAFF_EMAIL"]
 ANALYTICS_TABLE = os.environ["ANALYTICS_TABLE"]
 # Admin dashboard link for the "Next steps" section; omitted when unset.
@@ -73,9 +72,8 @@ def process_escalation(event):
         f"sessionId={session_id} reason={reason} confidence={confidence}"
     )
 
-    # Severity: safety keywords = HIGH, low confidence = MEDIUM
-    is_high_severity = "safety keyword" in reason.lower()
-    severity = "HIGH" if is_high_severity else "MEDIUM"
+    # Severity: safety keywords = HIGH, low confidence or guardrail = MEDIUM
+    severity = "HIGH" if "safety keyword" in reason.lower() else "MEDIUM"
     record_timestamp = f"{timestamp}#{escalation_id}"
     alert = build_alert(
         question=question or "",
@@ -95,27 +93,17 @@ def process_escalation(event):
         reason,
         confidence,
         severity,
-        is_high_severity,
     )
     delivery = record.get("delivery") or {}
     if delivery.get("status") == "COMPLETED":
         print(f"Escalation already delivered: {escalation_id}")
         return
 
-    if not delivery.get("snsSent", False):
-        send_sns_alert(alert)
-        mark_channel_delivered(record_timestamp, "snsSent")
-
-    if is_high_severity and not delivery.get("sesSent", False):
+    if not delivery.get("sesSent", False):
         send_email_alert(alert)
         mark_channel_delivered(record_timestamp, "sesSent")
 
     mark_delivery_complete(record_timestamp)
-
-
-def send_sns_alert(alert: dict) -> None:
-    # SNS email only supports plain text.
-    sns_client.publish(TopicArn=SNS_TOPIC_ARN, Subject=alert["subject"], Message=alert["text"])
 
 
 def send_email_alert(alert: dict) -> None:
@@ -141,7 +129,6 @@ def get_or_create_delivery_record(
     reason,
     confidence,
     severity,
-    requires_ses,
 ):
     existing = analytics_table.get_item(
         Key={"eventType": "escalation", "timestamp": record_timestamp},
@@ -165,8 +152,7 @@ def get_or_create_delivery_record(
         },
         "delivery": {
             "status": "PENDING",
-            "snsSent": False,
-            "sesSent": not requires_ses,
+            "sesSent": False,
         },
         "createdAt": now,
         "updatedAt": now,
@@ -211,24 +197,21 @@ def mark_delivery_complete(record_timestamp: str) -> None:
 _KINDS = {
     "safety": {
         "subject": "Safety follow-up needed: a volunteer's question to GCC Compass",
+        "label": "Safety",
         "headline": "A volunteer raised a possible safety concern",
         "summary": "GCC Compass shared emergency contacts with the volunteer. Please review the conversation and follow up if needed.",
-        "priority": "High (safety)",
-        "color": "#b42318",
     },
     "guardrail": {
         "subject": "Review needed: GCC Compass blocked a response",
+        "label": "Blocked response",
         "headline": "GCC Compass blocked a response",
         "summary": "The content filter stopped the reply to this question. Please review it and follow up with the volunteer if needed.",
-        "priority": "Medium",
-        "color": "#b54708",
     },
     "low_confidence": {
         "subject": "Follow-up needed: GCC Compass couldn't fully answer a volunteer",
+        "label": "Needs follow-up",
         "headline": "GCC Compass couldn't fully answer a question",
         "summary": "The council documents didn't clearly cover this question. Please check the reply and follow up with the volunteer if needed.",
-        "priority": "Medium",
-        "color": "#b54708",
     },
 }
 
@@ -266,12 +249,12 @@ def _html_block(markdown: str) -> str:
     def inline(line: str) -> str:
         line = html.escape(line)
         line = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", line)
-        return re.sub(r"\[([^\]]+)\]\((https?://[^)\s]+)\)", r'<a href="\2" style="color:#0e5ea1">\1</a>', line)
+        return re.sub(r"\[([^\]]+)\]\((https?://[^)\s]+)\)", r'<a href="\2" style="color:#005696">\1</a>', line)
 
     def flush() -> None:
         if bullets:
             items = "".join(f'<li style="margin:4px 0">{item}</li>' for item in bullets)
-            parts.append(f'<ul style="margin:8px 0 12px;padding-left:20px">{items}</ul>')
+            parts.append(f'<ul style="margin:4px 0 12px;padding-left:20px">{items}</ul>')
             bullets.clear()
 
     for raw in markdown.splitlines():
@@ -287,12 +270,12 @@ def _html_block(markdown: str) -> str:
 
 
 def build_alert(*, question, answer, reason, confidence, language, timestamp, session_id) -> dict:
-    """Subject, plain-text body (SNS and SES fallback), and HTML body (SES)."""
-    kind = _KINDS[_alert_kind(reason)]
+    """Subject plus plain-text and HTML bodies for the staff email."""
+    kind_name = _alert_kind(reason)
+    kind = _KINDS[kind_name]
     received = _received_at(timestamp)
     language_name = "Spanish" if language == "es" else "English"
-    detail = reason if _alert_kind(reason) != "low_confidence" else f"Answer confidence {round(confidence * 100)}%"
-    reply = _plain(answer)
+    flagged = f"Answer confidence {round(confidence * 100)}%" if kind_name == "low_confidence" else reason
 
     steps = []
     if DASHBOARD_URL:
@@ -305,54 +288,45 @@ def build_alert(*, question, answer, reason, confidence, language, timestamp, se
         kind["summary"],
         "",
         f"Received: {received}",
-        f"Priority: {kind['priority']}",
-        f"Flagged because: {detail}",
+        f"Flagged because: {flagged}",
         f"Language: {language_name}",
         "",
-        "VOLUNTEER'S QUESTION",
+        "Question",
         question.strip(),
         "",
-        "GCC COMPASS REPLIED",
-        reply,
+        "Reply from GCC Compass",
+        _plain(answer),
         "",
-        "NEXT STEPS",
+        "Next steps",
         *[f"• {step}" for step in steps],
         "",
-        "—",
-        f"Automated message from GCC Compass. Conversation reference: {session_id}",
+        f"Conversation reference: {session_id}",
     ])
 
-    rows = "".join(
-        f'<tr><td style="padding:4px 16px 4px 0;color:#6c7380;white-space:nowrap">{label}</td>'
-        f'<td style="padding:4px 0;color:#202938">{html.escape(value)}</td></tr>'
-        for label, value in (
-            ("Received", received),
-            ("Priority", kind["priority"]),
-            ("Flagged because", detail),
-            ("Language", language_name),
-        )
-    )
+    muted = "color:#6c7380;font-size:13px"
+    label = "margin:20px 0 6px;color:#6c7380;font-size:12px;font-weight:600"
+    eyebrow_color = "#b42318" if kind_name == "safety" else "#6c7380"
     button = (
-        f'<p style="margin:20px 0 0"><a href="{html.escape(DASHBOARD_URL)}" '
+        f'<p style="margin:24px 0 0"><a href="{html.escape(DASHBOARD_URL)}" '
         'style="display:inline-block;background:#c6752c;color:#ffffff;text-decoration:none;'
-        'padding:10px 18px;border-radius:6px;font-weight:600">Open the admin dashboard</a></p>'
+        'padding:10px 16px;border-radius:8px;font-size:14px;font-weight:500">Open the admin dashboard</a></p>'
         if DASHBOARD_URL else ""
     )
-    html_body = f"""<!doctype html><html><body style="margin:0;padding:24px;background:#f4f5f7;font-family:-apple-system,Segoe UI,Helvetica,Arial,sans-serif;font-size:15px;line-height:1.55;color:#202938">
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:620px;margin:0 auto;background:#ffffff;border:1px solid #e3e6eb;border-radius:10px">
-<tr><td style="padding:18px 24px;border-bottom:1px solid #e3e6eb;font-weight:600;color:#003f87">GCC Compass</td></tr>
-<tr><td style="padding:24px">
-<p style="margin:0 0 6px"><span style="display:inline-block;padding:2px 10px;border-radius:100px;background:{kind['color']};color:#ffffff;font-size:12px;font-weight:600">{html.escape(kind['priority'])}</span></p>
-<h1 style="margin:8px 0 8px;font-size:20px;line-height:1.3">{html.escape(kind['headline'])}</h1>
-<p style="margin:0 0 18px;color:#4b5563">{html.escape(kind['summary'])}</p>
-<table role="presentation" cellpadding="0" cellspacing="0" style="font-size:14px;margin:0 0 20px">{rows}</table>
-<p style="margin:0 0 6px;font-size:12px;font-weight:600;letter-spacing:.04em;color:#6c7380">VOLUNTEER'S QUESTION</p>
-<div style="margin:0 0 20px;padding:12px 14px;background:#f6f7f9;border-left:3px solid #003f87;border-radius:4px">{html.escape(question.strip())}</div>
-<p style="margin:0 0 6px;font-size:12px;font-weight:600;letter-spacing:.04em;color:#6c7380">GCC COMPASS REPLIED</p>
-<div style="margin:0;padding:12px 14px;background:#f6f7f9;border-left:3px solid #c9ced6;border-radius:4px">{_html_block(answer)}</div>
+    html_body = f"""<!doctype html><html><body style="margin:0;padding:24px 12px;background:#f4f4f4;font-family:Inter,-apple-system,'Segoe UI',Helvetica,Arial,sans-serif;font-size:14px;line-height:1.6;color:#202938">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;margin:0 auto">
+<tr><td style="padding:0 4px 12px;font-size:14px;font-weight:600;color:#0d1526">GCC Compass</td></tr>
+<tr><td style="background:#ffffff;border:1px solid #e3e6eb;border-radius:12px;padding:24px">
+<p style="margin:0 0 4px;font-size:12px;font-weight:600;color:{eyebrow_color}">{html.escape(kind['label'])}</p>
+<p style="margin:0 0 6px;font-size:18px;font-weight:600;line-height:1.35">{html.escape(kind['headline'])}</p>
+<p style="margin:0;color:#4b5563">{html.escape(kind['summary'])}</p>
+<p style="margin:16px 0 0;{muted}">{html.escape(received)} · {language_name}<br>Flagged because: {html.escape(flagged)}</p>
+<p style="{label}">Question</p>
+<div style="padding:12px 14px;background:#f6f7f9;border-radius:8px">{html.escape(question.strip())}</div>
+<p style="{label}">Reply from GCC Compass</p>
+<div>{_html_block(answer)}</div>
 {button}
 </td></tr>
-<tr><td style="padding:14px 24px;border-top:1px solid #e3e6eb;font-size:12px;color:#6c7380">Automated message from GCC Compass. Conversation reference: {html.escape(session_id)}</td></tr>
+<tr><td style="padding:12px 4px 0;{muted}">Conversation reference: {html.escape(session_id)}</td></tr>
 </table></body></html>"""
 
     return {"subject": kind["subject"], "text": text, "html": html_body}

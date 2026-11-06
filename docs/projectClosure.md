@@ -35,7 +35,7 @@ Grand Canyon Council supports thousands of Scouting volunteers, families, and st
 
 The project delivered GCC Chat, a responsive bilingual English/Spanish web application grounded in approved GCC and Scouting America content. The public experience lets users ask questions, review structured answers and sources, use voice features, rate responses, and return to saved sessions. The protected admin dashboard gives GCC staff usage and quality metrics, rated-conversation review, and document ingestion management.
 
-The solution runs as serverless AWS infrastructure defined in CDK. A static Next.js application is delivered through CloudFront; API Gateway and Python Lambda handlers serve chat and admin requests; Amazon Bedrock provides retrieval-augmented generation; S3 Vectors stores embeddings; S3 and DynamoDB persist content and operational data; Cognito protects admin workflows; and SNS/SES route escalation notifications.
+The solution runs as serverless AWS infrastructure defined in CDK. A static Next.js application is delivered through CloudFront; API Gateway and Python Lambda handlers serve chat and admin requests; Amazon Bedrock provides retrieval-augmented generation; S3 Vectors stores embeddings; S3 and DynamoDB persist content and operational data; Cognito protects admin workflows; and SES sends escalation emails while SNS carries operational alarms.
 
 The delivered pilot reduces the time required to locate council information, gives administrators evidence about common questions and answer quality, and establishes a maintainable document-to-knowledge-base pipeline. It remains an informational assistant, not a replacement for official policy, required training, professional judgment, or emergency and safeguarding channels.
 
@@ -97,7 +97,7 @@ A useful solution needed to:
 - Browser-local session list and server-side history retrieval
 - Per-response positive/negative feedback
 - Confidence calculation from Bedrock retrieval scores
-- Safety-keyword and low-confidence escalation through SNS/SES
+- Safety-keyword and low-confidence escalation emails through SES
 - Cognito-protected dashboard and admin-group authorization
 - Usage, feedback, confidence, FAQ, and escalation metrics
 - Full-session review for rated responses

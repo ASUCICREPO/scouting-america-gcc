@@ -76,7 +76,7 @@ Bulk deletion removes both raw uploads and their knowledge-base copies, then sen
 | Dashboard API | `DashboardApi` CDK construct | Cognito-protected analytics and document routes; 50 requests/second with burst 100 |
 | Dashboard handler | `GCC-AdminDashboard` Lambda | Metrics aggregation, session review, and presigned document operations |
 | Document processor | Standard + FIFO SQS-triggered Python Lambda | Bounded validation/copy workers, quarantine, serialized Bedrock ingestion, and processing analytics |
-| Escalation router | `GCC-EscalationRouter` Lambda with SQS DLQ | SNS notification, high-severity SES email, and escalation analytics |
+| Escalation router | `GCC-EscalationRouter` Lambda with SQS DLQ | Formatted staff email through SES for every escalation, and escalation analytics |
 | Chat archive | DynamoDB Stream Lambda + object-locked S3 | Append-only audit copy for retention and future Athena/Glue use |
 | Observability | CloudWatch dashboard and alarms | Lambda health, ingestion backlog, and all application DLQs |
 | Knowledge Base | Amazon Bedrock Knowledge Base | Retrieval-augmented generation over approved documents |

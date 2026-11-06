@@ -15,7 +15,7 @@ See the [Architecture Deep Dive](./docs/architectureDeepDive.md) for component, 
 - Public retrieval-augmented chat grounded in one consistent set of GCC and Scouting America source chunks
 - English and Spanish interface and response generation
 - Markdown answers, citations, voice input, text-to-speech, feedback, and browser-local chat history
-- Safety-keyword and low-confidence escalation through SNS and SES
+- Safety-keyword and low-confidence escalation emails to staff through SES
 - Cognito-protected admin dashboard with usage, feedback, confidence, and escalation metrics
 - Size-enforced, bounded-parallel folder upload with server-side content validation, quarantining, serialized ingestion, safe download, and bulk deletion
 - Object-locked chat audit archive plus CloudWatch DLQ alarms and operations dashboard

@@ -131,7 +131,7 @@ class EscalationRouterTests(unittest.TestCase):
         result = self.module.handler(self.sqs_event(self.payload()), None)
 
         self.assertEqual(result["statusCode"], 200)
-        self.assertEqual(len(self.sns.requests), 1)
+        self.assertEqual(self.sns.requests, [])
         self.assertEqual(len(self.ses.requests), 1)
         self.assertEqual(self.table.items[0]["sessionId"], "session-1")
         self.assertEqual(self.table.items[0]["occurredAt"], self.payload()["timestamp"])
@@ -139,32 +139,20 @@ class EscalationRouterTests(unittest.TestCase):
         self.assertEqual(self.table.items[0]["metadata"]["severity"], "HIGH")
         self.assertEqual(self.table.items[0]["delivery"]["status"], "COMPLETED")
 
-    def test_sns_failure_propagates_for_sqs_retry(self):
-        self.sns.error = RuntimeError("SNS unavailable")
-
-        with self.assertRaisesRegex(RuntimeError, "SNS unavailable"):
-            self.module.handler(self.sqs_event(self.payload()), None)
-
-        self.assertEqual(self.ses.requests, [])
-        self.assertEqual(self.table.items[0]["delivery"]["status"], "PENDING")
-        self.assertFalse(self.table.items[0]["delivery"]["snsSent"])
-
-    def test_retry_resumes_after_sns_when_ses_failed(self):
+    def test_ses_failure_propagates_for_sqs_retry(self):
         event = self.sqs_event(self.payload())
         self.ses.error = RuntimeError("SES unavailable")
 
         with self.assertRaisesRegex(RuntimeError, "SES unavailable"):
             self.module.handler(event, None)
 
-        self.assertEqual(len(self.sns.requests), 1)
-        self.assertTrue(self.table.items[0]["delivery"]["snsSent"])
+        self.assertEqual(self.table.items[0]["delivery"]["status"], "PENDING")
         self.assertFalse(self.table.items[0]["delivery"]["sesSent"])
 
         self.ses.error = None
         self.module.handler(event, None)
 
-        self.assertEqual(len(self.sns.requests), 1)
-        self.assertEqual(len(self.ses.requests), 1)
+        self.assertTrue(self.table.items[0]["delivery"]["sesSent"])
         self.assertEqual(self.table.items[0]["delivery"]["status"], "COMPLETED")
 
     def test_completed_duplicate_does_not_send_notifications_again(self):
@@ -173,19 +161,17 @@ class EscalationRouterTests(unittest.TestCase):
         self.module.handler(event, None)
         self.module.handler(event, None)
 
-        self.assertEqual(len(self.sns.requests), 1)
         self.assertEqual(len(self.ses.requests), 1)
 
-    def test_medium_severity_uses_sns_without_direct_ses_email(self):
+    def test_medium_severity_also_sends_the_staff_email(self):
         payload = self.payload()
         payload["reason"] = "Low confidence: 0.42"
 
         self.module.handler(self.sqs_event(payload), None)
 
-        self.assertEqual(len(self.sns.requests), 1)
-        self.assertEqual(self.ses.requests, [])
+        self.assertEqual(self.sns.requests, [])
+        self.assertEqual(len(self.ses.requests), 1)
         self.assertEqual(self.table.items[0]["metadata"]["severity"], "MEDIUM")
-        self.assertTrue(self.table.items[0]["delivery"]["sesSent"])
         self.assertEqual(self.table.items[0]["delivery"]["status"], "COMPLETED")
 
     def test_invalid_queue_payload_raises_for_redrive(self):
