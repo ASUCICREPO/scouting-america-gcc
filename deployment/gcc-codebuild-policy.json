@@ -196,6 +196,7 @@
         "logs:DeleteLogGroup",
         "logs:DescribeLogGroups",
         "logs:DescribeLogStreams",
+        "logs:*MetricFilter*",
         "logs:GetLogEvents",
         "logs:ListTagsForResource",
         "logs:PutLogEvents",
