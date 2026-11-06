@@ -196,8 +196,10 @@ export class SharedResources extends Construct {
       topicName: CONFIG.STAFF_ALERT_TOPIC,
       displayName: 'GCC Staff Alerts - Escalation Notifications',
     });
-    this.staffAlertTopic.addSubscription(
-      new subscriptions.EmailSubscription(CONFIG.STAFF_EMAIL),
-    );
+    if (CONFIG.STAFF_EMAIL) {
+      this.staffAlertTopic.addSubscription(
+        new subscriptions.EmailSubscription(CONFIG.STAFF_EMAIL),
+      );
+    }
   }
 }

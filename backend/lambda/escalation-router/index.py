@@ -19,7 +19,8 @@ from botocore.exceptions import ClientError
 ses_client = boto3.client("ses")
 dynamodb = boto3.resource("dynamodb")
 
-STAFF_EMAIL = os.environ["STAFF_EMAIL"]
+# Empty when the deployment did not set a staff alert email.
+STAFF_EMAIL = os.environ.get("STAFF_EMAIL", "").strip()
 ANALYTICS_TABLE = os.environ["ANALYTICS_TABLE"]
 # Admin dashboard link for the "Next steps" section; omitted when unset.
 DASHBOARD_URL = os.environ.get("DASHBOARD_URL", "")
@@ -107,6 +108,9 @@ def process_escalation(event):
 
 
 def send_email_alert(alert: dict) -> None:
+    if not STAFF_EMAIL:
+        print("No staff alert email is configured; skipping the alert email")
+        return
     ses_client.send_email(
         Source=STAFF_EMAIL,  # must be verified in SES
         Destination={"ToAddresses": [STAFF_EMAIL]},

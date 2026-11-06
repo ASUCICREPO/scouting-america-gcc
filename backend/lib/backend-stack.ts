@@ -15,6 +15,7 @@ import { PythonDependencies } from './constructs/python-dependencies';
 import { ChatArchive } from './constructs/chat-archive';
 import { Observability } from './constructs/observability';
 import { PublicApiProtection } from './constructs/public-api-protection';
+import { CONFIG } from './config/environment';
 
 export class GrandCanyonCouncilChatbot extends cdk.Stack {
   constructor(scope: Construct, id: string, props?: cdk.StackProps) {
@@ -153,6 +154,13 @@ export class GrandCanyonCouncilChatbot extends cdk.Stack {
     // ---------------------------------------------------------------
     // Stack Outputs
     // ---------------------------------------------------------------
+    if (CONFIG.STAFF_EMAIL) {
+      new cdk.CfnOutput(this, 'StaffAlertEmail', {
+        value: CONFIG.STAFF_EMAIL,
+        description: 'Staff inbox for alert emails and system alarms',
+      });
+    }
+
     new cdk.CfnOutput(this, 'ChatApiUrl', {
       value: apiGateway.api.url,
       description: 'Public chat API URL (POST /chat, GET /chat/history/{sessionId})',

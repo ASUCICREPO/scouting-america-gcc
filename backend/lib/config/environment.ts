@@ -37,7 +37,12 @@ export const CONFIG = {
 
   // SNS/SES
   STAFF_ALERT_TOPIC: `${PREFIX}gcc-staff-alerts`,
-  STAFF_EMAIL: 'staff@grandcanyonbsa.org',
+  // Staff inbox for volunteer alert emails and system alarms. deploy.sh asks
+  // for it and passes it as STAFF_ALERT_EMAIL; when unset, no alarm
+  // subscription is created and alert emails are skipped.
+  get STAFF_EMAIL(): string {
+    return (process.env.STAFF_ALERT_EMAIL ?? '').trim();
+  },
 
   // Bedrock
   MODEL_ID: 'us.anthropic.claude-haiku-4-5-20251001-v1:0',
