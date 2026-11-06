@@ -230,7 +230,8 @@ def _received_at(timestamp: str) -> str:
         moment = datetime.fromisoformat(timestamp.replace("Z", "+00:00")).astimezone(COUNCIL_TIMEZONE)
     except ValueError:
         return timestamp
-    return f"{moment:%A}, {moment:%B} {moment.day}, {moment.year} at {moment:%I:%M %p}".replace(" 0", " ") + " (Arizona time)"
+    hour = moment.hour % 12 or 12
+    return f"{moment:%A}, {moment:%B} {moment.day}, {moment.year} at {hour}:{moment:%M %p} (Arizona time)"
 
 
 def _plain(markdown: str) -> str:
