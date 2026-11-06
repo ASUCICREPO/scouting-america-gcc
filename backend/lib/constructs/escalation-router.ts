@@ -15,6 +15,8 @@ export interface EscalationRouterProps {
   staffAlertTopic: sns.ITopic;
   // DynamoDB table to log escalation events
   analyticsLogsTable: dynamodb.ITable;
+  // Admin dashboard URL linked from alert emails
+  dashboardUrl: string;
 }
 
 export class EscalationRouter extends Construct {
@@ -55,6 +57,7 @@ export class EscalationRouter extends Construct {
         SNS_TOPIC_ARN: props.staffAlertTopic.topicArn,
         STAFF_EMAIL: CONFIG.STAFF_EMAIL,
         ANALYTICS_TABLE: props.analyticsLogsTable.tableName,
+        DASHBOARD_URL: props.dashboardUrl,
       },
       // Escalation alerts reference the volunteer's question/answer, so bound
       // how long those logs are retained.

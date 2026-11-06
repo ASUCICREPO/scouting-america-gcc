@@ -51,6 +51,7 @@ export class GrandCanyonCouncilChatbot extends cdk.Stack {
     const escalationRouter = new EscalationRouter(this, 'EscalationRouter', {
       staffAlertTopic: sharedResources.staffAlertTopic,
       analyticsLogsTable: sharedResources.analyticsLogsTable,
+      dashboardUrl: `${frontendOrigin}/dashboard`,
     });
 
     // ---------------------------------------------------------------
