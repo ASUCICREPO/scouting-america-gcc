@@ -11,7 +11,7 @@
 #   ./deploy.sh [--region us-west-2] [--profile gcc-sandbox] [--prefix demo]
 #               [--stack-name GrandCanyonCouncilChatbot]
 #               [--admin-email you@example.org] [--admin-password 'Pass@123']
-#               [--skip-admin] [--yes]
+#               [--staff-email alerts@example.org] [--skip-admin] [--yes]
 #
 # Prerequisites: AWS CLI v2, Bash, Git, jq, and either AdministratorAccess or
 # the scoped policy in deployment/gcc-deployer-policy.json.
@@ -26,6 +26,7 @@ PROFILE=""
 RESOURCE_PREFIX="${RESOURCE_PREFIX:-}"
 ADMIN_EMAIL=""
 ADMIN_PASSWORD="${GCC_ADMIN_PASSWORD:-}"
+STAFF_EMAIL="${GCC_STAFF_EMAIL:-}"
 SKIP_ADMIN="false"
 ASSUME_YES="false"
 
@@ -70,6 +71,8 @@ while [[ $# -gt 0 ]]; do
       require_value "$1" "${2:-}"; ADMIN_EMAIL="$2"; shift 2;;
     --admin-password)
       require_value "$1" "${2:-}"; ADMIN_PASSWORD="$2"; shift 2;;
+    --staff-email)
+      require_value "$1" "${2:-}"; STAFF_EMAIL="$2"; shift 2;;
     --skip-admin)
       SKIP_ADMIN="true"; shift;;
     -y|--yes)
@@ -175,6 +178,25 @@ if [[ "$SKIP_ADMIN" != "true" ]]; then
   fi
   [[ ${#ADMIN_PASSWORD} -ge 8 ]] || die "The administrator password must be at least eight characters"
 fi
+
+# Staff inbox for volunteer alert emails and system alarms. Updates default to
+# the address the existing stack already uses.
+if [[ -z "$STAFF_EMAIL" ]]; then
+  CURRENT_STAFF_EMAIL="$(aws_cli cloudformation describe-stacks \
+    --stack-name "${REQUESTED_STACK_NAME:-$GCC_CURRENT_STACK_NAME}" \
+    --query "Stacks[0].Outputs[?OutputKey=='StaffAlertEmail'].OutputValue | [0]" \
+    --output text 2>/dev/null || true)"
+  [[ "$CURRENT_STAFF_EMAIL" == "None" ]] && CURRENT_STAFF_EMAIL=""
+  DEFAULT_STAFF_EMAIL="${CURRENT_STAFF_EMAIL:-$ADMIN_EMAIL}"
+  if [[ -t 0 ]]; then
+    read -r -p "Staff alert email (receives volunteer alerts and system alarms)${DEFAULT_STAFF_EMAIL:+ [$DEFAULT_STAFF_EMAIL]}: " STAFF_EMAIL
+    STAFF_EMAIL="${STAFF_EMAIL:-$DEFAULT_STAFF_EMAIL}"
+  else
+    STAFF_EMAIL="$CURRENT_STAFF_EMAIL"
+  fi
+fi
+[[ "$STAFF_EMAIL" =~ ^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$ ]] \
+  || die "Enter a valid staff alert email, or use --staff-email for a non-interactive deployment"
 
 TEMP_DIR="$(mktemp -d)"
 SOURCE_ARCHIVE="$TEMP_DIR/gcc-source.zip"
@@ -336,6 +358,7 @@ PROJECT_JSON="$(cat <<JSON
       { "name": "CDK_DEFAULT_REGION", "value": "${REGION}", "type": "PLAINTEXT" },
       { "name": "CDK_DEFAULT_ACCOUNT", "value": "${ACCOUNT_ID}", "type": "PLAINTEXT" },
       { "name": "RESOURCE_PREFIX", "value": "${RESOURCE_PREFIX}", "type": "PLAINTEXT" },
+      { "name": "STAFF_ALERT_EMAIL", "value": "${STAFF_EMAIL}", "type": "PLAINTEXT" },
       { "name": "REQUESTED_STACK_NAME", "value": "${REQUESTED_STACK_NAME}", "type": "PLAINTEXT" },
       { "name": "DEPLOYMENT_POLICY_ARN", "value": "${DEPLOYMENT_POLICY_ARN}", "type": "PLAINTEXT" }
     ]
@@ -480,3 +503,6 @@ echo "Cognito client:       $CLIENT_ID"
 echo "Document bucket:      $DOCUMENT_BUCKET"
 echo "Knowledge-base data:  $KB_BUCKET"
 echo "Operations dashboard: $OPERATIONS_DASHBOARD"
+echo "Staff alert email:    $STAFF_EMAIL"
+echo
+warn "AWS sent two emails to $STAFF_EMAIL. Open both and click their links (SNS \"Confirm subscription\" and SES \"Email Address Verification Request\"), or alerts will not be delivered."

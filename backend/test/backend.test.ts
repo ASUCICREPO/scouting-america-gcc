@@ -10,6 +10,7 @@ let template: Template;
 
 beforeAll(() => {
   process.env.CDK_TEST_SKIP_PYTHON_BUNDLING = 'true';
+  process.env.STAFF_ALERT_EMAIL = 'staff@example.org';
   const app = new cdk.App();
   const stack = new GrandCanyonCouncilChatbot(app, 'TestStack', {
     env: { account: '123456789012', region: 'us-east-1' },
@@ -344,8 +345,9 @@ describe('Failure observability', () => {
   test('subscribes the configured staff mailbox to alerts', () => {
     template.hasResourceProperties('AWS::SNS::Subscription', {
       Protocol: 'email',
-      Endpoint: 'staff@grandcanyonbsa.org',
+      Endpoint: 'staff@example.org',
     });
+    template.hasOutput('StaffAlertEmail', { Value: 'staff@example.org' });
   });
 
   test('delivers chat escalations through an encrypted SQS queue with a DLQ', () => {

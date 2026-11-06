@@ -140,6 +140,7 @@ Optional flags:
 --stack-name GrandCanyonCouncilChatbot|ScoutingAmericaChatbot
 --admin-email EMAIL
 --admin-password PASSWORD
+--staff-email EMAIL
 --skip-admin
 --yes
 ```
@@ -163,6 +164,12 @@ Normally, omit `--stack-name`; it exists for the ambiguous case where both suppo
 ```
 
 The script prompts privately for the password, creates the user if necessary, sets a permanent password, and adds the user to the CDK-created `admin` group. For approved non-interactive use, set `GCC_ADMIN_PASSWORD` temporarily and unset it immediately afterward. Avoid `--admin-password` in interactive shells because it exposes the value in shell history.
+
+### Set The Staff Alert Email
+
+`deploy.sh` asks for the staff alert email, the inbox that receives volunteer alert emails (safety concerns, unanswered questions, blocked replies) and system alarms. A new deployment suggests the admin email; an update suggests the address the stack already uses, read from the `StaffAlertEmail` stack output. Use `--staff-email` or `GCC_STAFF_EMAIL` for non-interactive runs.
+
+The deployment subscribes the address to the SNS alarm topic and asks SES to verify it, so AWS sends it two emails: "AWS Notification - Subscription Confirmation" and "Email Address Verification Request". Click the link in both, or alerts are not delivered. Changing the address in a later deployment sends both emails to the new address.
 
 ### Add Knowledge-Base Documents
 

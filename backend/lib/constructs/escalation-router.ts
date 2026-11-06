@@ -5,6 +5,7 @@ import * as sqs from 'aws-cdk-lib/aws-sqs';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as logs from 'aws-cdk-lib/aws-logs';
 import * as sources from 'aws-cdk-lib/aws-lambda-event-sources';
+import * as cr from 'aws-cdk-lib/custom-resources';
 import { Construct } from 'constructs';
 import { CONFIG, PREFIX } from '../config/environment';
 import * as path from 'path';
@@ -76,5 +77,28 @@ export class EscalationRouter extends Construct {
       actions: ['ses:SendEmail', 'ses:SendRawEmail'],
       resources: ['*'], // SES needs * for sending, email identity verified separately
     }));
+
+    // Ask SES to verify the staff inbox so alert emails can be sent from and to
+    // it. SES emails a verification link; re-running for a verified address is
+    // harmless. Deleting the stack leaves the identity in place.
+    if (CONFIG.STAFF_EMAIL) {
+      const verifyStaffEmail: cr.AwsSdkCall = {
+        service: 'SES',
+        action: 'VerifyEmailIdentity',
+        parameters: { EmailAddress: CONFIG.STAFF_EMAIL },
+        physicalResourceId: cr.PhysicalResourceId.of(`ses-identity-${CONFIG.STAFF_EMAIL}`),
+      };
+      new cr.AwsCustomResource(this, 'VerifyStaffEmail', {
+        onCreate: verifyStaffEmail,
+        onUpdate: verifyStaffEmail,
+        policy: cr.AwsCustomResourcePolicy.fromStatements([
+          new iam.PolicyStatement({
+            actions: ['ses:VerifyEmailIdentity'],
+            resources: ['*'],
+          }),
+        ]),
+        installLatestAwsSdk: false,
+      });
+    }
   }
 }
